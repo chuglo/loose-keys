@@ -1,0 +1,58 @@
+[package]
+name = "loose-keys"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "Shows what sign-in material is on your Mac and what an infostealer could take."
+publish = false
+
+# The scanner is a library: the `loose-keys` command (src/main.rs) and the
+# app's engine (gui/) both use it.
+[lib]
+name = "loose_keys"
+path = "src/lib.rs"
+
+[[bin]]
+name = "loose-keys"
+path = "src/main.rs"
+
+# One lock file and one target folder for the command and the app's engine.
+[workspace]
+members = ["gui"]
+default-members = [".", "gui"]
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Harness only; remote/file schema resolution and unrelated ZIP codecs are disabled.
+jsonschema = { version = "=0.33.0", default-features = false }
+zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[[test]]
+name = "security_harness"
+path = "security-tests/harness.rs"
+harness = false
+
+# Additional denied lints; Clippy also runs with warnings as errors.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+mem_forget = "deny"
+
+[profile.release]
+strip = true
+lto = "thin"
+# Panics unwind, so one in an engine command is caught at the C interface and
+# reported as that command's error. The background agent still ends on any panic.
+
+# The engine is linked into the app, so it is built for size.
+[profile.release.package.loose-keys-gui]
+opt-level = "s"

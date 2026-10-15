@@ -1,0 +1,13 @@
+# Generated fixtures contain synthetic secrets; never commit them.
+credhyg-*/
+/target
+
+# Local settings and generated packaging files.
+.DS_Store
+__pycache__/
+/.claude/settings.local.json
+/pkgroot/
+/components.plist
+/*.pkg
+
+.claude/worktrees

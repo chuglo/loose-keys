@@ -1,0 +1,31 @@
+[package]
+name = "loose-keys-gui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "The Loose Keys app's engine: scans, review state and background checks."
+publish = false
+
+# The desktop app's engine: a static library the native front end links.
+# Listing "rlib" as well would make Cargo leave `lto` off.
+[lib]
+name = "loose_keys_gui"
+crate-type = ["staticlib"]
+
+[dependencies]
+loose-keys = { path = ".." }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Additional denied lints; Clippy also runs with warnings as errors.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+mem_forget = "deny"
+

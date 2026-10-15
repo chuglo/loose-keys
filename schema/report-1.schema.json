@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/loose-keys/report-1.schema.json",
+  "title": "loose-keys report, version 1",
+  "description": "Never contains secret values, fragments, hashes or fingerprints of secrets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "tool_version", "generated_at", "status", "context", "findings", "not_checked"],
+  "properties": {
+    "schema": {"const": "loose-keys/report/1"},
+    "tool_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "status": {"enum": ["complete", "partial"],
+               "description": "'partial' if anything in scope could not be checked. Says nothing about findings."},
+    "context": {"enum": ["user", "system"]},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roots", "excluded_directories", "limitations"],
+      "properties": {
+        "roots": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/path"}},
+        "excluded_directories": {"type": "array", "items": {"$ref": "#/$defs/text"}},
+        "excluded_by_user": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/path"},
+                             "description": "Folders the person asked not to be checked."},
+        "limitations": {"$ref": "#/$defs/text"}
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "category", "kind", "title", "explanation", "path"],
+        "properties": {
+          "rule": {"type": "string", "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$"},
+          "category": {"enum": ["password-export", "developer-cloud", "private-key", "wallet", "browser",
+                                "keychain", "unexpected-copy", "app-session"]},
+          "kind": {"enum": ["inventory", "review"]},
+          "severity": {"enum": ["high", "medium", "low"],
+                       "description": "How usable the material is if copied. 'high': works from any computer until revoked."},
+          "title": {"$ref": "#/$defs/text"},
+          "explanation": {"$ref": "#/$defs/text"},
+          "reason": {"$ref": "#/$defs/text"},
+          "next_step": {"$ref": "#/$defs/text"},
+          "token_type": {"type": "string", "pattern": "^[A-Za-z][A-Za-z -]{2,60}$",
+                         "description": "The kind of service token, from the scanner's fixed list. Never read from the file."},
+          "steps": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"$ref": "#/$defs/text"},
+                    "description": "Ordered steps that remove the exposure. Fixed scanner text."},
+          "link": {"type": "string", "pattern": "^https://[!-~]+$", "maxLength": 200,
+                   "description": "Where the issuer revokes or replaces the credential. Fixed scanner text."},
+          "path": {"$ref": "#/$defs/path"},
+          "line": {"type": "integer", "minimum": 1}
+        },
+        "if": {"properties": {"kind": {"const": "review"}}},
+        "then": {"required": ["reason"]}
+      }
+    },
+    "not_checked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": {"$ref": "#/$defs/path"},
+          "reason": {"enum": ["permission-denied", "cloud-only-file", "too-large", "unreadable", "scan-limit", "symlink"]}
+        }
+      }
+    }
+  },
+  "if": {"properties": {"not_checked": {"minItems": 1}}},
+  "then": {"properties": {"status": {"const": "partial"}}},
+  "else": {"properties": {"status": {"const": "complete"}}},
+  "$defs": {
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(~(/[\\s\\S]*)?|/[\\s\\S]*)$",
+             "description": "'~/...' under the user's home (no username), absolute otherwise."},
+    "text": {"type": "string", "minLength": 1, "maxLength": 2000}
+  }
+}
