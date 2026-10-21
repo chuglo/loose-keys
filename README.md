@@ -25,7 +25,7 @@ click **Open Anyway** beside the message about Loose Keys, and confirm:
 ![Privacy & Security: “Loose Keys” was blocked to protect your Mac, with an Open Anyway button](docs/images/open-anyway.png)
 
 Press **Enable Background Checks** to have it keep watching after you close
-the window, or **Scan** to check once.
+the window, or **Scan Now** to check once.
 
 ## Building the app
 

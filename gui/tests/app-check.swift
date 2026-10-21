@@ -110,7 +110,7 @@ do {
     print("PASS: built bundle launched and window is accessible")
     try wait("home ready for scan") {
         windowElements().contains { attribute($0, kAXRoleAttribute) as? String == kAXButtonRole &&
-            texts($0).contains("Scan") && attribute($0, kAXEnabledAttribute) as? Bool == true }
+            texts($0).contains("Scan Now") && attribute($0, kAXEnabledAttribute) as? Bool == true }
     }
     try wait("Scan Now menu item") { menuItem("Scan Now") != nil }
     try press(menuItem("Scan Now"), "Scan Now")

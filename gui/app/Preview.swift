@@ -419,6 +419,11 @@ enum Checks {
         everything(in: root).first { role($0) == kAXButtonRole && names($0).contains(name) }
     }
 
+    /// A toolbar button, where the page may have a button of the same name.
+    private static func toolbarButton(_ name: String) -> AXUIElement? {
+        everything().first { role($0) == kAXToolbarRole }.flatMap { button(name, in: $0) }
+    }
+
     /// Links the window opened, recorded instead of opened.
     private static var opened: [URL] = []
 
@@ -517,7 +522,14 @@ enum Checks {
         model.pane = .overview
         model.sidebarAsked = false
         let welcomed = await eventually { written().contains("Find Passwords and Keys Left in Files") }
-        func enabled(_ name: String) -> Bool { button(name).flatMap { value($0, kAXEnabledAttribute) as? Bool } == true }
+        // The page's own buttons: the toolbar has a Scan Now too.
+        let toolbarParts = everything().first { role($0) == kAXToolbarRole }.map { everything(in: $0) } ?? []
+        func enabled(_ name: String) -> Bool {
+            let onPage = everything().first { element in
+                role(element) == kAXButtonRole && names(element).contains(name) && !toolbarParts.contains { CFEqual($0, element) }
+            }
+            return onPage.flatMap { value($0, kAXEnabledAttribute) as? Bool } == true
+        }
         expect(welcomed && enabled("Enable Background Checks") && enabled("Scan Now") && sidebarRows().isEmpty,
                "with nothing to list, the first page asks one question and hides the sidebar")
         // Only the folder already added is listed below it, so that it can be removed.
@@ -634,9 +646,9 @@ enum Checks {
         await open(.overview)
         #endif
 
-        await press(button("Scan"), "pressing Scan")
+        await press(toolbarButton("Scan Now"), "pressing Scan Now")
         for _ in 0..<100 where model.phase != .done { await settle() }
-        expect(model.phase == .done && model.results != nil, "pressing Scan runs a scan and shows its results")
+        expect(model.phase == .done && model.results != nil, "pressing Scan Now runs a scan and shows its results")
         await open(.overview)
         let roots = model.results?.roots.joined(separator: ", ") ?? ""
         expect(!roots.isEmpty && written().contains("Included: \(roots)."), "the Overview says which places the last scan included")
@@ -1045,7 +1057,7 @@ enum Checks {
         // A scan that could not check everything and found nothing is not
         // "nothing to review" with a tick: the page says what it did not check.
         SampleEngine.nothingFound = true
-        await press(button("Scan"), "pressing Scan with nothing to find")
+        await press(toolbarButton("Scan Now"), "pressing Scan Now with nothing to find")
         for _ in 0..<50 where model.results?.review != 0 || model.phase == .scanning { await settle() }
         await open(.review)
         let bare = written()
@@ -1053,7 +1065,7 @@ enum Checks {
                && !bare.contains("Nothing to Review") && bare.contains("Nothing Found in What Was Checked"),
                "a scan that could not check everything and found nothing says so, and does not say there is nothing to review")
         SampleEngine.nothingFound = false
-        await press(button("Scan"), "pressing Scan to bring the sample findings back")
+        await press(toolbarButton("Scan Now"), "pressing Scan Now to bring the sample findings back")
         for _ in 0..<50 where model.results?.review == 0 || model.phase == .scanning { await settle() }
         #endif
     }

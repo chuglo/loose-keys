@@ -118,12 +118,15 @@ struct MainView: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        // Words, not symbols: a toolbar shows a symbol alone, and the reload
+        // arrow this once had left people guessing what it did. Scan Now is
+        // also the command's name in the File menu and on the Overview.
         ToolbarItem(placement: .primaryAction) {
             if model.phase == .scanning {
-                Button { model.cancelScan() } label: { Label("Stop", systemImage: "stop.fill") }
+                Button("Stop") { model.cancelScan() }
                     .help("Stop the scan")
             } else {
-                Button { model.startScan() } label: { Label("Scan", systemImage: "arrow.clockwise") }
+                Button("Scan Now") { model.startScan() }
                     .help("Scan this Mac now")
                     .disabled(model.places?.home == nil || model.preparingAccess)
             }

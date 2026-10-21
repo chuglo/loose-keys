@@ -20,7 +20,7 @@ your home folder on its own, and its findings appear without a manual scan.
 If macOS requires approval, Overview tells you where to give it. Allow
 notifications separately if you want alerts while the app is closed.
 
-For a detailed point-in-time report, click **Scan**. The sidebar lists what is
+For a detailed point-in-time report, click **Scan Now**. The sidebar lists what is
 worth reviewing, the sign-ins that are stored, and the places that could not
 be checked. Select a finding to see
 what it is, why it matters and what to do. **Export** saves the full report or
