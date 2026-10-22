@@ -26,7 +26,9 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   `Preview.swift` holds the sample engine, its JSON and the window check's
   `Checks`.
 - `macos/Info.plist`: its `LSMinimumSystemVersion` (14.0) is the target every
-  Swift build uses.
+  Swift build uses. `../.cargo/config.toml` sets the same for every Rust
+  build, and the bundle contract test fails when they differ. After changing
+  it, run `cargo clean --release` once: Cargo does not rebuild for that alone.
 - `tests/`: the window, model, bundle, notification and power checks, and the
   guest-only drivers `app-check.swift` and `helper-control.swift`.
 

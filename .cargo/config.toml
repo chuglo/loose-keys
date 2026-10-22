@@ -1,0 +1,6 @@
+# Every Cargo build here targets the app's minimum macOS, so the release
+# command the checks build and test is the one the bundle ships. Keep it equal
+# to LSMinimumSystemVersion in gui/macos/Info.plist: the bundle contract test
+# fails when they differ.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }

@@ -19,6 +19,22 @@ test("local bundle has a sealed plist and matching notification identity", { ski
   execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", `-R=identifier "${identifier}"`, bundle]);
 });
 
+test("local bundle's executables are built for the app's minimum macOS", { skip: process.platform !== "darwin" }, () => {
+  const root = path.resolve(__dirname, "../..");
+  const bundle = path.join(root, "target/release/bundle/macos/Loose Keys.app");
+  const minimum = execFileSync("/usr/bin/plutil", ["-extract", "LSMinimumSystemVersion", "raw", "-o", "-", path.join(root, "gui/macos/Info.plist")], { encoding: "utf8" }).trim();
+  // Cargo reuses a release build made with another deployment target, so the
+  // command could otherwise be bundled with a different minimum from the app's.
+  for (const executable of ["loose-keys-gui", "loose-keys"]) {
+    const build = execFileSync("/usr/bin/xcrun", ["vtool", "-show-build", path.join(bundle, "Contents/MacOS", executable)], { encoding: "utf8" });
+    const found = [...build.matchAll(/^\s*minos\s+(\S+)$/gm)].map((m) => m[1]);
+    assert.ok(found.length > 0, `${executable} records the macOS it was built for`);
+    for (const minos of found) {
+      assert.equal(minos, minimum, `${executable} is built for macOS ${minos}, not the app's minimum; check .cargo/config.toml, then run cargo clean --release once`);
+    }
+  }
+});
+
 test("local bundle carries the background agent's launchd job", { skip: process.platform !== "darwin" }, () => {
   const root = path.resolve(__dirname, "../..");
   const bundle = path.join(root, "target/release/bundle/macos/Loose Keys.app");

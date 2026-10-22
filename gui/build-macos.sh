@@ -21,9 +21,10 @@ fi
 APP='target/release/bundle/macos/Loose Keys.app'
 MINIMUM=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - gui/macos/Info.plist)
 # The engine (the scanner, review store and background agent, as a static
-# library) and the `loose-keys` command. Keep the output location fixed, even
-# if the caller has CARGO_TARGET_DIR set.
-MACOSX_DEPLOYMENT_TARGET=$MINIMUM cargo build --workspace --target-dir target --locked --release
+# library) and the `loose-keys` command, built for the macOS that
+# .cargo/config.toml sets. Keep the output location fixed, even if the caller
+# has CARGO_TARGET_DIR set.
+cargo build --workspace --target-dir target --locked --release
 # Start from an empty bundle, so nothing left by an earlier build is signed into it.
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
