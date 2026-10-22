@@ -5,7 +5,9 @@ set -eu
 umask 077
 cd "$(dirname "$0")/.."
 : "${TMPDIR:?Set TMPDIR to a real scratch directory}"
-cargo test --locked
+# The CLI half: every corpus case through the debug command. The rest of the
+# workspace's tests are `cargo test --locked --workspace`, run on its own.
+cargo test --locked --test detection_corpus
 cargo build --locked --release --target-dir target
 work=$(mktemp -d "$TMPDIR/credhyg-detection.XXXXXX")
 status=0
