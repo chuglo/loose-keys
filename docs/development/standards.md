@@ -382,10 +382,11 @@ vendors change their settings.
   [local checks](../testing/local-verification.md)) runs the steps in
   `Checks` in `gui/app/Preview.swift`. It sets the filter in
   code because it cannot type, and does in code what it has no control to
-  press for: one "kept" decision, clearing the chosen row, putting a list's
-  sort back. Most steps after the two lists need `SampleEngine`, which keeps
-  a little state and has switches the check sets (a failed store, a refused
-  request, a full list). With the screen locked, or its saver on though not
+  press for: choosing a reason from the Set Aside… menu, clearing the chosen
+  row, putting a list's sort back. Most steps after the two lists need
+  `SampleEngine`, which keeps a little state and has switches the check sets
+  (a failed store, a refused request, a full list, everything set aside).
+  With the screen locked, or its saver on though not
   yet locked, macOS puts a shield over every window and gives a window's
   contents to nobody, so the check asks for its window first and stops with
   status 2 when AppKit logs the shield. Both were made on purpose only in
@@ -486,6 +487,32 @@ vendors change their settings.
 - A row's selection is cleared in the model when the filter hides the row
   (`dropHiddenSelection`), and a stored sign-in's when new results arrive,
   because its id is its place in the results.
+- Worth Reviewing and Set Aside show separate portions of the same review
+  list. The split is only in the window: scanning, grouping, report counts
+  and exports keep set-aside findings. A successful refresh clears a
+  selection when a decision moves its row to the other page; a grouped
+  credential stays in review while another copy still needs a decision.
+  Both pages show read/save failures instead of an empty result. When the
+  list cannot be used, Worth Reviewing's badge is the scan's count and Set
+  Aside has none, since a scan knows nothing of decisions.
+- Decision reasons have fixed names in the app interface and private state.
+  `testing` and `no-longer-works` are value decisions with the same scope
+  and expiry as the older `test-or-revoked`, which still loads and shows as
+  a previous choice and is never guessed into either. An older build,
+  including a helper still running from before an update, cannot decode
+  the review list once it holds a new reason, so it can neither read nor
+  save the list until a build that knows them runs. That is from the
+  code; no running app has shown it. Scan and report contracts are
+  unchanged.
+- Move to Worth Reviewing sends the displayed row's id and revision, so the
+  engine can refuse a click after that value has changed. The window
+  follows the returned finding only after the command and its ordered
+  refresh succeed, and only if the person chose no other row and did not
+  change page in the meantime. The model and window checks cover moving
+  between pages, filters, failed decisions, reopened findings, a stale click
+  and a choice made while the move is saved; they do not cover pointer
+  placement, a move with several set-aside rows in the real table, or the
+  real engine.
 - Two messages in the window's log are known and come from SwiftUI's own
   tables, not from this code: "Publishing changes from within view updates"
   on each selection change, and AppKit's "reentrant operation" warning when

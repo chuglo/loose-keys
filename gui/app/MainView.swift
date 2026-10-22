@@ -43,7 +43,7 @@ struct MainView: View {
 
     /// Only lists have something to inspect.
     private var hasInspector: Bool {
-        model.pane == .review || model.pane == .stored
+        model.pane == .review || model.pane == .setAside || model.pane == .stored
     }
 
     private var inspectorShown: Binding<Bool> {
@@ -82,7 +82,7 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch model.pane ?? .overview {
         case .overview: OverviewView()
-        case .review: ReviewTable()
+        case .review, .setAside: ReviewTable()
         case .stored: StoredTable()
         case .gaps: GapsView()
         }
@@ -92,6 +92,7 @@ struct MainView: View {
         switch model.pane ?? .overview {
         case .overview: return "Loose Keys"
         case .review: return "Worth Reviewing"
+        case .setAside: return "Set Aside"
         case .stored: return "Stored Sign-ins"
         case .gaps: return "Not Checked"
         }
@@ -103,6 +104,9 @@ struct MainView: View {
         switch model.pane ?? .overview {
         case .review:
             return model.reviewSummary
+        case .setAside:
+            return model.reviewProblem == nil && model.review != nil
+                ? "\(plural(model.setAsideCount, "item", "items")) · Still included in scan results" : ""
         case .stored:
             return model.results == nil ? "" : plural(model.storedShown.count, "item", "items")
         case .gaps:
@@ -192,6 +196,11 @@ struct Sidebar: View {
                 Label("Not Checked", systemImage: "eye.slash")
                     .badge(model.results?.notChecked ?? 0)
                     .tag(Pane.gaps)
+            }
+            Section("Decisions") {
+                Label("Set Aside", systemImage: "archivebox")
+                    .badge(model.setAsideCount)
+                    .tag(Pane.setAside)
             }
         }
     }

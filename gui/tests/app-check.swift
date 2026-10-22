@@ -163,12 +163,12 @@ do {
     try wait("deferred decision saved") {
         try alive()
         try checkLeaks()
-        return button("Return to Review") != nil
+        return button("Review Now") != nil
     }
-    try press(button("Return to Review"), "Return to Review")
+    try press(button("Review Now"), "Review Now")
     try wait("decision restored") { button("Remind Me in a Week") != nil }
     try press(button("Remind Me in a Week"), "Remind Me in a Week")
-    try wait("deferred again") { button("Return to Review") != nil }
+    try wait("deferred again") { button("Review Now") != nil }
     print("PASS: real review decisions defer, restore and defer the AWS item")
     try press(menuItem("Save Report…"), "Save Report")
     try wait("save panel name field") {

@@ -46,20 +46,34 @@ count can be higher; the Overview says so when it is.
 ### Reviewing findings
 
 Findings that do not need fixing can be set aside (**Set Aside…**), for one of
-three reasons:
+four reasons:
 
-- **"It's Not a Real Password or Key"** and **"It's Only for Testing, or No
-  Longer Works"** are about the value. They cover that credential wherever it
-  is stored, so one decision handles a test token in a `.env` file and in forty
-  agent session records. They end if the value changes.
-- **"It's Real, and I'm Keeping It Here"** is about one place. The same
-  credential turning up elsewhere is still reported. It survives rotating the
-  value in place, and ends if the file becomes readable by others, if a
-  different kind of credential appears there, or after six months.
+- **Not a Password or Key**
+- **Used Only for Testing**
+- **No Longer Works**
+- **Keeping It Here Intentionally**
 
-Setting an item aside never stops it being found. It stays in the list with
-the status Set Aside, and in the counts under the window's title ("3 to
-review, 5 set aside"). **Remind Me in a Week** is a snooze: the item alerts
+The first three cover matching copies wherever they are stored. If a password
+or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
+or Key**, changed text appears there if it is flagged again. A decision saved
+under the earlier combined reason, for testing or no longer working, still
+applies and is shown as a previous choice.
+
+**Keeping It Here Intentionally** is about one place. The same credential turning
+up elsewhere is still reported. It survives rotating the value in place, and
+ends if the file becomes readable by others, if a different kind of credential
+appears there, or after six months.
+
+Setting an item aside moves it out of Worth Reviewing into **Set Aside** in
+the sidebar. You stay in Worth Reviewing. The Set Aside inspector shows your
+reason under **Your Decision**, with **Move to Worth Reviewing** to undo the
+decision later. **Show Details** explains which copies the decision covers and
+when the finding needs review again. If you keep just one copy of a credential,
+other copies that still need a decision remain in Worth Reviewing.
+
+Setting an item aside never stops it being found or counted in scan results,
+saved reports or copied summaries. The counts under the window's title still
+include it ("3 to review, 5 set aside"). **Remind Me in a Week** is a snooze: the item alerts
 once more when the week ends. A folder can be left out (**Stop Checking** and
 the folder's name); it then appears in every summary as not checked, and Not
 Checked can include it again. Known sign-in files in it, and the files

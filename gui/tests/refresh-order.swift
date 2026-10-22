@@ -168,6 +168,155 @@ func reviewList(_ open: Int, revision: Int = 1) -> String {
                  "skipped": [String](), "full": false])
 }
 
+func reviewStates(_ states: [String], revision: Int = 1) -> String {
+    let items: [[String: Any]] = states.enumerated().map { index, state in
+        ["id": index + 1, "rule": "fixture-rule", "path": "~/fixture-\(index + 1).txt",
+         "title": "Synthetic finding \(index + 1)", "explanation": "Review fixture",
+         "severity": "high", "deferred": state == "later", "state": state,
+         "set_aside": state == "set-aside" ? "not-a-credential" : NSNull(), "revision": revision]
+    }
+    return json(["items": items,
+                 "counts": ["open": states.filter { $0 == "open" }.count,
+                            "later": states.filter { $0 == "later" }.count,
+                            "set_aside": states.filter { $0 == "set-aside" }.count,
+                            "kept": 0, "fixed": states.filter { $0 == "fixed" }.count],
+                 "skipped": [String](), "full": false])
+}
+
+@MainActor func setAsideLeavesReview() async {
+    let bench = Bench()
+    bench.model.pane = .review
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(reviewStates(["open", "open"])))
+    guard let item = bench.model.reviewRows.last else { return check(false, "a finding is available") }
+    bench.model.selectedReview = item.id
+    let decision = await bench.ask("decide_review") { $0.decide(item, reason: "not-a-credential") }
+    check(bench.model.reviewRows.count == 2, "a pending decision keeps the finding visible")
+    await bench.answer(decision, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["open", "set-aside"])))
+    await eventually("the saved decision is read") { bench.model.review?.counts?.setAside == 1 }
+    check(bench.model.reviewRows.map(\.id) == [1], "set-aside findings leave Worth Reviewing")
+    check(bench.model.selectedReview == nil && bench.model.currentReview == nil,
+          "the moved finding is no longer selected or inspected in Worth Reviewing")
+    check(bench.model.pane == .review, "setting aside keeps the person in Worth Reviewing")
+    check(bench.model.review?.items.count == 2 && bench.model.reviewCount == 1,
+          "the decision changes the attention count without dropping the finding")
+    bench.model.pane = .setAside
+    check(bench.model.reviewRows.map(\.id) == [2] && bench.model.setAsideCount == 1,
+          "the separate Set Aside page lists the decided finding")
+    bench.model.selectedReview = item.id
+    bench.model.search = "finding 2"
+    check(bench.model.pane == .setAside && bench.model.currentReview?.id == item.id,
+          "filtering Set Aside keeps the page and the matching selection")
+    bench.model.search = "no match"
+    check(bench.model.selectedReview == nil, "filtering out a set-aside finding clears its selection")
+    bench.model.search = ""
+    bench.model.selectedReview = item.id
+    guard let aside = bench.model.currentReview else { return check(false, "a set-aside finding can be inspected") }
+    let returned = await bench.ask("decide_review") { $0.decide(aside, reason: nil) }
+    check(returned.call.args["id"] as? Int == item.id && returned.call.args["revision"] as? Int == item.revision
+          && returned.call.args["reason"] is NSNull, "Move to Worth Reviewing uses the drawn id and revision")
+    await bench.answer(returned, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewStates(["open", "open"])))
+    await eventually("the returned finding is shown in Worth Reviewing") {
+        bench.model.setAsideCount == 0 && bench.model.pane == .review
+    }
+    check(bench.model.pane == .review && bench.model.currentReview?.id == item.id,
+          "Move to Worth Reviewing follows the finding to its review row")
+    check(bench.model.reviewRows.count == 2, "returning restores the review queue")
+}
+
+/// Lets main-actor work that is already queued, such as what a saved
+/// decision does after its refresh, run before a check that it did nothing.
+@MainActor func drainMainActor() async {
+    for _ in 0..<100 { await Task.yield() }
+}
+
+@MainActor func setAsideMoveYieldsToLaterChoice() async {
+    let bench = Bench()
+    bench.model.pane = .setAside
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(reviewStates(["set-aside", "set-aside"])))
+    bench.model.selectedReview = 1
+    guard let first = bench.model.currentReview else { return check(false, "a set-aside finding is selected") }
+    let moved = await bench.ask("decide_review") { $0.decide(first, reason: nil) }
+    bench.model.selectedReview = 2
+    await bench.answer(moved, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["open", "set-aside"])))
+    await eventually("the first move is read") { bench.model.setAsideCount == 1 }
+    await drainMainActor()
+    check(bench.model.pane == .setAside && bench.model.currentReview?.id == 2,
+          "a row chosen while a move is saved stays chosen on Set Aside")
+    guard let second = bench.model.currentReview else { return check(false, "the second finding is selected") }
+    let again = await bench.ask("decide_review") { $0.decide(second, reason: nil) }
+    bench.model.pane = .review
+    bench.model.pane = .setAside
+    await bench.answer(again, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewStates(["open", "open"])))
+    await eventually("the second move is read") { bench.model.setAsideCount == 0 }
+    await drainMainActor()
+    check(bench.model.pane == .setAside,
+          "leaving Set Aside and coming back while a move is saved keeps the person there")
+}
+
+@MainActor func setAsideFailuresAndChanges() async {
+    let bench = Bench()
+    bench.model.pane = .review
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(reviewStates(["open"], revision: 7)))
+    guard let item = bench.model.reviewRows.first else { return check(false, "a finding is available") }
+    let failed = await bench.ask("decide_review") { $0.decide(item, reason: "not-a-credential") }
+    await bench.answer(failed, refused)
+    bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["open"], revision: 7)))
+    await eventually("a refused decision is reported") { bench.model.failure != nil }
+    check(bench.model.reviewRows.count == 1, "a failed decision keeps the row in review")
+    bench.model.failure = nil
+    let saved = await bench.ask("decide_review") { $0.decide(item, reason: "not-a-credential") }
+    await bench.answer(saved, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewStates(["set-aside"], revision: 7)))
+    await eventually("the saved decision is read") { bench.model.setAsideCount == 1 }
+    check(bench.model.reviewPaneItems.isEmpty && bench.model.review?.items.count == 1,
+          "an entirely set-aside list has an empty review queue, not missing findings")
+    bench.model.pane = .setAside
+    bench.model.selectedReview = item.id
+    guard let drawn = bench.model.currentReview else { return check(false, "a set-aside finding is selected") }
+    // The value changes after the inspector was drawn. Move to Worth Reviewing must
+    // retain that revision so the engine can refuse to act on the new value.
+    let changed = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(changed, .success(reviewStates(["open"], revision: 9)))
+    let returned = await bench.ask("decide_review") { $0.decide(drawn, reason: nil) }
+    check(returned.call.args["id"] as? Int == 1 && returned.call.args["revision"] as? Int == 7,
+          "Move to Worth Reviewing names the drawn value, never a later value with the same id")
+    await bench.answer(returned, refused)
+    bench.answer(await bench.next("pending_review", after: 4), .success(reviewStates(["open"], revision: 9)))
+    await eventually("the stale Move to Worth Reviewing refusal is reported") { bench.model.failure != nil }
+    check(bench.model.pane == .setAside && bench.model.currentReview == nil
+          && bench.model.reviewEntry(1)?.revision == 9,
+          "a stale Move to Worth Reviewing preserves the new finding and does not navigate as if saved")
+    bench.model.failure = nil
+    bench.model.pane = .setAside
+    let aside = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(aside, .success(reviewStates(["set-aside"], revision: 9)))
+    bench.model.selectedReview = 1
+    let reopened = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(reopened, .success(reviewStates(["open"], revision: 10)))
+    check(bench.model.reviewRows.isEmpty && bench.model.selectedReview == nil && bench.model.currentReview == nil,
+          "a finding reopened by a scan leaves Set Aside and clears its inspector")
+    // Held again before the failed read, so the checks below hold only
+    // because a list that cannot be used is neither counted nor inspected.
+    let asideAgain = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(asideAgain, .success(reviewStates(["set-aside"], revision: 10)))
+    bench.model.selectedReview = 1
+    check(bench.model.setAsideCount == 1 && bench.model.currentReview?.id == 1,
+          "a finding set aside again is listed and inspected")
+    bench.model.results = try? decodeEngine(ScanResults.self, from: Data(scanResults(review: 5).utf8))
+    let unread = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(unread, refused)
+    // A scan knows nothing of decisions, so its count is not a Set Aside count.
+    check(bench.model.reviewProblem != nil && bench.model.setAsideCount == 0 && bench.model.currentReview == nil,
+          "an unavailable Set Aside list shows no count and never claims an empty result")
+}
+
 func monitorStatus(enabled: Bool) -> String {
     json(["enabled": enabled, "paused": false, "scanning": false, "login": enabled ? 2 : 1,
           "health": [String: Any](), "pending_delivery": false, "attempts": 0])
@@ -577,6 +726,9 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 @main enum RefreshOrder {
     @MainActor static func main() async {
         let cases: [(String, @MainActor () async -> Void)] = [
+            ("set aside leaves the review queue", setAsideLeavesReview),
+            ("set aside failures and changed values", setAsideFailuresAndChanges),
+            ("set aside: a later choice outranks a saved move", setAsideMoveYieldsToLaterChoice),
             ("folder access precedes scans and background consent", folderAccessBeforeWork),
             ("folder access cancellation and failure", folderAccessCancellationAndFailure),
             ("review list: older list, then newer", reviewOlderListBeforeNewer),

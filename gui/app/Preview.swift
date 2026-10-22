@@ -20,6 +20,9 @@ final class SampleEngine: Engine {
     /// Set by the checks: nothing needs a decision. The review list is then
     /// empty, and a scan finds no review finding in what it could read.
     static var nothingFound = false
+    /// Set by the checks: every finding is set aside, so Worth Reviewing
+    /// has nothing to list.
+    static var allSetAside = false
     /// Set by the checks: a report cannot be saved.
     static var reportFails = false
     /// What the window last asked to have done to a folder, for the checks.
@@ -30,6 +33,8 @@ final class SampleEngine: Engine {
     /// The copies of the sample's token in two files that were set aside as
     /// kept. decide_review changes it, and the checks put it back.
     static var kept: Set<Int> = []
+    /// Decisions on the sample's single-location findings.
+    static var decisions: [Int: String] = [6: "kept"]
     /// Consent to background checks, with the helper running while it is
     /// given. set_monitoring changes it, and the checks put it back.
     static var monitoring = false
@@ -69,6 +74,7 @@ final class SampleEngine: Engine {
             throw EngineError(message: "That action stopped unexpectedly.")
         case "pending_review" where Self.nothingFound:
             return Data(#"{"items":[],"counts":{"open":0,"later":0,"set_aside":0,"kept":0,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"denied"}"#.utf8)
+        case "pending_review" where Self.allSetAside: return Data(Self.everythingSetAside.utf8)
         case "pending_review": return Data(Self.review.utf8)
         case "decide_review" where Self.saveFails:
             Self.storeFailed = true
@@ -79,7 +85,11 @@ final class SampleEngine: Engine {
         case "decide_review":
             // "Kept" covers one place, so it can leave another copy to decide.
             if let id = args["id"] as? Int {
-                if args["reason"] as? String == "kept" { Self.kept.insert(id) } else { Self.kept.remove(id) }
+                if id == 4 || id == 9 {
+                    if args["reason"] as? String == "kept" { Self.kept.insert(id) } else { Self.kept.remove(id) }
+                } else {
+                    Self.decisions[id] = args["reason"] as? String
+                }
             }
             return Data("null".utf8)
         case "set_monitoring":
@@ -109,6 +119,8 @@ final class SampleEngine: Engine {
     private static func item(_ id: Int, _ title: String, _ path: String, _ severity: String, _ state: String,
                              subject: String? = nil, detail: String? = nil, aside: String? = nil, places: String? = nil,
                              actionable: Bool = true) -> String {
+        let aside = decisions[id] ?? aside
+        let state = aside == nil ? state : "set-aside"
         let quoted = { (text: String?) in text.map { "\"\($0)\"" } ?? "null" }
         let copies = places ?? #"[{"id":\#(id),"path":"\#(path)","line":null,"fixed":false}]"#
         return """
@@ -138,8 +150,18 @@ final class SampleEngine: Engine {
                     places: "[\(places.joined(separator: ","))]")
     }
 
+    private static var everythingSetAside: String {
+        """
+        {"items":[\(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open", aside: "kept"))],
+         "counts":{"open":0,"later":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"\(permission)"}
+        """
+    }
+
     private static var review: String {
         let error = storeFailed ? #""Cannot save local review storage.""# : "null"
+        let tokenAside = kept.contains(4) && kept.contains(9) ? 1 : 0
+        let asideCount = decisions.count + tokenAside
+        let keptCount = decisions.values.filter { $0 == "kept" }.count + tokenAside
         return """
         {"items":[
         \(item(7, "Possible wallet recovery phrase in a file", "~/Desktop/wallet backup.txt", "high", "open")),
@@ -148,9 +170,9 @@ final class SampleEngine: Engine {
         \(item(3, "Possible password export file", "~/Downloads/passwords.csv", "high", "open")),
         \(tokenInTwoFiles),
         \(item(5, "Passwords saved in a browser", "~/Library/Application Support/Google/Chrome/Default/Login Data", "medium", "open", detail: "214 saved logins")),
-        \(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "set-aside", aside: "kept")),
+        \(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open")),
         \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false))
-        ],"counts":{"open":6,"later":0,"set_aside":1,"kept":1,"fixed":1},"skipped":["~/Movies/Raw"],"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
+        ],"counts":{"open":\(7 - asideCount),"later":0,"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":["~/Movies/Raw"],"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
         """
     }
 
@@ -209,6 +231,9 @@ enum Snapshots {
             model.pane = .review
             model.selectedReview = model.reviewRows.first?.id
             await shot("3-review")
+            model.pane = .setAside
+            model.selectedReview = model.reviewRows.first?.id
+            await shot("3-set-aside")
             model.pane = .stored
             model.selectedStored = model.storedRows.first?.id
             await shot("4-stored")
@@ -469,7 +494,7 @@ enum Checks {
             await choose(sidebarRows()[index], "choosing sidebar row \(index + 1)")
             if let pane = model.pane, pane != before { rowOf[pane] = index }
         }
-        expect(rowOf.count == 4, "choosing each sidebar row opens its page (\(rowOf.count) of 4 opened)")
+        expect(rowOf.count == 5, "choosing each sidebar row opens its page (\(rowOf.count) of 5 opened)")
         func open(_ pane: Pane) async {
             let rows = sidebarRows()
             if let index = rowOf[pane], index < rows.count { await choose(rows[index], "opening \(pane.rawValue)") }
@@ -536,16 +561,16 @@ enum Checks {
         expect(button("Show What a Scan Checks") == nil && button("Remove") != nil,
                "the first page has no scan reference section, and still lists an added folder")
         await press(button("Show Sidebar") ?? button("Toggle Sidebar"), "opening the sidebar from the first page")
-        expect(await eventually { sidebarRows().count == 4 } && model.pane == .overview && model.showsWelcome,
+        expect(await eventually { sidebarRows().count == 5 } && model.pane == .overview && model.showsWelcome,
                "the sidebar can be opened from the first page, and stays open there")
         model.sidebarAsked = false
         expect(await eventually { sidebarRows().isEmpty }, "the first page hides the sidebar again in a window just opened")
         await press(button("Enable Background Checks"), "enabling background checks from the first page")
-        expect(await eventually { SampleEngine.monitoring && sidebarRows().count == 4 && !model.showsWelcome },
+        expect(await eventually { SampleEngine.monitoring && sidebarRows().count == 5 && !model.showsWelcome },
                "enabling background checks from the first page starts them and brings the sidebar back")
         SampleEngine.monitoring = false
         await model.refreshMonitor()
-        expect(await eventually { model.showsWelcome } && sidebarRows().count == 4,
+        expect(await eventually { model.showsWelcome } && sidebarRows().count == 5,
                "turning background checks off again brings the question back but keeps the sidebar")
         SampleEngine.helperError = true
         await model.refreshMonitor()
@@ -566,6 +591,20 @@ enum Checks {
         expect(model.results == nil && button("Show What a Scan Checks") == nil
                && button("Show Every Rule") == nil && button("Add Folder or Drive…") != nil,
                "before a scan, Overview has folder controls without the scan reference section")
+        // With every finding set aside and no scan in this window, Worth
+        // Reviewing says where they went. It does not point to Not Checked,
+        // which lists what a scan could not read and so, before one, nothing.
+        SampleEngine.allSetAside = true
+        await model.refreshReview()
+        await open(.review)
+        let emptied = await eventually {
+            (written() + everything().flatMap(names)).contains { $0.contains("Your set-aside findings are in Set Aside") }
+        }
+        expect(model.results == nil && emptied
+               && !(written() + everything().flatMap(names)).contains { $0.contains("Not Checked lists") },
+               "before a scan, an empty Worth Reviewing with set-aside findings does not point to Not Checked")
+        SampleEngine.allSetAside = false
+        await model.refreshReview()
         // Before any scan, Not Checked is still where a folder left out is included again.
         await open(.gaps)
         let unscannedGaps = written()
@@ -715,6 +754,9 @@ enum Checks {
             await choose(rows(list)[1], "choosing a finding")
             expect(model.selectedReview == chosen, "choosing a finding selects it")
             expect(button("Copy Path") != nil, "the inspector shows the chosen finding")
+            // The control for the Set Aside check below: the heading is visible here.
+            expect((written() + everything().flatMap(names)).contains { $0.contains("What to Do") },
+                   "an open finding's inspector shows What to Do")
             let why = model.reviewRows[1].explanation
             expect(!written().contains(why), "why a finding is here starts folded, below what to do")
             await press(button("Show Why It Is Here"), "unfolding why the finding is here")
@@ -767,6 +809,95 @@ enum Checks {
         } else {
             expect(false, "the review list is a table with a row for each finding")
         }
+
+        #if PREVIEW
+        await open(.setAside)
+        if let table = list(), let row = rows(table).first {
+            expect(headingButtons(table).count == 3 && !headingButtons(table).flatMap(names).contains("Status"),
+                   "Set Aside omits the redundant Status column")
+            await choose(row, "choosing a set-aside finding")
+            expect(model.reviewRows.map(\.id) == [6] && model.currentReview?.id == 6,
+                   "Set Aside has its own table and inspector")
+            if let hide = button("Hide Details") {
+                await press(hide, "collapsing the finding details")
+            }
+            // Form headings can be AX titles; grouped text can be one value.
+            expect(await eventually {
+                let text = (written() + everything().flatMap(names)).joined(separator: "\n")
+                guard let keptReason = SetAsideReason.all.first(where: { $0.id == "kept" }) else { return false }
+                return text.contains("Your Decision") && text.contains(keptReason.summary)
+                    && !text.contains(keptReason.returns)
+            }, "the decision card shows the saved reason with its explanation collapsed")
+            await press(button("Show Details"), "revealing the decision explanation in Details")
+            expect(await eventually {
+                let text = (written() + everything().flatMap(names)).joined(separator: "\n")
+                guard let keptReason = SetAsideReason.all.first(where: { $0.id == "kept" }) else { return false }
+                return text.contains(keptReason.returns)
+            }, "Details reveals the complete decision scope and return conditions")
+            await press(button("Hide Details"), "hiding the decision explanation")
+            expect(await eventually {
+                let text = (written() + everything().flatMap(names)).joined(separator: "\n")
+                guard let keptReason = SetAsideReason.all.first(where: { $0.id == "kept" }) else { return false }
+                return !text.contains(keptReason.returns)
+            }, "hiding Details collapses the decision explanation again")
+            // Form headings can be AX titles, so titles are searched too.
+            expect(!(written() + everything().flatMap(names)).contains { $0.contains("What to Do") },
+                   "a set-aside finding leads with the decision instead of remediation")
+            model.search = "npm"
+            await settle(after: "filtering Set Aside")
+            expect(model.pane == .setAside && model.reviewRows.map(\.id) == [6], "filtering Set Aside stays on that page")
+            model.search = ""
+            await press(button("Move to Worth Reviewing"), "returning a set-aside finding to review")
+            expect(await eventually { model.pane == .review && model.currentReview?.id == 6 },
+                   "Move to Worth Reviewing opens Worth Reviewing with the returned finding selected")
+            if let item = model.currentReview {
+                // As with the existing kept-copy check, choosing a menu reason
+                // is done in the model; Move to Worth Reviewing is pressed below.
+                model.decide(item, reason: "not-a-credential")
+                expect(await eventually { model.setAsideCount == 1 && !model.reviewRows.contains { $0.id == 6 } },
+                       "saving a decision moves the finding to Set Aside")
+                expect(model.pane == .review && !model.reviewRows.contains { $0.id == 6 }
+                       && model.currentReview == nil && button("Copy Path") == nil,
+                       "setting aside removes the row and its inspector while keeping the review page open")
+                expect(button("Undo") == nil, "setting aside does not show a temporary Undo button")
+                await open(.setAside)
+                if let table = list(), let row = rows(table).first {
+                    await choose(row, "selecting the newly set-aside finding")
+                }
+                await press(button("Move to Worth Reviewing"), "returning the finding from Set Aside")
+                expect(await eventually { model.pane == .review && model.reviewRows.contains { $0.id == 6 } && model.setAsideCount == 0 },
+                       "Move to Worth Reviewing restores the finding to Worth Reviewing")
+            }
+            await open(.setAside)
+            expect(await eventually { written().contains("No Items Set Aside") },
+                   "the Set Aside page explains an empty list")
+            for reason in SetAsideReason.all + [SetAsideReason.legacy] {
+                await open(.review)
+                guard let item = model.reviewRows.first(where: { $0.id == 6 }) else {
+                    expect(false, "the finding is available for each decision reason")
+                    break
+                }
+                model.decide(item, reason: reason.id)
+                expect(await eventually { model.setAsideCount == 1 }, "saving the reason: \(reason.label)")
+                await open(.setAside)
+                if let table = list(), let row = rows(table).first {
+                    await choose(row, "inspecting the saved reason")
+                }
+                expect(await eventually { (written() + everything().flatMap(names)).joined(separator: "\n").contains(reason.summary) },
+                       "the inspector shows the chosen reason: \(reason.label)")
+                await press(button("Move to Worth Reviewing"), "returning the finding for the next choice")
+                expect(await eventually { model.pane == .review && model.setAsideCount == 0 },
+                       "each decision can be returned to review")
+            }
+            SampleEngine.decisions = [6: "kept"]
+            await model.refreshReview()
+            await open(.review)
+            expect(!model.reviewRows.contains { $0.id == 6 }, "an existing decision stays out of Worth Reviewing after refresh")
+            model.selectedReview = nil
+        } else {
+            expect(false, "Set Aside has the sample's decided finding")
+        }
+        #endif
 
         await open(.stored)
         if let list = list(), rows(list).count == model.storedRows.count, model.storedRows.count > 1 {

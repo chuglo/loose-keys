@@ -150,16 +150,31 @@ struct ScanProgress: Decodable {
 struct SetAsideReason: Identifiable {
     let id: String
     let label: String
+    let summary: String
     let returns: String
 
     static let all = [
-        SetAsideReason(id: "not-a-credential", label: "It's Not a Real Password or Key",
-                       returns: "Comes back only if the value changes."),
-        SetAsideReason(id: "test-or-revoked", label: "It's Only for Testing, or No Longer Works",
-                       returns: "Covers this value wherever it is stored. Comes back only if the value changes."),
-        SetAsideReason(id: "kept", label: "It's Real, and I'm Keeping It Here",
-                       returns: "Covers this one place; a copy somewhere else is decided separately. Comes back if the file becomes readable by others, if a different kind of credential appears here, or after six months."),
+        SetAsideReason(id: "not-a-credential", label: "Not a Password or Key",
+                       summary: "Not a password or key",
+                       returns: "Applies to all copies of the flagged text. If that text changes and is flagged again, it will appear in Worth Reviewing."),
+        SetAsideReason(id: "testing", label: "Used Only for Testing",
+                       summary: "Used only for testing",
+                       returns: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing."),
+        SetAsideReason(id: "no-longer-works", label: "No Longer Works",
+                       summary: "No longer works",
+                       returns: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing."),
+        SetAsideReason(id: "kept", label: "Keeping It Here Intentionally",
+                       summary: "Keeping it here intentionally",
+                       returns: "Applies only to this location. Returns to review if the file becomes readable by others, a different kind of credential appears here, or after six months."),
     ]
+
+    // Older decisions did not distinguish these reasons. Display that choice
+    // without offering it again or guessing which reason the person meant.
+    static let legacy = SetAsideReason(
+        id: "test-or-revoked", label: "Testing or No Longer Working (Previous Choice)",
+        summary: "Testing or no longer working (previous choice)",
+        returns: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing.")
+
 }
 
 extension ReviewItem {

@@ -65,13 +65,15 @@ pub struct Item {
     pub mount: Option<u32>,
 }
 
-/// Why a person set a finding aside. The first two are claims about the
-/// value, so they follow it to every file. The third is a claim about one
-/// place, and covers nowhere else.
+/// Why a person set a finding aside. All reasons except Kept concern the
+/// value and follow it to every file. Kept concerns one place only.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Reason {
     NotACredential,
+    Testing,
+    NoLongerWorks,
+    // Retained for decisions saved before testing and no longer works split.
     TestOrRevoked,
     Kept,
 }
@@ -337,7 +339,10 @@ impl Review {
             let place = d.rule == item.rule && d.path == item.path && d.subject == item.subject;
             match d.reason {
                 // About the value: wherever it is, and only while it is that value.
-                Reason::NotACredential | Reason::TestOrRevoked => match &d.secret {
+                Reason::NotACredential
+                | Reason::Testing
+                | Reason::NoLongerWorks
+                | Reason::TestOrRevoked => match &d.secret {
                     Some(secret) => item.secret.as_ref() == Some(secret),
                     None => place && d.fingerprint == item.fingerprint,
                 },
@@ -1166,42 +1171,51 @@ mod tests {
 
     #[test]
     fn a_harmless_value_is_set_aside_wherever_it_appears() {
-        let mut state = Review::default();
-        let token = (
-            "secret.service-token",
-            "~/app/.env",
-            Some("Test token"),
-            Some("digest-a"),
-        );
-        assert!(state.ingest(&found(&[token])));
-        let id = state.items[0].id;
-        state
-            .decide(id, Reason::TestOrRevoked, 100, "then".into())
-            .unwrap();
-        assert!(!state.pending(200));
-        // The same value in an agent record, under another rule: no alert.
-        let copy = (
-            "secret.agent-record",
-            "~/.claude/projects/p/s.jsonl",
-            Some("Test token"),
-            Some("digest-a"),
-        );
-        state.ingest(&found(&[token, copy]));
-        assert_eq!(state.items.len(), 2);
-        assert!(!state.pending(200));
-        assert!(state.items.iter().all(|i| state.decision(i, 200).is_some()));
-        // A different value in the same place is a new matter.
-        let rotated = (
-            "secret.service-token",
-            "~/app/.env",
-            Some("Test token"),
-            Some("digest-b"),
-        );
-        assert!(state.ingest(&found(&[rotated])));
-        assert!(state.pending(200));
-        // Undoing brings the first value back.
-        state.undo(state.items[1].id);
-        assert!(state.decision(&state.items[1], 200).is_none());
+        for (reason, name) in [
+            (Reason::NotACredential, "not-a-credential"),
+            (Reason::Testing, "testing"),
+            (Reason::NoLongerWorks, "no-longer-works"),
+            (Reason::TestOrRevoked, "test-or-revoked"),
+        ] {
+            let mut state = Review::default();
+            let token = (
+                "secret.service-token",
+                "~/app/.env",
+                Some("Test token"),
+                Some("digest-a"),
+            );
+            assert!(state.ingest(&found(&[token])));
+            let id = state.items[0].id;
+            state.decide(id, reason, 100, "then".into()).unwrap();
+            let saved = serde_json::to_string(&state).unwrap();
+            let state_again: Review = serde_json::from_str(&saved).unwrap();
+            assert_eq!(state_again.decisions[0].reason, reason);
+            assert_eq!(serde_json::to_value(reason).unwrap(), name);
+            assert!(!state.pending(200));
+            // The same value in an agent record, under another rule: no alert.
+            let copy = (
+                "secret.agent-record",
+                "~/.claude/projects/p/s.jsonl",
+                Some("Test token"),
+                Some("digest-a"),
+            );
+            state.ingest(&found(&[token, copy]));
+            assert_eq!(state.items.len(), 2);
+            assert!(!state.pending(200));
+            assert!(state.items.iter().all(|i| state.decision(i, 200).is_some()));
+            // A different value in the same place is a new matter.
+            let rotated = (
+                "secret.service-token",
+                "~/app/.env",
+                Some("Test token"),
+                Some("digest-b"),
+            );
+            assert!(state.ingest(&found(&[rotated])));
+            assert!(state.pending(200));
+            // Undoing brings the first value back.
+            state.undo(state.items[1].id);
+            assert!(state.decision(&state.items[1], 200).is_none());
+        }
     }
 
     #[test]

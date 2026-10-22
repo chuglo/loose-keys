@@ -28,44 +28,59 @@ struct ReviewTable: View {
             } description: {
                 Text("This takes longer while a background check is saving what it found.")
             }
-        } else if model.review?.items.isEmpty ?? true {
+        } else if model.reviewPaneItems.isEmpty {
             let empty = self.empty
             ContentUnavailableView {
                 Label(empty.title, systemImage: empty.symbol)
             } description: {
                 Text(empty.text)
             }
+        } else if model.pane == .setAside {
+            // Every row here is set aside, so there is no Status column. A
+            // column added by an `if` needs macOS 14.4, so this is a table
+            // of its own.
+            actions(Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
+                columns
+            })
         } else {
-            Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
-                TableColumn("Finding", value: \.title) { (item: ReviewItem) in
-                    Text(item.title).lineLimit(1)
-                }
-                .width(min: 180, ideal: 320)
-                TableColumn("Where", value: \.path) { (item: ReviewItem) in
-                    PathText(path: item.path)
-                }
-                .width(min: 130, ideal: 190)
-                // The first click puts the highest risk at the top.
-                TableColumn("Risk", sortUsing: KeyPathComparator(\ReviewItem.riskLevel, order: .reverse)) { (item: ReviewItem) in
-                    RiskLabel(severity: item.severity)
-                }
-                .width(min: 92, ideal: 96, max: 120)
+            actions(Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
+                columns
                 TableColumn("Status", value: \.statusRank) { (item: ReviewItem) in
                     Text(item.statusText)
                         .foregroundStyle(item.status == "open" ? Color.primary : Color.secondary)
                 }
                 .width(min: 86, ideal: 92, max: 130)
+            })
+        }
+    }
+
+    @TableColumnBuilder<ReviewItem, KeyPathComparator<ReviewItem>>
+    private var columns: some TableColumnContent<ReviewItem, KeyPathComparator<ReviewItem>> {
+        TableColumn("Finding", value: \.title) { (item: ReviewItem) in
+            Text(item.title).lineLimit(1)
+        }
+        .width(min: 180, ideal: 320)
+        TableColumn("Where", value: \.path) { (item: ReviewItem) in
+            PathText(path: item.path)
+        }
+        .width(min: 130, ideal: 190)
+        // The first click puts the highest risk at the top.
+        TableColumn("Risk", sortUsing: KeyPathComparator(\ReviewItem.riskLevel, order: .reverse)) { (item: ReviewItem) in
+            RiskLabel(severity: item.severity)
+        }
+        .width(min: 92, ideal: 96, max: 120)
+    }
+
+    private func actions(_ table: some View) -> some View {
+        table.contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
+            // Not for a file whose name the app does not act on.
+            if let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                Button("Show in Finder") { model.showInFinder(id, review: true) }
+                Button("Copy Path") { model.copyPath(id, review: true) }
             }
-            .contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
-                // Not for a file whose name the app does not act on.
-                if let id = ids.first, model.reviewEntry(id)?.actionable != false {
-                    Button("Show in Finder") { model.showInFinder(id, review: true) }
-                    Button("Copy Path") { model.copyPath(id, review: true) }
-                }
-            } primaryAction: { ids in
-                if let id = ids.first, model.reviewEntry(id)?.actionable != false {
-                    model.showInFinder(id, review: true)
-                }
+        } primaryAction: { ids in
+            if let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                model.showInFinder(id, review: true)
             }
         }
     }
@@ -75,6 +90,26 @@ extension ReviewTable {
     /// What an empty list says. "Nothing to Review" with a tick is only for
     /// a scan that read every place it was asked to and found nothing.
     fileprivate var empty: (title: String, symbol: String, text: String) {
+        if model.pane == .setAside {
+            return ("No Items Set Aside", "archivebox",
+                    "Findings you set aside appear here, with your reason and an option to return them to review.")
+        }
+        if model.setAsideCount > 0 {
+            // Not Checked lists only a scan's gaps, so without one this says
+            // what background checks have read instead.
+            let rest: String
+            if model.results != nil {
+                rest = "Not Checked lists any places the scan could not read."
+            } else if let monitor = model.monitor, monitor.enabled, monitor.health.fullPass == nil {
+                rest = "Background checks list new findings here as they read your files."
+            } else if let monitor = model.monitor, monitor.enabled, let unread = monitor.health.unread, unread > 0 {
+                rest = "Background checks could not read \(plural(unread, "place", "places")). Scan this Mac to see which."
+            } else {
+                rest = "Scan this Mac to check it now."
+            }
+            return ("No Items Waiting for Review", "tray",
+                    "Your set-aside findings are in Set Aside and are still counted. " + rest)
+        }
         guard let results = model.results else {
             // This window has not scanned. The helper may have, and it fills the list too.
             if let monitor = model.monitor, monitor.enabled {

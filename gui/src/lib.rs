@@ -334,7 +334,7 @@ struct ReviewItem {
     item: review::Item,
     /// "open", "later", "set-aside" or "fixed".
     state: &'static str,
-    /// Why it was set aside: "not-a-credential", "test-or-revoked" or "kept".
+    /// Why it was set aside, using review::Reason's fixed serialized names.
     set_aside: Option<review::Reason>,
     /// Every place the same credential is stored, this one included.
     places: Vec<PlaceView>,
@@ -521,7 +521,7 @@ fn defer_review(app: &App, id: u64, revision: u64, deferred: bool) -> Answer<()>
     )
 }
 
-/// Set an item aside for one of the three fixed reasons, or undo that.
+/// Set an item aside for one of review::Reason's fixed reasons, or undo that.
 /// The item is still found and still counted; it stops asking for attention.
 /// `revision` is the one the front end drew the item with. The decision is
 /// about what the item holds as the store has it now, so it is refused once
@@ -2817,6 +2817,8 @@ mod tests {
             ask(&app, command, &args.to_string())
         };
         for (command, more) in [
+            ("decide_review", json!({ "reason": "testing" })),
+            ("decide_review", json!({ "reason": "no-longer-works" })),
             ("decide_review", json!({ "reason": "test-or-revoked" })),
             ("decide_review", json!({ "reason": "kept" })),
             ("decide_review", json!({ "reason": null })),

@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum Pane: String, Hashable {
-    case overview, review, stored, gaps
+    case overview, review, stored, gaps, setAside
 }
 
 enum Phase {
@@ -90,7 +90,10 @@ final class AppModel: ObservableObject {
     let engine: Engine
 
     @Published var pane: Pane? = .overview {
-        didSet { if pane != oldValue { paneChanged = Date() } }
+        didSet {
+            if pane != oldValue { paneChanged = Date() }
+            if (pane == .setAside) != (oldValue == .setAside) { dropHiddenSelection() }
+        }
     }
     private var paneChanged = Date.distantPast
     /// Whether this page has been showing for a moment. Leaving a list closes
@@ -135,9 +138,9 @@ final class AppModel: ObservableObject {
     @Published var search = "" {
         didSet {
             dropHiddenSelection()
-            // The Filter field is on every page and filters the two lists.
+            // The Filter field is on every page and filters the finding lists.
             // Typed into anywhere else, it opens the first of them.
-            if !search.isEmpty, pane != .review, pane != .stored { pane = .review }
+            if !search.isEmpty, pane != .review, pane != .setAside, pane != .stored { pane = .review }
         }
     }
     @Published var inspectorShown = true
@@ -145,6 +148,7 @@ final class AppModel: ObservableObject {
     @Published var failure: String?
     /// A short confirmation, shown under the window title.
     @Published var notice: String?
+    private var decisionTurn = 0
     @Published var awaitingPermission = false
     @Published var askingConsent = false
     private var placesOrder = RequestOrder()
@@ -166,11 +170,16 @@ final class AppModel: ObservableObject {
 
     // MARK: What the lists show
 
+    /// Decisions change which page lists an item, never the findings held or exported.
+    var reviewPaneItems: [ReviewItem] {
+        (review?.items ?? []).filter { ($0.status == "set-aside") == (pane == .setAside) }
+    }
+
     /// The findings the filter leaves, not yet in order. Enough to find one
     /// of them, which the filter does for each character typed.
     private var reviewShown: [ReviewItem] {
         let wanted = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return (review?.items ?? [])
+        return reviewPaneItems
             .filter { wanted.isEmpty || "\($0.title) \($0.path) \($0.subject ?? "") \($0.detail ?? "")".lowercased().contains(wanted) }
     }
 
@@ -198,6 +207,13 @@ final class AppModel: ObservableObject {
 
     var openCount: Int {
         review?.counts?.open ?? (review?.items.filter { $0.status == "open" }.count ?? 0)
+    }
+
+    /// No count while the list cannot be used: a scan knows nothing of
+    /// decisions, so it has no Set Aside count to fall back on.
+    var setAsideCount: Int {
+        guard reviewProblem == nil else { return 0 }
+        return review?.counts?.setAside ?? (review?.items.filter { $0.status == "set-aside" }.count ?? 0)
     }
 
     /// Why Worth Reviewing cannot show what was found, when it cannot: the
@@ -339,6 +355,7 @@ final class AppModel: ObservableObject {
                 if let chosen = selectedReview, let entry = reviewEntry(chosen), entry.id != chosen {
                     selectedReview = entry.id
                 }
+                if reviewProblem == nil { dropHiddenSelection() }
             } catch {
                 // The read that follows a request made since answers for this
                 // one. Until it does, the last list read stays as it was.
@@ -414,12 +431,13 @@ final class AppModel: ObservableObject {
     /// not the change was made. The engine sends no event when a save fails,
     /// and after one the list is one it can no longer read or save. The page
     /// is brought up to date before the failure is reported over it.
-    private func change(_ work: @escaping () async throws -> Void) {
+    private func change(_ work: @escaping () async throws -> Void, after saved: (() -> Void)? = nil) {
         Task {
             var problem: String?
             do { try await work() } catch { problem = error.localizedDescription }
             await refreshReview()
             if let problem { failure = problem }
+            else if reviewProblem == nil { saved?() }
         }
     }
 
@@ -611,9 +629,22 @@ final class AppModel: ObservableObject {
 
     /// Set an item aside for a reason, or return it to review with nil.
     func decide(_ item: ReviewItem, reason: String?) {
-        change {
+        decisionTurn += 1
+        let turn = decisionTurn
+        let from = pane
+        let since = paneChanged
+        change({
             try await self.engine.send("decide_review", self.drawn(item).merging(["reason": reason ?? NSNull()]) { $1 })
-        }
+        }, after: { [self] in
+            // Follow the finding only if the person chose nothing since: the
+            // refresh has dropped its row from Set Aside, so a selection left
+            // is one made after the press, and so is a page change.
+            guard turn == decisionTurn, reason == nil,
+                  from == .setAside, pane == from, paneChanged == since, selectedReview == nil,
+                  let entry = reviewEntry(item.id), entry.status != "set-aside" else { return }
+            pane = .review
+            selectedReview = reviewShown.first { $0.id == entry.id }?.id
+        })
     }
 
     func stopCheckingFolder(_ item: ReviewItem) {

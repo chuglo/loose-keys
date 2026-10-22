@@ -5,7 +5,7 @@ struct Inspector: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        if model.pane == .review, let item = model.currentReview {
+        if model.pane == .review || model.pane == .setAside, let item = model.currentReview {
             ReviewInspector(item: item)
         } else if model.pane == .stored, let row = model.currentStored {
             StoredInspector(row: row)
@@ -13,7 +13,7 @@ struct Inspector: View {
             ContentUnavailableView {
                 Label("No Selection", systemImage: "sidebar.trailing")
             } description: {
-                Text(model.pane == .review || model.pane == .stored
+                Text(model.pane == .review || model.pane == .setAside || model.pane == .stored
                      ? "Select an item to see what it is and what you can do."
                      : "Details of a selected finding appear here.")
             }
@@ -32,7 +32,9 @@ private struct ReviewInspector: View {
                     Text(item.title).font(.headline)
                     HStack(spacing: 10) {
                         RiskLabel(severity: item.severity)
-                        Text(item.statusText).foregroundStyle(.secondary)
+                        if item.status != "set-aside" {
+                            Text(item.statusText).foregroundStyle(.secondary)
+                        }
                     }
                     .font(.subheadline)
                     // What it concerns, or failing that a count the rule gives, as
@@ -41,16 +43,18 @@ private struct ReviewInspector: View {
                         Text(about).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
-                if item.status == "set-aside" {
-                    Text("Set aside by you: \(reason?.label ?? "Set aside"). It is still on this Mac and is still counted.")
-                        .foregroundStyle(.secondary)
-                    if let returns = reason?.returns {
-                        Text(returns).foregroundStyle(.secondary)
-                    }
-                }
                 if item.status == "fixed" {
                     Text("This file was checked again and no longer matches. That does not prove the credential was revoked, or that no other copy exists.")
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if item.status == "set-aside" {
+                Section {
+                    Text(reason?.summary ?? "Set aside by you")
+                    Button("Move to Worth Reviewing") { model.decide(item, reason: nil) }
+                } header: {
+                    Text("Your Decision")
                 }
             }
 
@@ -74,24 +78,39 @@ private struct ReviewInspector: View {
                 }
             }
 
-            Section {
-                Text(item.nextStep ?? "Confirm why this file is stored here before you change it.")
-                StepList(steps: item.steps ?? [])
-                if let link = item.link {
-                    Button("Open the Page to Revoke It") { model.openLink(link) }
+            if item.status != "set-aside" {
+                Section {
+                    Text(item.nextStep ?? "Confirm why this file is stored here before you change it.")
+                    StepList(steps: item.steps ?? [])
+                    if let link = item.link {
+                        Button("Open the Page to Revoke It") { model.openLink(link) }
+                    }
+                } header: {
+                    Text("What to Do")
+                } footer: {
+                    Text("If this belongs to work or you are unsure, ask IT before changing it. This app does not change files or revoke credentials.")
                 }
-            } header: {
-                Text("What to Do")
-            } footer: {
-                Text("If this belongs to work or you are unsure, ask IT before changing it. This app does not change files or revoke credentials.")
             }
 
-            Section {
-                decisions
-            } header: {
-                Text("Or Decide")
-            } footer: {
-                Text("An item you set aside is still found and still counted. It only stops asking for attention.")
+            if item.status != "set-aside" {
+                Section("Review Options") {
+                    decisions
+                }
+                if item.status != "fixed", let folder = item.folder {
+                    Section("Folder") {
+                        if folderSkipped(folder) {
+                            // A folder's name is whatever its maker chose, so it is shown as plain text.
+                            Text(verbatim: "\(folder) is no longer checked. Not Checked lists it, and can include it again.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Button {
+                                model.stopCheckingFolder(item)
+                            } label: {
+                                Text(verbatim: "Stop Checking \(folder)")
+                            }
+                        }
+                    }
+                }
             }
 
             // What to do comes first. The reasons and the record stay one press away.
@@ -107,6 +126,9 @@ private struct ReviewInspector: View {
                     model.inspectorDetails.toggle()
                 }
                 if model.inspectorDetails {
+                    if item.status == "set-aside", let returns = reason?.returns {
+                        Text(returns).font(.callout).foregroundStyle(.secondary)
+                    }
                     LabeledContent("Rule", value: item.rule)
                     if let seen = item.firstSeen { LabeledContent("First Seen", value: localTime(seen)) }
                     if let fixed = item.resolvedAt { LabeledContent("Fixed", value: localTime(fixed)) }
@@ -117,7 +139,7 @@ private struct ReviewInspector: View {
     }
 
     private var reason: SetAsideReason? {
-        SetAsideReason.all.first { $0.id == item.setAside }
+        (SetAsideReason.all + [SetAsideReason.legacy]).first { $0.id == item.setAside }
     }
 
     /// A folder is left out by itself or along with a folder above it.
@@ -126,28 +148,27 @@ private struct ReviewInspector: View {
     }
 
     @ViewBuilder private var decisions: some View {
-        if item.status == "set-aside" {
-            Button("Show This Again") { model.decide(item, reason: nil) }
-        } else if item.status != "fixed" {
-            Button(item.deferred ? "Return to Review" : "Remind Me in a Week") { model.remindLater(item) }
-            Menu("Set Aside…") {
-                ForEach(SetAsideReason.all) { reason in
-                    Button(reason.label) { model.decide(item, reason: reason.id) }
+        if item.status != "fixed" {
+            VStack(alignment: .leading, spacing: 10) {
+                Button(item.deferred ? "Review Now" : "Remind Me in a Week") {
+                    model.remindLater(item)
                 }
-            }
-            if let folder = item.folder {
-                if folderSkipped(folder) {
-                    // A folder's name is whatever its maker chose, so it is shown as plain text.
-                    Text(verbatim: "\(folder) is no longer checked. Not Checked lists it, and can include it again.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button {
-                        model.stopCheckingFolder(item)
-                    } label: {
-                        Text(verbatim: "Stop Checking \(folder)")
+                Menu {
+                    ForEach(SetAsideReason.all) { reason in
+                        Button(reason.label) { model.decide(item, reason: reason.id) }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Set Aside…")
+                        Image(systemName: "chevron.down").imageScale(.small)
                     }
                 }
+                .menuIndicator(.hidden)
+                .menuStyle(.button)
+                .buttonStyle(.bordered)
+                .fixedSize()
             }
+            .buttonStyle(.bordered)
         } else {
             Text("Nothing to decide. It is fixed here.").foregroundStyle(.secondary)
         }
