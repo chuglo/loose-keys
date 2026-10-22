@@ -302,7 +302,9 @@ fn naive(home: &Path, report: &Path, open_fifos: bool) -> Result<i32> {
         if let Ok(mut archive) = zip::ZipArchive::new(file) {
             for i in 0..archive.len() {
                 if let Ok(member) = archive.by_index(i) {
-                    println!("archive member: {}", member.name());
+                    if let Ok(name) = member.name() {
+                        println!("archive member: {name}");
+                    }
                 }
             }
         }

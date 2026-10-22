@@ -30,7 +30,7 @@ serde_json = "1"
 [dev-dependencies]
 # Harness only; remote/file schema resolution and unrelated ZIP codecs are disabled.
 jsonschema = { version = "=0.33.0", default-features = false }
-zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [[test]]
 name = "security_harness"

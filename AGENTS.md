@@ -148,7 +148,8 @@ verified".
   crate is more code running next to a person's credentials. Ask before
   adding one, or anything needing a paid service or a signing identity.
   Test-only `jsonschema` and `zip`, with their transitive dependencies, were
-  approved on 2026-10-13. They belong only in dev-dependencies; schema
+  approved on 2026-10-13, and `zip` 9, which adds `nix` and `typed-path`, on
+  2026-10-21. They belong only in dev-dependencies; schema
   HTTP/file resolution and unnecessary ZIP codecs stay disabled.
   Optional signing of local builds with an Apple Development identity
   (`LOOSE_KEYS_SIGN_IDENTITY` in `gui/build-macos.sh`) was approved on
