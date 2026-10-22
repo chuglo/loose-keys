@@ -23,7 +23,7 @@ struct SettingsView: View {
             Button("Allow") { model.setMonitoring(enabled: true, paused: false) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("A small helper will check supported sign-in locations in your home folder when files change, at low priority. Everything stays on this Mac. It stores file paths and keyed fingerprints, never secret values.")
+            Text("A helper checks your home folder as files change, starting at login.")
         }
     }
 
@@ -63,8 +63,6 @@ struct SettingsView: View {
             }
         } header: {
             Text("Background Checks")
-        } footer: {
-            Text("The helper has no window or Dock icon. It keeps running after you quit this app. Pausing stops its checks, not a scan you run yourself. Folders you add are scanned only when you run a scan. If IT installed this app, ask IT why and whom to contact.")
         }
     }
 
@@ -154,7 +152,5 @@ struct BackgroundCheckDetails: View {
             Text("At least \(plural(left, "folder", "folders")) left in the current full scan.")
                 .foregroundStyle(.secondary)
         }
-        Text("Changes are checked in batches between full scans. Full scans check existing files and catch changes that may have been missed. They run in stages and pause in Low Power Mode. A recorded check may cover only part of the home folder; these times are not a heartbeat.")
-            .font(.callout).foregroundStyle(.secondary)
     }
 }

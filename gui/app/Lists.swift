@@ -15,10 +15,10 @@ struct ReviewTable: View {
                 // window's that failed clears with the next one that works,
                 // and the advice still holds. Only a window that has a scan's
                 // results has a report to save.
-                Text(verbatim: "The app could not read or save its list of findings, so what a scan found is not shown here. \(error) "
+                Text(verbatim: "\(error) "
                      + (model.results == nil
-                        ? "Quit the app and open it again to have the list read again."
-                        : "Save the report to see what the last scan found. Quit the app and open it again to have the list read again, then scan again, because the list may not have what that scan found."))
+                        ? "Quit and reopen the app to try again."
+                        : "Save the report to see the last scan's findings, and quit and reopen the app to try again."))
             }
         } else if model.review == nil {
             // The first answer has not come. The engine waits for the list
@@ -230,7 +230,7 @@ struct GapsView: View {
                     } header: {
                         Text("Not Checked at Your Request")
                     } footer: {
-                        Text("These folders are not read, so anything in them is not found. They are listed in every report. A folder you include again is read from the next scan on.")
+                        Text("These folders are not read, so anything in them is not found.")
                     }
                 }
             }

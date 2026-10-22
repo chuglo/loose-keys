@@ -9,9 +9,7 @@ struct OverviewView: View {
             if model.preparingAccess {
                 Section("Preparing Folder Access") {
                     ProgressView()
-                    Text("macOS may ask to access Desktop, Documents and Downloads so Loose Keys can check them for exposed credentials. Denied folders will appear under Not Checked after checking finishes.")
-                    Text("Answer any open macOS prompt to continue. Other protected locations may ask later.")
-                        .foregroundStyle(.secondary)
+                    Text("Answer the macOS prompts for Desktop, Documents and Downloads.")
                     Button("Cancel Preparation") { model.cancelAccessPreparation() }
                 }
             } else if model.showsWelcome {
@@ -83,7 +81,7 @@ struct OverviewView: View {
                 }
                 .controlSize(.large)
                 .frame(width: 260)
-                Text("Before checking starts, macOS may ask for folder access. You can deny access and continue; those folders will be listed as not checked.")
+                Text("macOS may ask for folder access. You can deny it and continue.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -95,7 +93,7 @@ struct OverviewView: View {
                         .padding(.top, 12)
                 }
                 Label {
-                    Text("Background checks start at login and keep running after you quit. They store paths and keyed fingerprints, never secret values. Nothing leaves this Mac.")
+                    Text("A helper checks your home folder as files change, starting at login.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "lock.shield")
@@ -220,7 +218,7 @@ struct OverviewView: View {
                         .disabled(model.monitorFailure != nil || model.phase == .scanning || model.places?.home == nil)
                 } label: {
                     Text("Background Checks")
-                    Text("Allow a helper to check files at low priority, start at login and keep running after you quit this app. It stores paths and keyed fingerprints locally, never secret values.")
+                    Text("A helper checks your home folder as files change, starting at login.")
                 }
             } else {
                 LabeledContent {
@@ -289,7 +287,7 @@ struct OverviewView: View {
             }
         } footer: {
             HStack(alignment: .firstTextBaseline) {
-                Text("Nothing leaves this Mac. Files are only read, never changed.")
+                Text("Files are only read, never changed.")
                 Spacer()
                 SettingsLink { Text("Settings…") }
             }

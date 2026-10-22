@@ -481,7 +481,7 @@ final class AppModel: ObservableObject {
                 await refreshReview()
                 phase = .done
                 if let error = reviewProblem {
-                    failure = "The scan finished, but the app could not read or save its list of findings, so Worth Reviewing does not show them. \(error) Save the report to see what was found."
+                    failure = "The scan finished, but its findings could not be listed. \(error) Save the report to see them."
                 }
             } catch {
                 phase = results == nil ? .ready : .done

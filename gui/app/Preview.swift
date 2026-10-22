@@ -616,8 +616,7 @@ enum Checks {
         expect(await eventually {
             let text = written()
             return text.contains("Preparing folder access…")
-                && text.contains("macOS may ask to access Desktop, Documents and Downloads so Loose Keys can check them for exposed credentials. Denied folders will appear under Not Checked after checking finishes.")
-                && text.contains("Answer any open macOS prompt to continue. Other protected locations may ask later.")
+                && text.contains("Answer the macOS prompts for Desktop, Documents and Downloads.")
                 && button("Cancel Preparation") != nil
         }, "folder access explains the system prompts before starting checks")
         await press(button("Cancel Preparation"), "cancelling folder access preparation")
@@ -984,8 +983,8 @@ enum Checks {
                "a review list that cannot be read says so, and the count beside it is the scan's own")
         // The engine keeps the failure until the app is opened again, and
         // after a scan the report has what the list does not show.
-        let advice = texts.first { $0.contains("could not read or save its list") } ?? ""
-        expect(advice.contains("Quit the app") && advice.contains("Save the report"),
+        let advice = texts.first { $0.contains("reopen the app") } ?? ""
+        expect(advice.contains("reopen the app") && advice.contains("Save the report"),
                "a review list that cannot be read says that quitting the app and opening it again reads it again, and that the report has the findings")
         SampleEngine.storeFailed = false
         await model.refreshReview()
