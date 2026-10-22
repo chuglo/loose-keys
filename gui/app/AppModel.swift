@@ -115,17 +115,12 @@ final class AppModel: ObservableObject {
     @Published var monitor: MonitorStatus?
     @Published var overviewCheckDetails = false
     @Published var settingsCheckDetails = false
-    @Published var overviewScope = false
-    @Published var overviewRules = false
     @Published var inspectorWhy = false
     @Published var inspectorDetails = false
     /// The sidebar as the person left it. The first page hides it until there
     /// is something to list, unless the person has opened it or used it since.
     @Published var columns = NavigationSplitViewVisibility.automatic
     @Published var sidebarAsked = false
-    @Published var rules = ""
-    /// The engine's version, known before any scan has reported it.
-    @Published var version: String?
     @Published var phase = Phase.ready
     @Published var preparingAccess = false
     private var accessCancelled = false
@@ -287,11 +282,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.handle(name, payload) }
         }
         if reviewRoute { pane = .review }
-        Task {
-            await refresh()
-            rules = (try? await engine.request("rules_text")) ?? ""
-            version = try? await engine.request("version")
-        }
+        Task { await refresh() }
     }
 
     /// The helper may have found something while the window was in the background.

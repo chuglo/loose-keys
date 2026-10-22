@@ -474,6 +474,10 @@ vendors change their settings.
 - The controls are the system's: `NavigationSplitView`, `Table`, `List`, the
   toolbar, `.inspector`, `Form` in a `Settings` scene, `NSOpenPanel` and
   `NSSavePanel`. Add a feature with one of these before drawing anything.
+- Overview shows scan results, background status and folder controls, not
+  what a scan covers. That is in [usage](../usage.md), in
+  `loose-keys --list-rules` and in every saved report, which keeps the
+  scan's exclusions and detection limits.
 - The Filter field is in the toolbar on every page, on purpose. Taken out and
   put back as the page changed, it stopped the app about one run in five in
   the window check: AppKit refuses a second search field in a toolbar, and

@@ -40,10 +40,6 @@ struct OverviewView: View {
             if !model.showsWelcome || model.places?.extra.isEmpty == false {
                 folders
             }
-
-            if !model.showsWelcome {
-                scope
-            }
         }
         .formStyle(.grouped)
         .dropDestination(for: URL.self) { folders, _ in
@@ -111,57 +107,6 @@ struct OverviewView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 36)
-        }
-    }
-
-    @ViewBuilder private var scope: some View {
-        Section {
-            Button(model.overviewScope ? "Hide What a Scan Checks" : "Show What a Scan Checks") {
-                model.overviewScope.toggle()
-            }
-            if model.overviewScope {
-                Text("Supported passwords, keys, tokens and other sign-in material in your home folder, and in folders you add for one-time scans.")
-                    .foregroundStyle(.secondary)
-                checked("Passwords", "Export files left on disk, and passwords saved in browsers.", "lock.doc")
-                checked("Keys and Tokens", "Private keys without a passphrase, and service tokens in a known format near the start of a file.", "key")
-                checked("Developer and AI Tools", "Cloud, package and AI tool sign-ins, and secrets in settings files.", "terminal")
-                Text("A scan checks files. It does not check browser cookies or the Keychain. You can also run a one-time scan from the command line.")
-                    .font(.callout).foregroundStyle(.secondary)
-                if let results = model.results {
-                    LabeledContent("Always Skipped") {
-                        Text(results.excluded.joined(separator: ", "))
-                            .font(.callout.monospaced())
-                            .textSelection(.enabled)
-                    }
-                    Text(results.limitations).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                }
-                Button(model.overviewRules ? "Hide Every Rule" : "Show Every Rule") {
-                    model.overviewRules.toggle()
-                }
-                if model.overviewRules {
-                    Text(model.rules.isEmpty ? "Loading…" : model.rules)
-                        .font(.callout.monospaced())
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Text("Version \(model.results?.toolVersion ?? model.version ?? appVersion).")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-    }
-
-    private func checked(_ title: String, _ text: String, _ symbol: String) -> some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(text).font(.callout).foregroundStyle(.secondary)
-            }
-        } icon: {
-            Image(systemName: symbol).foregroundStyle(.secondary)
         }
     }
 

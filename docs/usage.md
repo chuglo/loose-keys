@@ -24,9 +24,9 @@ For a detailed point-in-time report, click **Scan Now**. The sidebar lists what 
 worth reviewing, the sign-ins that are stored, and the places that could not
 be checked. Select a finding to see
 what it is, why it matters and what to do. **Export** saves the full report or
-a counts-only file, and copies the text summary. **Show What a Scan Checks**
-on the Overview gives what a scan reads, its limits and every rule. Opening
-the app turns on neither background checks nor notifications.
+a counts-only file, and copies the text summary. Supported checks and limits
+are listed below. Opening the app turns on neither background checks nor
+notifications.
 
 Before a scan or turning on background checks, the app asks macOS for
 Desktop, Documents and Downloads, one at a time. A folder you deny is listed

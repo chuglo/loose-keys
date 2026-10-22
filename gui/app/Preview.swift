@@ -534,7 +534,7 @@ enum Checks {
                "with nothing to list, the first page asks one question and hides the sidebar")
         // Only the folder already added is listed below it, so that it can be removed.
         expect(button("Show What a Scan Checks") == nil && button("Remove") != nil,
-               "the first page leaves out what a scan checks, and still lists an added folder")
+               "the first page has no scan reference section, and still lists an added folder")
         await press(button("Show Sidebar") ?? button("Toggle Sidebar"), "opening the sidebar from the first page")
         expect(await eventually { sidebarRows().count == 4 } && model.pane == .overview && model.showsWelcome,
                "the sidebar can be opened from the first page, and stays open there")
@@ -563,17 +563,9 @@ enum Checks {
         SampleEngine.nothingFound = false
         await model.refreshReview()
         await open(.overview)
-        expect(!written().contains("Developer and AI Tools"), "what a scan checks starts folded")
-        await press(button("Show What a Scan Checks"), "unfolding what a scan checks")
-        expect(await eventually { written().contains("Developer and AI Tools") }, "what a scan checks unfolds")
-        // The version is the engine's, and is known before any scan.
-        expect(model.results == nil && written().contains { $0.contains("Version 0.2.0-beta.1.") },
-               "before any scan, what a scan checks gives the engine's version")
-        await press(button("Show Every Rule"), "showing every rule")
-        expect(await eventually { !model.rules.isEmpty && written().contains(model.rules) }, "what a scan checks shows every rule")
-        await press(button("Hide Every Rule"), "hiding every rule")
-        expect(await eventually { !written().contains(model.rules) && button("Show Every Rule") != nil },
-               "what a scan checks hides every rule again")
+        expect(model.results == nil && button("Show What a Scan Checks") == nil
+               && button("Show Every Rule") == nil && button("Add Folder or Drive…") != nil,
+               "before a scan, Overview has folder controls without the scan reference section")
         // Before any scan, Not Checked is still where a folder left out is included again.
         await open(.gaps)
         let unscannedGaps = written()
@@ -581,8 +573,6 @@ enum Checks {
                && !unscannedGaps.contains("No Scan Yet"),
                "before any scan, Not Checked lists the folders left out with Include Again")
         await open(.overview)
-        await press(button("Hide What a Scan Checks"), "folding what a scan checks")
-        expect(await eventually { !written().contains("Developer and AI Tools") }, "what a scan checks folds again")
         expect(!SampleEngine.monitoring && button("Enable Background Checks") != nil,
                "Overview offers background setup without enabling it before consent")
         let accessGate = DispatchSemaphore(value: 0)
@@ -652,6 +642,10 @@ enum Checks {
         await open(.overview)
         let roots = model.results?.roots.joined(separator: ", ") ?? ""
         expect(!roots.isEmpty && written().contains("Included: \(roots)."), "the Overview says which places the last scan included")
+        expect(button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
+               && button("Worth Reviewing") != nil && button("Not Checked") != nil
+               && button("Add Folder or Drive…") != nil,
+               "after a scan, Overview keeps results and folder controls without the scan reference section")
 
         // Both lists share one Filter field; a second one in the toolbar stops the app.
         for pane in [Pane.review, .stored, .review, .stored, .gaps, .overview, .stored] {
