@@ -35,52 +35,42 @@ struct ReviewTable: View {
             } description: {
                 Text(empty.text)
             }
-        } else if model.pane == .setAside {
-            // Every row here is set aside, so there is no Status column. A
-            // column added by an `if` needs macOS 14.4, so this is a table
-            // of its own.
-            actions(Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
-                columns
-            })
         } else {
-            actions(Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
-                columns
-                TableColumn("Status", value: \.statusRank) { (item: ReviewItem) in
-                    Text(item.statusText)
-                        .foregroundStyle(item.status == "open" ? Color.primary : Color.secondary)
+            Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
+                TableColumn("Finding", value: \.title) { (item: ReviewItem) in
+                    // Most rows are open, and Set Aside lists only set-aside
+                    // ones, so only a fixed or snoozed row says what it is.
+                    if item.status == "fixed" || item.status == "later" {
+                        HStack(spacing: 8) {
+                            Text(item.title).lineLimit(1)
+                            Text(item.statusText).fixedSize()
+                        }
+                        .foregroundStyle(.secondary)
+                    } else {
+                        Text(item.title).lineLimit(1)
+                    }
                 }
-                .width(min: 86, ideal: 92, max: 130)
-            })
-        }
-    }
-
-    @TableColumnBuilder<ReviewItem, KeyPathComparator<ReviewItem>>
-    private var columns: some TableColumnContent<ReviewItem, KeyPathComparator<ReviewItem>> {
-        TableColumn("Finding", value: \.title) { (item: ReviewItem) in
-            Text(item.title).lineLimit(1)
-        }
-        .width(min: 180, ideal: 320)
-        TableColumn("Where", value: \.path) { (item: ReviewItem) in
-            PathText(path: item.path)
-        }
-        .width(min: 130, ideal: 190)
-        // The first click puts the highest risk at the top.
-        TableColumn("Risk", sortUsing: KeyPathComparator(\ReviewItem.riskLevel, order: .reverse)) { (item: ReviewItem) in
-            RiskLabel(severity: item.severity)
-        }
-        .width(min: 92, ideal: 96, max: 120)
-    }
-
-    private func actions(_ table: some View) -> some View {
-        table.contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
-            // Not for a file whose name the app does not act on.
-            if let id = ids.first, model.reviewEntry(id)?.actionable != false {
-                Button("Show in Finder") { model.showInFinder(id, review: true) }
-                Button("Copy Path") { model.copyPath(id, review: true) }
+                .width(min: 180, ideal: 320)
+                TableColumn("Where", value: \.path) { (item: ReviewItem) in
+                    PathText(path: item.path)
+                }
+                .width(min: 130, ideal: 190)
+                // The first click puts the highest risk at the top.
+                TableColumn("Risk", sortUsing: KeyPathComparator(\ReviewItem.riskLevel, order: .reverse)) { (item: ReviewItem) in
+                    RiskLabel(severity: item.severity)
+                }
+                .width(min: 92, ideal: 96, max: 120)
             }
-        } primaryAction: { ids in
-            if let id = ids.first, model.reviewEntry(id)?.actionable != false {
-                model.showInFinder(id, review: true)
+            .contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
+                // Not for a file whose name the app does not act on.
+                if let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                    Button("Show in Finder") { model.showInFinder(id, review: true) }
+                    Button("Copy Path") { model.copyPath(id, review: true) }
+                }
+            } primaryAction: { ids in
+                if let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                    model.showInFinder(id, review: true)
+                }
             }
         }
     }

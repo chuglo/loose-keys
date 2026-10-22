@@ -769,7 +769,7 @@ enum Checks {
                    "the finding's details start folded and unfold")
             await press(button("Hide Details"), "folding the finding's details")
             expect(await eventually { !written().contains("Rule") }, "the inspector folds the finding's details again")
-            let keys: [PartialKeyPath<ReviewItem>] = [\.title, \.path, \.riskLevel, \.statusRank]
+            let keys: [PartialKeyPath<ReviewItem>] = [\.title, \.path, \.riskLevel]
             await headings(list, keys, sort: { model.reviewSort }, rows: { model.reviewRows })
             expect(model.selectedReview == chosen, "sorting keeps the chosen finding selected")
             model.search = "no finding has this text"
@@ -804,6 +804,16 @@ enum Checks {
                 await settle(after: "clearing the choice")
             } else {
                 expect(false, "the sample list has a finding whose name the app does not act on")
+            }
+            // There is no Status column: only a row that is not open says
+            // what it is, beside the finding's name.
+            if let fixed = model.reviewRows.firstIndex(where: { $0.status == "fixed" }),
+               let open = model.reviewRows.firstIndex(where: { $0.status == "open" }),
+               max(fixed, open) < rows(list).count {
+                expect(written(in: rows(list)[fixed]).contains("Fixed") && !written(in: rows(list)[open]).contains("Open"),
+                       "a fixed finding says Fixed beside its name, and an open one says nothing more")
+            } else {
+                expect(false, "the sample list has a fixed finding and an open one")
             }
             #endif
         } else {

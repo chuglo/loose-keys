@@ -89,7 +89,8 @@ is not gone: its item stays open until the volume is back and the file can be
 looked at. The app cannot tell one volume from another mounted at the same
 place, so a second drive mounted under the first one's name reads as the file
 being gone. Fixed does not mean other copies are gone or that the credential
-was revoked.
+was revoked. A fixed item stays in Worth Reviewing, greyed, with **Fixed**
+beside its name; a snoozed one says **Remind Later**.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
