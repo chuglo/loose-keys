@@ -56,3 +56,10 @@ lto = "thin"
 # The engine is linked into the app, so it is built for size.
 [profile.release.package.loose-keys-gui]
 opt-level = "s"
+
+# Dev-dependencies only: the harness compresses its 256 MiB ZIP bomb fixture
+# with these, which is slow unoptimized.
+[profile.dev.package.zlib-rs]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
