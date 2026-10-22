@@ -111,7 +111,7 @@ struct MainView: View {
             let left = skipped > 0 ? "\(plural(skipped, "folder", "folders")) left out" : nil
             return [places, left].compactMap { $0 }.joined(separator: ", ")
         default:
-            guard let results = model.results else { return "Background Checks: \(model.backgroundState)" }
+            guard let results = model.results else { return "" }
             let state = results.status == "complete" ? "Scan complete" : "Scan incomplete"
             return "\(state), \(localTime(results.generatedAt))"
         }
