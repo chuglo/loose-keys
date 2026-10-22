@@ -213,7 +213,9 @@ struct GapsView: View {
                     } header: {
                         Text("\(gap.label) (\(gap.count))")
                     } footer: {
-                        Text(gap.help)
+                        if !gap.help.isEmpty {
+                            Text(gap.help)
+                        }
                     }
                 }
                 if !skipped.isEmpty {

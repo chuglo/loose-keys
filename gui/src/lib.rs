@@ -1254,21 +1254,9 @@ fn gap_text(reason: &'static str) -> (&'static str, &'static str) {
             "Stored only in the cloud",
             "These files are not on this computer. The app does not download them.",
         ),
-        "scan-limit" => (
-            "Scan work limit reached",
-            "Discovery checks at most 10,000 entries per folder, 100,000 entries per root, \
-             and 64 nested folder levels. An AI tool's records are read 16 folder levels \
-             deep, and 50 different tokens are listed for one record. Some config rules \
-             list up to 100 matches, or 20 password-note lines; omitted matches are a gap \
-             and retained findings stay listed. This app stops \
-             a scan after 30 seconds or when you cancel it. A record being read when the \
-             30 seconds are up is finished first, and one record gets at most 60 seconds. \
-             Folders near the top are checked first, and Library, Movies, Music and \
-             Pictures last, so a folder listed here was only partly checked. Add it as \
-             its own place to give it a separate budget; folders \
-             already checked are not read again. Selecting the same wide folder does not \
-             remove its 10,000-entry limit. Earlier gaps remain in this report.",
-        ),
+        // The heading and the page's opening line say it; the limits are in
+        // the usage guide.
+        "scan-limit" => ("Only partly checked", ""),
         "symlink" => (
             "Link not followed",
             "A known sign-in location is a link that leads outside your home folder, \
@@ -2196,7 +2184,7 @@ mod tests {
         ch_set_event_handler(Some(stop));
         let stopped = scan();
         ch_set_event_handler(None);
-        assert_eq!(stopped["ok"]["gaps"][0]["label"], "Scan work limit reached");
+        assert_eq!(stopped["ok"]["gaps"][0]["label"], "Only partly checked");
         assert_eq!(full(), true);
         // One that runs to its end has.
         assert_eq!(scan()["ok"]["review"], 0);
@@ -2258,23 +2246,8 @@ mod tests {
     }
 
     #[test]
-    fn work_limit_help_explains_all_defaults_and_reselection() {
-        let (label, help) = gap_text("scan-limit");
-        assert_eq!(label, "Scan work limit reached");
-        for text in [
-            "10,000",
-            "100,000",
-            "64",
-            "16 folder levels",
-            "50 different tokens",
-            "30 seconds",
-            "60 seconds",
-            "Library",
-            "same wide folder",
-            "Earlier gaps",
-        ] {
-            assert!(help.contains(text), "missing {text}");
-        }
+    fn work_limit_is_named_without_a_note() {
+        assert_eq!(gap_text("scan-limit"), ("Only partly checked", ""));
     }
 
     #[test]
