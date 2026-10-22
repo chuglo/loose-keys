@@ -100,7 +100,7 @@ final class SampleEngine: Engine {
             Thread.sleep(forTimeInterval: 0.3)
             // The sample scan could not read everything: its status is "partial".
             return Data((Self.nothingFound ? Self.results.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) : Self.results).utf8)
-        case "rules_text": return Data(#""key.ssh.private\n   Possible private key\n   Looks in: any file in the scanned folders, ~/.ssh/*\ndev.aws.inline-credentials\n   AWS access keys stored in a file\n   Looks in: ~/.aws/credentials, ~/.aws/config""#.utf8)
+        case "rules_text": return Data(#""key.ssh.private\n   Private key with no passphrase\n   Looks in: any file in the scanned folders, ~/.ssh/*\ndev.aws.inline-credentials\n   AWS access keys stored in a file\n   Looks in: ~/.aws/credentials, ~/.aws/config""#.utf8)
         case "summary_text", "item_path", "open_link": return Data(#""sample""#.utf8)
         default: return Data("null".utf8)
         }
@@ -143,7 +143,7 @@ final class SampleEngine: Engine {
         return """
         {"items":[
         \(item(7, "Possible wallet recovery phrase in a file", "~/Desktop/wallet backup.txt", "high", "open")),
-        \(item(1, "Possible private key", "~/.ssh/id_ed25519", "high", "open")),
+        \(item(1, "Private key with no passphrase", "~/.ssh/id_ed25519", "high", "open")),
         \(item(2, "AWS access keys stored in a file", "~/.aws/credentials", "high", "open", subject: "profile default")),
         \(item(3, "Possible password export file", "~/Downloads/passwords.csv", "high", "open")),
         \(tokenInTwoFiles),

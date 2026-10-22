@@ -127,7 +127,7 @@ do {
     guard AXUIElementSetAttributeValue(row, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success else {
         try fail("cannot select Worth Reviewing")
     }
-    let expected = [("Possible private key", "~/.ssh/id_bundle_check", "key.ssh.private"),
+    let expected = [("Private key with no passphrase", "~/.ssh/id_bundle_check", "key.ssh.private"),
                     ("AWS access keys stored in a file", "~/.aws/credentials", "dev.aws.inline-credentials")]
     try wait("specific fixture findings in window") {
         try alive()
@@ -243,7 +243,7 @@ do {
             }
             let keyStillOpen = rows.contains {
                 let exposed = descendants($0).flatMap { texts($0) }
-                return exposed.contains("Possible private key") && !exposed.contains("Fixed")
+                return exposed.contains("Private key with no passphrase") && !exposed.contains("Fixed")
             }
             let visible = windowElements().flatMap { texts($0) }
             let awsPresent = rows.contains { descendants($0).flatMap { texts($0) }.contains("AWS access keys stored in a file") }

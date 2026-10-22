@@ -23,14 +23,15 @@ pub const SSH_KEY: Rule = Rule {
 pub const SSH_KEY_NO_PASSPHRASE: Rule = Rule {
     kind: "review",
     severity: "high",
+    title: "Private key with no passphrase",
     reason: Some("The key has no passphrase, so a copy of this file works as it is. The header does not show that the key is valid or has current authorization."),
-    next_step: Some("Add a passphrase. Deleting a copy or adding a passphrase does not revoke access the key already has."),
+    next_step: Some("If this key has only ever been in ~/.ssh on this Mac, adding a passphrase protects it from now on. If it has been anywhere else, such as a synced folder, a repository, an email or a backup, or you're not sure, replace it: create a new key with a passphrase, add it where the old one is trusted, then remove the old one from each of those places. Deleting the file or adding a passphrase does not stop a copy made earlier from working."),
     advice: Advice {
         steps: &[
-            "If this is an SSH key you use, add a passphrase: ssh-keygen -p -f <key file> (for a PuTTY .ppk file, set one in PuTTYgen instead).",
-            "Let macOS remember the passphrase so you are not asked each time: ssh-add --apple-use-keychain <key file>",
-            "If you do not recognize the key or no longer use it, remove its public key from the servers and services that trust it (GitHub: Settings > SSH and GPG keys), then delete the file.",
-            "If the key may have been copied, replace it: create a new key, install it, and remove the old public key everywhere.",
+            "If it is an SSH key you use, add a passphrase: ssh-keygen -p -f <key file>. Don't run this on a key another program reads, such as a web server's HTTPS key: it rewrites the file in SSH's own format.",
+            "To avoid typing the passphrase each time, run ssh-add --apple-use-keychain <key file>, and put UseKeychain yes at the top of ~/.ssh/config so SSH still finds it after a restart.",
+            "If a script or server signs in with this key unattended, a passphrase will stop it. Leave the key without one and limit what it can do where it's trusted, for example as a read-only deploy key.",
+            "If you don't use it, remove it where it's trusted, then delete the file and its .pub. ssh-keygen -lf <key file> prints its fingerprint, which GitHub (Settings > SSH and GPG keys) and similar services show beside each key.",
         ],
         link: None,
     },
