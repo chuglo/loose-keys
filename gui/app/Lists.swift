@@ -128,7 +128,7 @@ extension ReviewTable {
                 ? ("No Scan Yet", "exclamationmark.triangle",
                    "Scan this Mac to look for saved passwords, keys and tokens.")
                 : ("Nothing to Review", "tray",
-                   "Background checks have found nothing that needs a decision. Scan this Mac to check it now.")
+                   "Background checks have found nothing that needs your attention. Scan this Mac to check it now.")
         }
         if results.review > 0 {
             return ("Findings Not Listed", "exclamationmark.triangle",
@@ -138,9 +138,9 @@ extension ReviewTable {
         // includes the folders macOS protects, so most scans are.
         return results.status == "complete"
             ? ("Nothing to Review", "checkmark.circle",
-               "The last scan found nothing that needs a decision. That is not proof this Mac is safe.")
+               "The last scan found nothing that needs your attention. That is not proof this Mac is safe.")
             : ("Nothing Found in What Was Checked", "eye.slash",
-               "The last scan could not check everything, and found nothing that needs a decision in what it read. Not Checked lists what it missed.")
+               "The last scan could not check everything, and found nothing that needs your attention in what it read. Not Checked lists what it missed.")
     }
 }
 

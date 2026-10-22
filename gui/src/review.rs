@@ -389,7 +389,9 @@ impl Review {
             }
         }
         if self.decisions.len() >= MAX_ITEMS {
-            return Err("Too many decisions are stored. Undo some you no longer need.".into());
+            return Err(
+                "Too many findings are set aside. Move some back to Worth Reviewing.".into(),
+            );
         }
         self.decisions.push(Decision {
             reason,

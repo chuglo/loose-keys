@@ -247,7 +247,7 @@ do {
             }
             let visible = windowElements().flatMap { texts($0) }
             let awsPresent = rows.contains { descendants($0).flatMap { texts($0) }.contains("AWS access keys stored in a file") }
-            let inspectorFixed = visible.contains("Nothing to decide. It is fixed here.")
+            let inspectorFixed = visible.contains("It is fixed here, so there is nothing to snooze or set aside.")
             rescanEvidence = "AWS row=\(awsPresent), row fixed=\(awsFixed), key open=\(keyStillOpen), inspector fixed=\(inspectorFixed)"
             return awsFixed && keyStillOpen
         }

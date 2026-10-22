@@ -55,21 +55,21 @@ four reasons:
 
 The first three cover matching copies wherever they are stored. If a password
 or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
-or Key**, changed text appears there if it is flagged again. A decision saved
-under the earlier combined reason, for testing or no longer working, still
-applies and is shown as a previous choice.
+or Key**, changed text appears there if it is flagged again. A finding set
+aside under the earlier combined reason, for testing or no longer working,
+stays set aside and is shown as a previous choice.
 
 **Keeping It Here Intentionally** is about one place. The same credential turning
 up elsewhere is still reported. It survives rotating the value in place, and
 ends if the file becomes readable by others, if a different kind of credential
 appears there, or after six months.
 
-Setting an item aside moves it out of Worth Reviewing into **Set Aside** in
-the sidebar. You stay in Worth Reviewing. The Set Aside inspector shows your
-reason under **Your Decision**, with **Move to Worth Reviewing** to undo the
-decision later. **Show Details** explains which copies the decision covers and
-when the finding needs review again. If you keep just one copy of a credential,
-other copies that still need a decision remain in Worth Reviewing.
+Setting an item aside moves it out of Worth Reviewing into **Set Aside**, under
+Findings in the sidebar. You stay in Worth Reviewing. The inspector of a
+set-aside finding shows your reason under **Set Aside**, with **Move to Worth
+Reviewing** to undo it later. **Show Details** explains which copies the reason
+covers and when the finding needs review again. If you keep just one copy of a
+credential, the other copies remain in Worth Reviewing.
 
 Setting an item aside never stops it being found or counted in scan results,
 saved reports or copied summaries. The counts under the window's title still

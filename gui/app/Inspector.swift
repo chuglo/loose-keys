@@ -54,7 +54,7 @@ private struct ReviewInspector: View {
                     Text(reason?.summary ?? "Set aside by you")
                     Button("Move to Worth Reviewing") { model.decide(item, reason: nil) }
                 } header: {
-                    Text("Your Decision")
+                    Text("Set Aside")
                 }
             }
 
@@ -170,7 +170,7 @@ private struct ReviewInspector: View {
             }
             .buttonStyle(.bordered)
         } else {
-            Text("Nothing to decide. It is fixed here.").foregroundStyle(.secondary)
+            Text("It is fixed here, so there is nothing to snooze or set aside.").foregroundStyle(.secondary)
         }
     }
 }

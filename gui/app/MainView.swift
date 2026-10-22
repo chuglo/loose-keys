@@ -196,8 +196,6 @@ struct Sidebar: View {
                 Label("Not Checked", systemImage: "eye.slash")
                     .badge(model.results?.notChecked ?? 0)
                     .tag(Pane.gaps)
-            }
-            Section("Decisions") {
                 Label("Set Aside", systemImage: "archivebox")
                     .badge(model.setAsideCount)
                     .tag(Pane.setAside)

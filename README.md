@@ -49,8 +49,8 @@ ln -s "/Applications/Loose Keys.app/Contents/MacOS/loose-keys" /usr/local/bin/
 loose-keys scan
 ```
 
-It runs the app's scanner but doesn't read or keep the app's state, so your
-review decisions don't apply there.
+It runs the app's scanner but doesn't read or keep the app's state, so
+findings you set aside in the app are still reported there.
 
 ```sh
 loose-keys scan --limits                  # also print what the scan can't detect

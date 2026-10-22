@@ -825,8 +825,16 @@ enum Checks {
             expect(await eventually {
                 let text = (written() + everything().flatMap(names)).joined(separator: "\n")
                 guard let keptReason = SetAsideReason.all.first(where: { $0.id == "kept" }) else { return false }
-                return text.contains("Your Decision") && text.contains(keptReason.summary)
-                    && !text.contains(keptReason.returns)
+                // The sidebar row and the window title say "Set Aside" too,
+                // so the heading is looked for everywhere but there.
+                let toolbar = everything().first { role($0) == kAXToolbarRole }
+                let chrome = Set(windows().map(CFHash)
+                    + [tables().first, toolbar].compactMap { $0 }.flatMap { everything(in: $0) }.map(CFHash))
+                let heading = everything().contains { element in
+                    !chrome.contains(CFHash(element))
+                        && (names(element) + [value(element, kAXValueAttribute) as? String].compactMap { $0 }).contains("Set Aside")
+                }
+                return heading && text.contains(keptReason.summary) && !text.contains(keptReason.returns)
             }, "the decision card shows the saved reason with its explanation collapsed")
             await press(button("Show Details"), "revealing the decision explanation in Details")
             expect(await eventually {
