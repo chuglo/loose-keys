@@ -136,8 +136,8 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   failures and pausing without starting a helper. Recovery after
   `launchctl bootout` is unverified, and this sequence did not clear a
   Launch Constraint Violation after a rebuild.
-- A decision or reminder about an item's value carries the `revision` the
-  row was drawn with. Check it against freshly loaded state inside the store
+- A decision about an item's value carries the `revision` the row was drawn
+  with. Check it against freshly loaded state inside the store
   transaction: an id can outlive the value the person saw.
 
 ## Locks, threads and waits
@@ -154,9 +154,7 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   `Monitor`. Copy the value out first, as `work` does with
   `agent.known.lock().unwrap().skip.clone()`. The guard in such an expression
   is dropped at the end of the statement. `Mutex` is not reentrant, so a guard
-  held across a call that locks it again waits for ever. One older function in
-  `gui/src/lib.rs` breaks this: `defer_review` holds `review` and
-  `storage_error` across `Store::update`. [4]
+  held across a call that locks it again waits for ever. [4]
 - Where two locks are held, the order is: in the app `review`, then
   `storage_error` or `report`; in the agent `inbox`, then `known`. `Monitor`'s
   lock is taken with no other held (`Agent::remember` drops `known` first).
@@ -403,7 +401,7 @@ vendors change their settings.
   each command until the test answers it and counts simultaneous calls.
   Cases cover coalesced review/status reads, a change or failure during a
   read, latest failures, out-of-order folder answers, concurrent scan/Stop,
-  and the id and revision sent with decisions and reminders.
+  and the id and revision sent with decisions.
   A call the test never answers fails after ten seconds, naming the command.
   It is a model with a stand-in engine, not the running window or the real
   engine, and it does not show which orders macOS produces.
@@ -504,6 +502,11 @@ vendors change their settings.
   save the list until a build that knows them runs. That is from the
   code; no running app has shown it. Scan and report contracts are
   unchanged.
+- There is no snooze. Private state still has each item's `deferred` field,
+  always written false, because older builds cannot read the list without
+  it. What they saved there is not read: an item they snoozed is open, and
+  from the code it may be notified once more. A test round-trips the field;
+  no older build has been run against the new state.
 - Move to Worth Reviewing sends the displayed row's id and revision, so the
   engine can refuse a click after that value has changed. The window
   follows the returned finding only after the command and its ordered

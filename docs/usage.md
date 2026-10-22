@@ -73,9 +73,8 @@ credential, the other copies remain in Worth Reviewing.
 
 Setting an item aside never stops it being found or counted in scan results,
 saved reports or copied summaries. The counts under the window's title still
-include it ("3 to review, 5 set aside"). **Remind Me in a Week** is a snooze: the item alerts
-once more when the week ends. A folder can be left out (**Stop Checking** and
-the folder's name); it then appears in every summary as not checked, and Not
+include it ("3 to review, 5 set aside"). A folder can be left out (**Stop
+Checking** and the folder's name); it then appears in every summary as not checked, and Not
 Checked can include it again. Known sign-in files in it, and the files
 directly in an AI tool's own folder, are still read by a scan and by the
 weekly pass, though not when they change.
@@ -90,7 +89,7 @@ looked at. The app cannot tell one volume from another mounted at the same
 place, so a second drive mounted under the first one's name reads as the file
 being gone. Fixed does not mean other copies are gone or that the credential
 was revoked. A fixed item stays in Worth Reviewing, greyed, with **Fixed**
-beside its name; a snoozed one says **Remind Later**.
+beside its name.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores

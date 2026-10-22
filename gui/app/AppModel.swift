@@ -282,7 +282,6 @@ final class AppModel: ObservableObject {
     var reviewSummary: String {
         guard reviewProblem == nil, let counts = review?.counts else { return "" }
         var parts = ["\(counts.open) to review"]
-        if counts.later > 0 { parts.append("\(counts.later) to be reminded of") }
         if counts.setAside > 0 { parts.append("\(counts.setAside) set aside") }
         if counts.fixed > 0 { parts.append("\(counts.fixed) fixed") }
         if review?.full == true { parts.append("list full, so some findings were left out") }
@@ -619,12 +618,6 @@ final class AppModel: ObservableObject {
     /// the new one. The list is then asked for again, and the refusal shown.
     private func drawn(_ item: ReviewItem) -> [String: Any] {
         ["id": item.id, "revision": item.revision ?? NSNull()]
-    }
-
-    func remindLater(_ item: ReviewItem) {
-        change {
-            try await self.engine.send("defer_review", self.drawn(item).merging(["deferred": !item.deferred]) { $1 })
-        }
     }
 
     /// Set an item aside for a reason, or return it to review with nil.

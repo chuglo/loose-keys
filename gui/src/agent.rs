@@ -294,7 +294,7 @@ impl Agent {
             inbox.last_event = last_event;
             std::mem::take(&mut inbox.settings)
         };
-        // The app changed the shared state: a setting, a deferral or a retry.
+        // The app changed the shared state: a setting, a decision or a retry.
         if settings {
             match self.store.read() {
                 Ok(state) => self.remember(&state),
@@ -357,7 +357,7 @@ extern "C" fn delivered(revision: u64, success: bool) {
         agent
             .store
             .update(|state| {
-                state.delivered(revision, crate::now());
+                state.delivered(revision);
                 Ok(())
             })
             .map(|(state, ())| state)
@@ -499,9 +499,9 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
             checked.retain(|_, (last, _)| last.elapsed() < CADENCE);
             let state = agent.store.read();
             let last = state.as_ref().map_or(0, |s| s.agent.baseline_at);
-            // What is to be notified can become so by the clock alone, as
-            // when a reminder's week ends, with nothing read or written to
-            // say so. What is known is from before; this is as it is now.
+            // What is to be notified can change by the clock alone, as when
+            // a set-aside reason ends, with nothing read or written to say
+            // so. What is known is from before; this is as it is now.
             if let Ok(state) = &state {
                 agent.remember(state);
             }
@@ -1720,105 +1720,6 @@ mod tests {
         let waits: Vec<u64> = (1..=8).map(|n| unsaved_wait(pause, n).as_secs()).collect();
         assert_eq!(waits, [30, 60, 120, 240, 480, 900, 900, 900]);
         assert_eq!(unsaved_wait(pause, u32::MAX), CADENCE);
-    }
-
-    /// Give the one item a reminder that ends at `until`, with everything
-    /// found so far already notified, and tell the agent.
-    fn remind(f: &mut Fixture, until: u64) {
-        f.app_sets(|s| {
-            s.notified_revision = s.revision;
-            s.items[0].deferred = true;
-            s.items[0].snoozed_until = until;
-        });
-    }
-
-    /// Wait for the clock, which is what ends a reminder's week.
-    fn clock(at: u64) {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while crate::now() < at {
-            assert!(Instant::now() < deadline, "the clock never got to {at}");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    /// Whether anything is to be notified was worked out when the state was
-    /// last read or written, and kept. A reminder's week ends by the clock,
-    /// with nothing read or written, so on a Mac where nothing else changed
-    /// the reminder was never given. No notification is sent here: macOS has
-    /// not been asked for the permission, and the agent stops there.
-    #[test]
-    fn a_reminder_whose_week_has_ended_is_seen_at_the_quarter_hourly_check() {
-        let mut f = Fixture::start("reminder", &["remind.csv"], |_| {});
-        f.first_pass();
-        let owed = |f: &Fixture| f.agent.known.lock().unwrap().unnotified;
-        // Not before its time: an hour to go, and a check comes round.
-        remind(&mut f, crate::now() + 3600);
-        assert!(!owed(&f));
-        f.tick();
-        // The check saves the place in the change history, after it has
-        // looked at the state.
-        let state = f.wait("the check", |s| s.agent.event_id == f.event);
-        assert!(!owed(&f), "a reminder was due an hour early");
-        assert!(!state.pending(crate::now()) && state.attempts == 0);
-        // The week ends, with the place in the change history saved before
-        // it does: the next check finds nothing changed and nothing to
-        // save. A save would have looked at the state again by the way.
-        let ends = crate::now() + 2;
-        remind(&mut f, ends);
-        f.tick();
-        f.wait("the check before the week ends", |s| {
-            s.agent.event_id == f.event
-        });
-        clock(ends);
-        f.tick();
-        f.until("the reminder to be seen at the check", || owed(&f));
-        // Seen, and not sent: nothing was attempted without the permission.
-        let state = f.app.read().unwrap();
-        assert!(state.pending(crate::now()) && state.attempts == 0);
-        f.stop();
-    }
-
-    /// The same with a full pass waiting for Low Power Mode to end: that
-    /// holds the pass, and not a reminder.
-    #[test]
-    fn a_reminder_is_seen_while_low_power_mode_holds_the_full_pass() {
-        static LOW: AtomicBool = AtomicBool::new(false);
-        static ASKED: AtomicU32 = AtomicU32::new(0);
-        // Asked in every round that has a pass to go on with.
-        fn low() -> bool {
-            ASKED.fetch_add(1, Ordering::SeqCst);
-            LOW.load(Ordering::SeqCst)
-        }
-        let mut f = Fixture::tuned(
-            "reminder-low-power",
-            &["remind.csv"],
-            |_| {},
-            |agent| agent.low_power = low,
-        );
-        f.first_pass();
-        let owed = |f: &Fixture| f.agent.known.lock().unwrap().unnotified;
-        // A pass is asked for and held.
-        LOW.store(true, Ordering::SeqCst);
-        f.changes_lost();
-        let held = f.app.read().unwrap().agent.baseline;
-        let ends = crate::now() + 2;
-        remind(&mut f, ends);
-        clock(ends);
-        // Two checks: the second began after the first was asked for, so
-        // it was a check made with the week over.
-        for _ in 0..2 {
-            let asked = ASKED.load(Ordering::SeqCst);
-            f.tick();
-            f.until("a check", || ASKED.load(Ordering::SeqCst) > asked);
-        }
-        assert!(
-            owed(&f),
-            "the reminder was not seen once its week had ended"
-        );
-        let state = f.app.read().unwrap();
-        assert!(state.pending(crate::now()) && state.attempts == 0);
-        assert_eq!(state.agent.baseline, held, "the pass was not held");
-        f.stop();
     }
 
     #[test]

@@ -73,13 +73,13 @@ final class SampleEngine: Engine {
         case "pending_review" where Self.refused:
             throw EngineError(message: "That action stopped unexpectedly.")
         case "pending_review" where Self.nothingFound:
-            return Data(#"{"items":[],"counts":{"open":0,"later":0,"set_aside":0,"kept":0,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"denied"}"#.utf8)
+            return Data(#"{"items":[],"counts":{"open":0,"set_aside":0,"kept":0,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"denied"}"#.utf8)
         case "pending_review" where Self.allSetAside: return Data(Self.everythingSetAside.utf8)
         case "pending_review": return Data(Self.review.utf8)
         case "decide_review" where Self.saveFails:
             Self.storeFailed = true
             throw EngineError(message: "Cannot save local review storage.")
-        case "decide_review" where !(args["revision"] is Int), "defer_review" where !(args["revision"] is Int):
+        case "decide_review" where !(args["revision"] is Int):
             // As the engine: a press says which drawing of the row it was made on.
             throw EngineError(message: "The request has no usable \"revision\".")
         case "decide_review":
@@ -130,7 +130,7 @@ final class SampleEngine: Engine {
          "next_step":"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now.",
          "severity":"\(severity)","steps":["Write the phrase on paper, or stamp it in metal, and store it somewhere safe away from the computer.","Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots.","If this Mac may have been infected, create a new wallet with a new phrase and move the funds to it."],
          "link":null,"subject":\(quoted(subject)),"detail":\(quoted(detail)),"first_seen":"2026-10-10T21:40:00Z","resolved_at":null,
-         "deferred":false,"resolved":\(state == "fixed"),"state":"\(state)","set_aside":\(quoted(aside)),
+         "resolved":\(state == "fixed"),"state":"\(state)","set_aside":\(quoted(aside)),
          "places":\(copies),"folder":null,"actionable":\(actionable)}
         """
     }
@@ -153,7 +153,7 @@ final class SampleEngine: Engine {
     private static var everythingSetAside: String {
         """
         {"items":[\(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open", aside: "kept"))],
-         "counts":{"open":0,"later":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"\(permission)"}
+         "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"\(permission)"}
         """
     }
 
@@ -172,7 +172,7 @@ final class SampleEngine: Engine {
         \(item(5, "Passwords saved in a browser", "~/Library/Application Support/Google/Chrome/Default/Login Data", "medium", "open", detail: "214 saved logins")),
         \(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open")),
         \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false))
-        ],"counts":{"open":\(7 - asideCount),"later":0,"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":["~/Movies/Raw"],"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
+        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":["~/Movies/Raw"],"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
         """
     }
 
@@ -265,12 +265,6 @@ enum Snapshots {
             if let now = model.reviewEntry(id) { model.decide(now, reason: nil) }
             await settle()
             lines.append("shown again: \(state(id))")
-            if let now = model.reviewEntry(id) { model.remindLater(now) }
-            await settle()
-            lines.append("remind later: \(state(id))")
-            if let now = model.reviewEntry(id) { model.remindLater(now) }
-            await settle()
-            lines.append("returned: \(state(id))")
             let place: String? = try? await model.engine.request("item_path", ["index": id, "review": true])
             lines.append("path is absolute: \(place?.hasPrefix("/") ?? false)")
         }

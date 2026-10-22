@@ -161,10 +161,10 @@ func reviewList(_ open: Int, revision: Int = 1) -> String {
     let items: [[String: Any]] = (0..<open).map {
         ["id": $0 + 1, "rule": "fixture-rule", "path": "~/fixture-\($0 + 1).txt",
          "title": "Synthetic finding", "explanation": "Review fixture",
-         "severity": "high", "deferred": false, "state": "open", "revision": revision]
+         "severity": "high", "state": "open", "revision": revision]
     }
     return json(["items": items,
-                 "counts": ["open": open, "later": 0, "set_aside": 0, "kept": 0, "fixed": 0],
+                 "counts": ["open": open, "set_aside": 0, "kept": 0, "fixed": 0],
                  "skipped": [String](), "full": false])
 }
 
@@ -172,12 +172,11 @@ func reviewStates(_ states: [String], revision: Int = 1) -> String {
     let items: [[String: Any]] = states.enumerated().map { index, state in
         ["id": index + 1, "rule": "fixture-rule", "path": "~/fixture-\(index + 1).txt",
          "title": "Synthetic finding \(index + 1)", "explanation": "Review fixture",
-         "severity": "high", "deferred": state == "later", "state": state,
+         "severity": "high", "state": state,
          "set_aside": state == "set-aside" ? "not-a-credential" : NSNull(), "revision": revision]
     }
     return json(["items": items,
                  "counts": ["open": states.filter { $0 == "open" }.count,
-                            "later": states.filter { $0 == "later" }.count,
                             "set_aside": states.filter { $0 == "set-aside" }.count,
                             "kept": 0, "fixed": states.filter { $0 == "fixed" }.count],
                  "skipped": [String](), "full": false])
@@ -481,17 +480,12 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     bench.answer(await bench.next("pending_review", after: 1), .success(reviewList(1, revision: 9)))
     await eventually("the list read after the decision is shown") { bench.model.reviewRows.first?.revision == 9 }
     guard let redrawn = bench.model.reviewRows.first else { return check(false, "review: the list is shown again") }
-    let reminder = await bench.ask("defer_review") { $0.remindLater(redrawn) }
-    check(reminder.call.args["id"] as? Int == 1 && reminder.call.args["revision"] as? Int == 9,
-          "review: a reminder is sent with the revision the row was last drawn with, not an earlier one")
-    check(reminder.call.args["deferred"] as? Bool == true, "review: a reminder says whether it is being set")
-    bench.answer(reminder.call, .success("null"))
-    bench.answer(await bench.next("pending_review", after: 2), .success(reviewList(1, revision: 9)))
     let undone = await bench.ask("decide_review") { $0.decide(redrawn, reason: nil) }
-    check(undone.call.args["revision"] as? Int == 9 && undone.call.args["reason"] is NSNull,
-          "review: returning a row to review is sent with its revision and no reason")
+    check(undone.call.args["id"] as? Int == 1 && undone.call.args["revision"] as? Int == 9,
+          "review: a press is sent with the revision the row was last drawn with, not an earlier one")
+    check(undone.call.args["reason"] is NSNull, "review: returning a row to review is sent with no reason")
     bench.answer(undone.call, .success("null"))
-    bench.answer(await bench.next("pending_review", after: 3), .success(reviewList(1, revision: 9)))
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewList(1, revision: 9)))
 }
 
 // MARK: Background checks

@@ -64,14 +64,12 @@ and monitor.
 - A command that acts on a file or link takes a finding's index or id, never a
   path from the window. Copy `item_path`: look the path up, check it again,
   return it. A link is returned only if `rules::known_link` lists it.
-- A decision or reminder carries the `revision` the row was drawn with, and
-  is checked against freshly loaded state inside the store's `update`.
+- A decision carries the `revision` the row was drawn with, and is checked
+  against freshly loaded state inside the store's `update`.
 - Keep a closure passed to `Store::update` to the change itself: the app and
   the helper both wait while it runs.
 - A new `Mutex` field in `App` goes into `App::recover` only if its value is
   always replaced whole.
-- `defer_review` holds `review` and `storage_error` across `Store::update`. It
-  is the one exception to the root file's lock rule; do not copy it.
 - Stopping work is cooperative, through `Monitor::cancel`. A pause or a change
   of consent cancels automatic work only, never a scan the person started.
 - Call `prepare_quit` only when the app is really quitting: it closes the scan

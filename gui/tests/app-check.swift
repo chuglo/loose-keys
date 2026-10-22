@@ -155,21 +155,55 @@ do {
         }
     }
     print("PASS: fixture inspectors expose no planted values, prefixes or suffixes")
-    // The last selected item is AWS. Exercise persisted decisions through the
-    // real window, then leave it deferred while exporting: a label must not
-    // remove a finding from the report.
-    try wait("reminder decision") { button("Remind Me in a Week") != nil }
-    try press(button("Remind Me in a Week"), "Remind Me in a Week")
-    try wait("deferred decision saved") {
+    // The last selected item is AWS. Exercise saved choices through the real
+    // window, then leave it set aside while exporting: a label must not remove
+    // a finding from the report.
+    let aws = "AWS access keys stored in a file"
+    func listed(_ name: String) -> AXUIElement? {
+        windowElements().first {
+            attribute($0, kAXRoleAttribute) as? String == kAXRowRole && descendants($0).flatMap { texts($0) }.contains(name)
+        }
+    }
+    func choose(_ name: String) throws {
+        guard let found = listed(name),
+              AXUIElementSetAttributeValue(found, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success else {
+            try fail("cannot select \(name)")
+        }
+    }
+    // A menu is a menu button to assistive software on macOS 26 and a pop-up
+    // button on macOS 14.
+    func setAsideMenu() -> AXUIElement? {
+        windowElements().first {
+            [kAXMenuButtonRole, kAXPopUpButtonRole].contains(attribute($0, kAXRoleAttribute) as? String ?? "")
+                && descendants($0).flatMap { texts($0) }.contains { $0.hasPrefix("Set Aside") }
+        }
+    }
+    func reason(_ label: String) -> AXUIElement? {
+        guard let menu = setAsideMenu() else { return nil }
+        return (descendants(menu) + descendants(app)).first {
+            attribute($0, kAXRoleAttribute) as? String == kAXMenuItemRole && texts($0).contains(label)
+        }
+    }
+    func setAside() throws {
+        try wait("Set Aside menu") { setAsideMenu() != nil }
+        try press(setAsideMenu(), "Set Aside…")
+        try wait("set-aside reasons") { reason("Keeping It Here Intentionally") != nil }
+        try press(reason("Keeping It Here Intentionally"), "Keeping It Here Intentionally")
+        try wait("AWS item set aside") { try alive(); try checkLeaks(); return listed(aws) == nil }
+    }
+    try setAside()
+    try choose("Set Aside")
+    try wait("Set Aside lists the AWS item") { listed(aws) != nil }
+    try choose(aws)
+    try wait("Move to Worth Reviewing") { button("Move to Worth Reviewing") != nil }
+    try press(button("Move to Worth Reviewing"), "Move to Worth Reviewing")
+    try wait("AWS item back in Worth Reviewing") {
         try alive()
         try checkLeaks()
-        return button("Review Now") != nil
+        return listed(aws) != nil && setAsideMenu() != nil
     }
-    try press(button("Review Now"), "Review Now")
-    try wait("decision restored") { button("Remind Me in a Week") != nil }
-    try press(button("Remind Me in a Week"), "Remind Me in a Week")
-    try wait("deferred again") { button("Review Now") != nil }
-    print("PASS: real review decisions defer, restore and defer the AWS item")
+    try setAside()
+    print("PASS: real review choices set aside, restore and set aside the AWS item")
     try press(menuItem("Save Report…"), "Save Report")
     try wait("save panel name field") {
         windowElements().contains { attribute($0, kAXRoleAttribute) as? String == kAXTextFieldRole &&
@@ -209,7 +243,7 @@ do {
     try data.write(to: URL(fileURLWithPath: args[2]).appendingPathComponent("report.json"), options: .withoutOverwriting)
     print("PASS: app exported owner-only report with specific fixture rules and paths; no planted values, prefixes or suffixes")
     // Remove only the fixture this driver created, then rescan through the UI.
-    // A previously deferred item must still be rechecked and marked fixed.
+    // A set-aside item must still be rechecked and marked fixed.
     try files.removeItem(at: home.appendingPathComponent(".aws/credentials"))
     try press(menuItem("Scan Now"), "Scan Now after fixture removal")
     // Every scan opens Overview. Return to the list before asserting its rows.
@@ -247,7 +281,7 @@ do {
             }
             let visible = windowElements().flatMap { texts($0) }
             let awsPresent = rows.contains { descendants($0).flatMap { texts($0) }.contains("AWS access keys stored in a file") }
-            let inspectorFixed = visible.contains("It is fixed here, so there is nothing to snooze or set aside.")
+            let inspectorFixed = visible.contains("It is fixed here, so there is nothing to set aside.")
             rescanEvidence = "AWS row=\(awsPresent), row fixed=\(awsFixed), key open=\(keyStillOpen), inspector fixed=\(inspectorFixed)"
             return awsFixed && keyStillOpen
         }
@@ -255,7 +289,7 @@ do {
         let message = (error as? CheckError)?.message ?? "rescan failed"
         try fail(message + " (" + rescanEvidence + ")")
     }
-    print("PASS: rescan marks the removed deferred fixture fixed and leaves the private key unresolved")
+    print("PASS: rescan marks the removed set-aside fixture fixed and leaves the private key unresolved")
 } catch {
     let message = (error as? CheckError)?.message ?? "test setup or file operation failed"
     fputs("FAIL: \(message)\n", stderr)

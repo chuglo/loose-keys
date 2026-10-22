@@ -1,4 +1,4 @@
-//! Local review state. Delivery and deferral never resolve a finding, and a
+//! Local review state. Delivery never resolves a finding, and a
 //! decision to set a finding aside never stops it being found: it is a label
 //! on the item, applied when deciding what to bring to the person's attention.
 use crate::fsutil;
@@ -39,7 +39,11 @@ pub struct Item {
     pub first_seen: Option<String>,
     #[serde(default)]
     pub resolved_at: Option<String>,
-    pub deferred: bool,
+    /// Always false. Builds that had "Remind me in a week" cannot read state
+    /// without it, so it is still written; what they wrote is not read, and an
+    /// item they snoozed is open.
+    #[serde(default, skip_deserializing)]
+    pub(crate) deferred: bool,
     /// Stable across restarts and pruning; what the app names an item by.
     #[serde(default)]
     pub id: u64,
@@ -55,9 +59,6 @@ pub struct Item {
     /// Whether group/other read mode bits are set on the file.
     #[serde(default)]
     pub shared: bool,
-    /// When a "remind me later" ends. 0 with `deferred` set means no end.
-    #[serde(default)]
-    pub snoozed_until: u64,
     /// Where the volume holding the file was mounted when it was last found,
     /// as `fsutil::mounted_at` counts it. None for an item listed before this
     /// was kept. Stays on this side, like the fingerprint.
@@ -110,7 +111,6 @@ pub struct Skip {
     pub added: String,
 }
 
-pub const SNOOZE: u64 = 7 * 24 * 3600;
 /// "Kept" is asked about again after this long, in the app, without an alert.
 pub const RECONFIRM: u64 = 180 * 24 * 3600;
 pub const MAX_ITEMS: usize = 4096;
@@ -231,13 +231,6 @@ pub fn delivery(new: bool, persisted: bool, foreground: bool, authorized: bool) 
     }
 }
 
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
 /// Whether a fresh read shows that an item's value has left its place:
 /// nothing of its kind is there, or everything of its kind that is there
 /// has a value, and none has this one. A read that returns as many hits as
@@ -258,37 +251,14 @@ fn absent(item: &Item, still: &Still) -> bool {
 }
 
 impl Review {
-    pub fn defer(
-        &mut self,
-        id: u64,
-        revision: u64,
-        deferred: bool,
-        store: Result<&Store, String>,
-        storage_error: Option<&str>,
-    ) -> Result<(), String> {
-        if storage_error.is_some() {
-            return Err("Cannot save deferral while local review storage is unavailable. The existing state was not changed.".into());
-        }
-        let (updated, ()) = store?.update(|state| {
-            if !state.items.iter().any(|i| i.id == id) {
-                return Err("That review item is no longer available.".into());
-            }
-            state.as_shown(id, revision)?;
-            state.snooze(id, deferred, now());
-            Ok(())
-        })?;
-        *self = updated;
-        Ok(())
-    }
-
     /// Whether an item is still what the front end drew when it was given
     /// `revision` for it. The front end names an item by its id, and an id
     /// stays with its place when the value there is replaced: the revision
     /// rises then, as it does whenever the item is news again. So a press on
-    /// a row drawn for one value is not taken as a decision, or a reminder,
-    /// about another the person has not seen. Asked of the state as it was
-    /// just loaded, with the store locked. An item that is no longer listed
-    /// is each action's own to answer for.
+    /// a row drawn for one value is not taken as a decision about another
+    /// the person has not seen. Asked of the state as it was just loaded,
+    /// with the store locked. An item that is no longer listed is each
+    /// action's own to answer for.
     pub fn as_shown(&self, id: u64, revision: u64) -> Result<(), String> {
         match self.items.iter().find(|i| i.id == id) {
             Some(item) if item.revision != revision => Err(CHANGED.into()),
@@ -315,20 +285,6 @@ impl Review {
         (0..self.items.len())
             .filter(|n| *n == at || (secret.is_some() && self.items[*n].secret == secret))
             .collect()
-    }
-
-    /// "Remind me in a week", or its undo. Applies to every copy of the
-    /// credential. When the week ends the item alerts once more.
-    pub fn snooze(&mut self, id: u64, on: bool, now: u64) {
-        for n in self.copies(id) {
-            self.revision = self.revision.saturating_add(1);
-            let item = &mut self.items[n];
-            item.deferred = on;
-            item.snoozed_until = if on { now.saturating_add(SNOOZE) } else { 0 };
-            if on {
-                item.revision = self.revision;
-            }
-        }
     }
 
     /// The decision that sets this item aside, if one applies now. Where the
@@ -425,13 +381,8 @@ impl Review {
 
     /// Whether this item should be brought to the person's attention now.
     pub fn alerting(&self, item: &Item, now: u64) -> bool {
-        let snoozed = item.deferred && (item.snoozed_until == 0 || now < item.snoozed_until);
-        // A week that has ended is news whatever was notified during it:
-        // another finding's notification covers every item found so far.
-        let reminder = item.deferred && !snoozed;
         !item.resolved
-            && !snoozed
-            && (reminder || item.revision > self.notified_revision)
+            && item.revision > self.notified_revision
             && self.decision(item, now).is_none()
     }
 
@@ -541,8 +492,6 @@ impl Review {
                 if changed {
                     self.revision = self.revision.saturating_add(1);
                     item.revision = self.revision;
-                    item.deferred = false;
-                    item.snoozed_until = 0;
                     new = true;
                 }
                 item.fingerprint = f.fingerprint.clone();
@@ -588,7 +537,6 @@ impl Review {
                 detail: f.detail.clone(),
                 token_type: f.token_type.map(str::to_string),
                 shared: f.shared,
-                snoozed_until: 0,
                 mount: f.mount,
             };
             // Its two numbers are not known yet; allow for their digits.
@@ -612,8 +560,7 @@ impl Review {
                 bytes = Some(used);
                 continue;
             }
-            // Another copy of a credential already on the list is not news,
-            // and a reminder set for that credential is for this copy too.
+            // Another copy of a credential already on the list is not news.
             // A copy the person keeps where it is does not count: "kept"
             // covers that place and nowhere else.
             let kept = |i: &Item| {
@@ -628,10 +575,10 @@ impl Review {
                 self.items
                     .iter()
                     .find(|i| !i.resolved && i.secret.as_ref() == Some(secret) && !kept(i))
-                    .map(|i| (i.revision, i.deferred, i.snoozed_until))
+                    .map(|i| i.revision)
             });
             match known {
-                Some(copy) => (item.revision, item.deferred, item.snoozed_until) = copy,
+                Some(revision) => item.revision = revision,
                 None => {
                     new = true;
                     self.revision = self.revision.saturating_add(1);
@@ -743,17 +690,9 @@ impl Review {
     }
 
     /// A notification was delivered, for everything found up to `revision`.
-    /// A reminder that was due has then been given, so its week is over and
-    /// the item is open again. The count of attempts starts afresh: it is
-    /// for deliveries that fail.
-    pub fn delivered(&mut self, revision: u64, now: u64) {
+    /// The count of attempts starts afresh: it is for deliveries that fail.
+    pub fn delivered(&mut self, revision: u64) {
         self.notified_revision = self.notified_revision.max(revision);
-        for item in &mut self.items {
-            if item.deferred && item.snoozed_until != 0 && now >= item.snoozed_until {
-                item.deferred = false;
-                item.snoozed_until = 0;
-            }
-        }
         self.attempts = 0;
         self.retry_at = 0;
     }
@@ -1444,85 +1383,6 @@ mod tests {
     }
 
     #[test]
-    fn remind_me_later_is_quiet_for_a_week_then_asks_once_more() {
-        let mut state = Review::default();
-        state.ingest(&found(&[
-            (
-                "secret.service-token",
-                "~/a",
-                Some("Synthetic token"),
-                Some("digest-a"),
-            ),
-            (
-                "secret.service-token",
-                "~/b",
-                Some("Synthetic token"),
-                Some("digest-a"),
-            ),
-        ]));
-        seen(&mut state);
-        state.snooze(state.items[0].id, true, 1000);
-        // Every copy of the credential is snoozed together.
-        assert!(state.items.iter().all(|i| i.deferred));
-        seen_none(&state);
-        assert!(!state.pending(1000 + SNOOZE - 1));
-        assert!(state.pending(1000 + SNOOZE));
-        state.snooze(state.items[0].id, false, 2000);
-        assert!(state
-            .items
-            .iter()
-            .all(|i| !i.deferred && i.snoozed_until == 0));
-    }
-
-    #[test]
-    fn a_reminder_still_comes_after_another_notification_and_comes_once() {
-        let a = (
-            "secret.service-token",
-            "~/a",
-            Some("Synthetic token"),
-            Some("digest-a"),
-        );
-        let b = (
-            "secret.service-token",
-            "~/b",
-            Some("Other token"),
-            Some("digest-b"),
-        );
-        // What the agent does around a notification that was delivered.
-        let notify = |state: &mut Review, now: u64| {
-            state.attempted(now);
-            state.delivered(state.revision, now);
-        };
-        let mut state = Review::default();
-        state.ingest(&found(&[a]));
-        seen(&mut state);
-        let id = state.items[0].id;
-        state.snooze(id, true, 1000);
-        // Something else is found during the week, and its notification is
-        // delivered. That covers everything found so far, the snoozed item too.
-        assert!(state.ingest(&found(&[a, b])));
-        assert!(state.pending(2000));
-        notify(&mut state, 2000);
-        assert!(!state.pending(1000 + SNOOZE - 1));
-        assert!(state.pending(1000 + SNOOZE), "the reminder never comes");
-        // The reminder is given once, and the item is then open again.
-        notify(&mut state, 1000 + SNOOZE);
-        assert!(!state.pending(1000 + SNOOZE + 3600));
-        assert!(!state.items[0].deferred && state.items[0].snoozed_until == 0);
-        // A third reminder in a row, with nothing new found in between, is
-        // not held back by the count of earlier attempts.
-        for week in [2, 3] {
-            let start = 1000 + week * 10 * SNOOZE;
-            state.snooze(id, true, start);
-            assert!(
-                state.pending(start + SNOOZE),
-                "reminder {week} is held back"
-            );
-            notify(&mut state, start + SNOOZE);
-        }
-    }
-
-    #[test]
     fn a_kept_credential_found_elsewhere_alerts() {
         let mut state = Review::default();
         let env = (
@@ -1550,37 +1410,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_copy_of_a_snoozed_credential_stays_quiet_for_the_week() {
-        let mut state = Review::default();
-        let a = (
-            "secret.service-token",
-            "~/a",
-            Some("Synthetic token"),
-            Some("digest-a"),
-        );
-        state.ingest(&found(&[a]));
-        seen(&mut state);
-        let id = state.items[0].id;
-        state.snooze(id, true, 1000);
-        // "Remind me in a week" is for every copy, one found later too.
-        let c = (
-            "secret.agent-record",
-            "~/.claude/p/s.jsonl",
-            Some("Synthetic token"),
-            Some("digest-a"),
-        );
-        state.ingest(&found(&[a, c]));
-        assert!(
-            state.items[1].deferred && state.items[1].snoozed_until == state.items[0].snoozed_until
-        );
-        assert!(
-            !state.pending(1001),
-            "a copy of a snoozed credential alerted during the week"
-        );
-        assert!(state.pending(1000 + SNOOZE));
-    }
-
-    #[test]
     fn two_secrets_of_one_kind_in_one_file_are_two_quiet_items() {
         const R: &str = "secret.agent-record";
         const P: &str = "~/.claude/projects/p/s.jsonl";
@@ -1590,12 +1419,9 @@ mod tests {
         assert!(state.ingest(&two()));
         assert_eq!(state.items.len(), 2);
         seen(&mut state);
-        let id = state.items[0].id;
-        state.snooze(id, true, 1000);
         // The same file, checked again and unchanged, is not news.
         assert!(!state.ingest(&two()), "an unchanged file alerted again");
         assert!(!state.pending(1001));
-        assert!(state.items[0].deferred && state.items[0].snoozed_until == 1000 + SNOOZE);
         // Nor in the other order, nor with one value on two lines.
         let again = found(&[at("digest-b"), at("digest-a"), at("digest-a")]);
         assert!(!state.ingest(&again));
@@ -1723,10 +1549,6 @@ mod tests {
             assert_eq!(state.as_shown(id, drawn).unwrap_err(), CHANGED);
             assert!(state.as_shown(id, state.items[0].revision).is_ok());
         }
-        // A reminder makes the item news again when its week ends, and is
-        // itself a change to what was drawn.
-        state.snooze(id, true, 1000);
-        assert!(state.as_shown(id, drawn).is_err());
     }
 
     #[test]
@@ -1881,13 +1703,6 @@ mod tests {
         }
         old.resolve(&elsewhere, |_| there(&[]));
         assert!(old.items[0].resolved);
-    }
-
-    fn seen_none(state: &Review) {
-        assert!(state
-            .items
-            .iter()
-            .all(|i| i.revision > state.notified_revision));
     }
 
     #[test]
@@ -2154,14 +1969,30 @@ mod tests {
     }
 
     #[test]
-    fn deferral_and_missing_matches_do_not_resolve_or_repeat() {
+    fn missing_matches_do_not_resolve_or_repeat() {
         let mut review = Review::default();
         let r = report(&[("review", "~/one.csv")]);
         review.ingest(&r);
-        review.items[0].deferred = true;
         assert!(!review.ingest(&report(&[])));
         assert!(!review.ingest(&r));
-        assert!(review.items[0].deferred);
+        assert!(!review.items[0].resolved);
+    }
+
+    /// An item an older build snoozed is open here, and that build can still
+    /// read what this one saves.
+    #[test]
+    fn a_reminder_from_an_older_build_is_read_as_open() {
+        let mut review = Review::default();
+        review.ingest(&report(&[("review", "~/one.csv")]));
+        let mut saved = serde_json::to_value(&review).unwrap();
+        saved["items"][0]["deferred"] = true.into();
+        saved["items"][0]["snoozed_until"] = u64::MAX.into();
+        let loaded: Review = serde_json::from_value(saved).unwrap();
+        assert!(!loaded.items[0].deferred);
+        assert!(loaded.alerting(&loaded.items[0], 1000));
+        let again = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(again["items"][0]["deferred"], false);
+        assert!(again["items"][0].get("snoozed_until").is_none());
     }
 
     #[test]
@@ -2175,11 +2006,11 @@ mod tests {
         assert_eq!(delivery(new, false, false, true), Delivery::None);
         assert_eq!(delivery(false, true, false, true), Delivery::None);
         assert_eq!(review.items.len(), 1);
-        assert!(!review.items[0].deferred);
+        assert!(!review.items[0].resolved);
     }
 
     #[test]
-    fn restart_retains_pending_and_deferral_with_private_atomic_storage() {
+    fn restart_retains_pending_and_decisions_with_private_atomic_storage() {
         let root = std::env::temp_dir().join(format!(
             "credential-review-test-{}-{}",
             std::process::id(),
@@ -2191,14 +2022,15 @@ mod tests {
         let r = report(&[("review", "~/one.csv")]);
         review.ingest(&r);
         store.save(&review).unwrap();
-        review.items[0].deferred = true;
+        let id = review.items[0].id;
+        review.decide(id, Reason::Kept, 100, "then".into()).unwrap();
         store.save(&review).unwrap();
         let state = root.join(STATE_DIR).join("state.json");
         assert_eq!(std::fs::metadata(&state).unwrap().mode() & 0o777, 0o600);
         drop(store);
         let store = Store::open(&root).unwrap();
         let mut loaded = store.load().unwrap();
-        assert!(loaded.items[0].deferred);
+        assert!(loaded.decision(&loaded.items[0], 100).is_some());
         assert!(!loaded.ingest(&r));
         std::fs::remove_file(&state).unwrap();
         symlink("/dev/null", &state).unwrap();
@@ -2335,17 +2167,21 @@ mod tests {
         ));
         std::fs::create_dir(&root).unwrap();
         let (app, agent) = (Store::open(&root).unwrap(), Store::open(&root).unwrap());
-        // The agent records a finding; the app, holding an older copy, defers it
-        // and changes a setting; the agent then records another.
+        // The agent records a finding; the app, holding an older copy, sets
+        // it aside and changes a setting; the agent then records another.
         agent
             .update(|s| Ok(s.ingest(&report(&[("review", "~/one.csv")]))))
             .unwrap();
-        let mut stale = app.read().unwrap();
+        let stale = app.read().unwrap();
         agent
             .update(|s| Ok(s.ingest(&report(&[("review", "~/two.csv")]))))
             .unwrap();
         let (first, drawn) = (stale.items[0].id, stale.items[0].revision);
-        stale.defer(first, drawn, true, Ok(&app), None).unwrap();
+        app.update(|s| {
+            s.as_shown(first, drawn)?;
+            s.decide(first, Reason::Kept, 100, "then".into())
+        })
+        .unwrap();
         app.update(|s| {
             s.monitoring = true;
             Ok(())
@@ -2358,7 +2194,8 @@ mod tests {
             })
             .unwrap();
         assert_eq!(state.items.len(), 2);
-        assert!(state.items[0].deferred && !state.items[1].deferred);
+        assert!(state.decision(&state.items[0], 100).is_some());
+        assert!(state.decision(&state.items[1], 100).is_none());
         assert!(state.monitoring && state.agent.changes == 1);
         // The first update creates the fingerprint key, and it never changes.
         assert_eq!(state.key.len(), 32);
@@ -2372,35 +2209,6 @@ mod tests {
             .is_err());
         assert!(agent.read().unwrap().monitoring);
         std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn failed_load_does_not_overwrite_existing_state_during_deferral() {
-        let root = std::env::temp_dir().join(format!(
-            "credential-review-invalid-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir(&root).unwrap();
-        let store = Store::open(&root).unwrap();
-        let state = root.join(STATE_DIR).join("state.json");
-        let original = "{invalid state with previous pending items";
-        fsutil::write_export(&state, original, false).unwrap();
-        let loaded = store.load();
-        let error = loaded.as_ref().err().unwrap().clone();
-        let mut review = loaded.unwrap_or_default();
-        review.ingest(&report(&[("review", "~/new.csv")]));
-        let (first, drawn) = (review.items[0].id, review.items[0].revision);
-        assert!(review
-            .defer(first, drawn, true, Ok(&store), Some(&error))
-            .is_err());
-        assert!(!review.items[0].deferred);
-        assert_eq!(
-            std::fs::read_to_string(&state).unwrap(),
-            format!("{original}\n")
-        );
-        std::fs::remove_file(state).unwrap();
-        drop(store);
-        remove_store(&root);
     }
 
     fn complete(mut r: Report) -> Report {
@@ -2430,9 +2238,6 @@ mod tests {
         assert!(!state.pending(1000));
         r.findings[0].fingerprint = Some("keyed-synthetic-b".into());
         assert!(state.ingest(&r));
-        state.items[0].deferred = true;
-        assert!(!state.pending(1000));
-        state.items[0].deferred = false;
         assert!(state.pending(1000));
         for t in [1000, 1060, 1360] {
             assert!(state.pending(t));
@@ -2512,7 +2317,6 @@ mod tests {
             ("synthetic-private-again", None),
         ] {
             state.notified_revision = state.revision;
-            state.items[0].deferred = true;
             r.findings[0].fingerprint = Some(digest.into());
             r.findings[0].reason = reason.map(str::to_string);
             r.findings[0].line = Some(8);
@@ -2528,7 +2332,6 @@ mod tests {
                 state.items[0].next_step.as_deref(),
                 Some("Current next step")
             );
-            assert!(!state.items[0].deferred);
             assert!(state.pending(0));
             store.save(&state).unwrap();
             state = store.load().unwrap();

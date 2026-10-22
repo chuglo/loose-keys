@@ -39,8 +39,8 @@ struct ReviewTable: View {
             Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
                 TableColumn("Finding", value: \.title) { (item: ReviewItem) in
                     // Most rows are open, and Set Aside lists only set-aside
-                    // ones, so only a fixed or snoozed row says what it is.
-                    if item.status == "fixed" || item.status == "later" {
+                    // ones, so only a fixed row says what it is.
+                    if item.status == "fixed" {
                         HStack(spacing: 8) {
                             Text(item.title).lineLimit(1)
                             Text(item.statusText).fixedSize()

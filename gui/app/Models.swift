@@ -61,7 +61,6 @@ struct ReviewList: Decodable {
 
 struct ReviewCounts: Decodable {
     let open: Int
-    let later: Int
     let setAside: Int
     let kept: Int
     let fixed: Int
@@ -84,11 +83,10 @@ struct ReviewItem: Decodable, Identifiable {
     let detail: String?
     let firstSeen: String?
     let resolvedAt: String?
-    let deferred: Bool
     let resolved: Bool?
     /// Rises each time the item is new again; the newest is the one a notification is about.
     let revision: Int?
-    /// "open", "later", "set-aside" or "fixed".
+    /// "open", "set-aside" or "fixed".
     let state: String?
     let setAside: String?
     let places: [ReviewPlace]?
@@ -178,21 +176,19 @@ struct SetAsideReason: Identifiable {
 }
 
 extension ReviewItem {
-    var status: String { state ?? (resolved == true ? "fixed" : deferred ? "later" : "open") }
+    var status: String { state ?? (resolved == true ? "fixed" : "open") }
 
     var statusText: String {
         switch status {
         case "fixed": return "Fixed"
         case "set-aside": return "Set Aside"
-        case "later": return "Remind Later"
         default: return "Open"
         }
     }
 
-    /// What the Status heading sorts by: open first.
+    /// The list's first order: open, then set aside, then fixed.
     var statusRank: Int {
         switch status {
-        case "later": return 1
         case "set-aside": return 2
         case "fixed": return 3
         default: return 0

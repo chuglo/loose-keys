@@ -332,7 +332,7 @@ fn refresh_notifications() {
 struct ReviewItem {
     #[serde(flatten)]
     item: review::Item,
-    /// "open", "later", "set-aside" or "fixed".
+    /// "open", "set-aside" or "fixed".
     state: &'static str,
     /// Why it was set aside, using review::Reason's fixed serialized names.
     set_aside: Option<review::Reason>,
@@ -357,7 +357,6 @@ struct PlaceView {
 #[derive(Serialize, Default)]
 struct Counts {
     open: usize,
-    later: usize,
     set_aside: usize,
     /// Of those set aside, the ones that are real and kept.
     kept: usize,
@@ -459,7 +458,6 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             entry.actionable = plain(&lead.path);
         }
         let decision = open.iter().find_map(|(_, d)| *d);
-        let later = |i: &review::Item| i.deferred && (i.snoozed_until == 0 || at < i.snoozed_until);
         entry.set_aside = decision.map(|d| d.reason);
         entry.state = if open.is_empty() {
             counts.fixed += 1;
@@ -468,15 +466,11 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             counts.set_aside += 1;
             counts.kept += usize::from(entry.set_aside == Some(review::Reason::Kept));
             "set-aside"
-        } else if open.iter().all(|(i, d)| d.is_some() || later(i)) {
-            counts.later += 1;
-            "later"
         } else {
             counts.open += 1;
             "open"
         };
         entry.item.resolved = entry.state == "fixed";
-        entry.item.deferred = entry.state == "later";
     }
     (out, counts)
 }
@@ -504,21 +498,6 @@ fn pending_review(app: &App) -> ReviewView {
             _ => "checking",
         },
     }
-}
-
-/// "Remind me in a week", and its undo. `revision` is the one the front end
-/// drew the item with: a reminder covers every copy of the value the item
-/// holds now, so it is refused once that is no longer what was shown.
-fn defer_review(app: &App, id: u64, revision: u64, deferred: bool) -> Answer<()> {
-    let mut review = app.review.lock().unwrap();
-    let storage_error = app.storage_error.lock().unwrap();
-    review.defer(
-        id,
-        revision,
-        deferred,
-        app.store.as_ref().map_err(Clone::clone),
-        storage_error.as_deref(),
-    )
 }
 
 /// Set an item aside for one of review::Reason's fixed reasons, or undo that.
@@ -705,12 +684,6 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
         "version" => done(env!("CARGO_PKG_VERSION")),
         "rules_text" => done(rules_text()),
         "pending_review" => done(pending_review(app)),
-        "defer_review" => done(defer_review(
-            app,
-            args.get("id")?,
-            args.get("revision")?,
-            args.get("deferred")?,
-        )?),
         "retry_notifications" => done(retry_notifications(app)?),
         "enable_notifications" => {
             enable_notifications();
@@ -1711,7 +1684,7 @@ mod tests {
         }
         // A refusal by the command itself is the same kind of answer.
         assert_eq!(
-            error("defer_review", r#"{"id":1,"revision":0,"deferred":true}"#),
+            error("decide_review", r#"{"id":1,"revision":0,"reason":"kept"}"#),
             "That review item is no longer available."
         );
         // Before ch_app_start there is nothing to run a command on.
@@ -1771,6 +1744,19 @@ mod tests {
         assert_eq!(
             ask(&app, "retry_notifications", "{}"),
             json!({ "error": "Private state is unavailable." })
+        );
+        // A choice is refused too, and what was stored is left as it was.
+        assert_eq!(
+            ask(
+                &app,
+                "decide_review",
+                r#"{"id":1,"revision":0,"reason":"kept"}"#
+            ),
+            json!({ "error": "Private state is unavailable." })
+        );
+        assert_eq!(
+            std::fs::read_to_string(folder.join("state.json")).unwrap(),
+            "not a store"
         );
         std::fs::remove_dir_all(home).unwrap();
     }
@@ -2822,7 +2808,6 @@ mod tests {
             ("decide_review", json!({ "reason": "test-or-revoked" })),
             ("decide_review", json!({ "reason": "kept" })),
             ("decide_review", json!({ "reason": null })),
-            ("defer_review", json!({ "deferred": true })),
         ] {
             assert_eq!(press(command, &drawn, more)["error"], CHANGED, "{command}");
         }
@@ -2832,23 +2817,16 @@ mod tests {
         assert_eq!(now_drawn["state"], "open");
         let stored = helper.read().unwrap();
         assert!(stored.decisions.is_empty());
-        assert!(stored.items.iter().all(|i| !i.deferred));
         // A press that does not say what it was drawn for is not acted on.
-        for command in ["decide_review", "defer_review"] {
-            let bare = json!({ "id": drawn["id"], "reason": "kept", "deferred": true });
-            assert_eq!(
-                ask(&app, command, &bare.to_string())["error"],
-                "The request has no usable \"revision\".",
-                "{command}"
-            );
-        }
+        let bare = json!({ "id": drawn["id"], "reason": "kept" });
+        assert_eq!(
+            ask(&app, "decide_review", &bare.to_string())["error"],
+            "The request has no usable \"revision\"."
+        );
         // The row as it is now drawn is acted on, and so is its undo.
-        let later = press("defer_review", &now_drawn, json!({ "deferred": true }));
-        assert_eq!(later, json!({ "ok": null }));
-        assert_eq!(row(&app)["state"], "later");
         let decided = press(
             "decide_review",
-            &row(&app),
+            &now_drawn,
             json!({ "reason": "test-or-revoked" }),
         );
         assert_eq!(decided, json!({ "ok": null }));

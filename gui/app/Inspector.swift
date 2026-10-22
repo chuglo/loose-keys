@@ -149,28 +149,22 @@ private struct ReviewInspector: View {
 
     @ViewBuilder private var decisions: some View {
         if item.status != "fixed" {
-            VStack(alignment: .leading, spacing: 10) {
-                Button(item.deferred ? "Review Now" : "Remind Me in a Week") {
-                    model.remindLater(item)
+            Menu {
+                ForEach(SetAsideReason.all) { reason in
+                    Button(reason.label) { model.decide(item, reason: reason.id) }
                 }
-                Menu {
-                    ForEach(SetAsideReason.all) { reason in
-                        Button(reason.label) { model.decide(item, reason: reason.id) }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Set Aside…")
-                        Image(systemName: "chevron.down").imageScale(.small)
-                    }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Set Aside…")
+                    Image(systemName: "chevron.down").imageScale(.small)
                 }
-                .menuIndicator(.hidden)
-                .menuStyle(.button)
-                .buttonStyle(.bordered)
-                .fixedSize()
             }
+            .menuIndicator(.hidden)
+            .menuStyle(.button)
             .buttonStyle(.bordered)
+            .fixedSize()
         } else {
-            Text("It is fixed here, so there is nothing to snooze or set aside.").foregroundStyle(.secondary)
+            Text("It is fixed here, so there is nothing to set aside.").foregroundStyle(.secondary)
         }
     }
 }
