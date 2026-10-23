@@ -17,7 +17,7 @@ model.standardOutput = output
 try model.run()
 model.waitUntilExit()
 let hardware = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-guard environment["CREDHYG_HELPER_CHECK"] == "disposable-guest",
+guard environment["LOOSE_KEYS_HELPER_CHECK"] == "disposable-guest",
       hardware.hasPrefix("VirtualMac"), getuid() != 0 else {
     stop("BLOCKED: approved disposable guest required", 2)
 }

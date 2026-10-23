@@ -1275,11 +1275,11 @@ mod tests {
 
     #[test]
     fn shared_detection_corpus_matches_manifest() {
-        let cli = std::env::var_os("CREDHYG_DETECTION_CLI").map(PathBuf::from);
+        let cli = std::env::var_os("LOOSE_KEYS_DETECTION_CLI").map(PathBuf::from);
         if let Some(binary) = &cli {
             assert!(
                 binary.is_absolute(),
-                "CREDHYG_DETECTION_CLI must be absolute"
+                "LOOSE_KEYS_DETECTION_CLI must be absolute"
             );
         }
         let cases = detection::cases();

@@ -1,5 +1,5 @@
 # Generated fixtures contain synthetic secrets; never commit them.
-credhyg-*/
+loose-keys-*/
 /target
 
 # Local settings and generated packaging files.

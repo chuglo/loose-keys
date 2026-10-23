@@ -41,13 +41,13 @@ func press(_ element: AXUIElement?, _ name: String) throws {
 
 let files = FileManager.default
 let args = CommandLine.arguments
-guard args.count == 3, ProcessInfo.processInfo.environment["CREDHYG_APP_CHECK"] == "synthetic-home" else {
+guard args.count == 3, ProcessInfo.processInfo.environment["LOOSE_KEYS_APP_CHECK"] == "synthetic-home" else {
     fputs("FAIL: driver requires the guarded check script in an approved test guest\n", stderr)
     exit(2)
 }
 let home = URL(fileURLWithPath: args[2]).appendingPathComponent("home")
 let report = files.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
-    .appendingPathComponent("credhyg-bundle-check-" + UUID().uuidString + ".json")
+    .appendingPathComponent("loose-keys-bundle-check-" + UUID().uuidString + ".json")
 let process = Process()
 var launched = false
 var outcome = 0
@@ -69,7 +69,7 @@ do {
     secrets = [keyBody, access, secret]
     let key = "-----BEGIN RSA " + "PRIVATE KEY-----\n" + keyBody + "\n-----END RSA " + "PRIVATE KEY-----\n"
     try key.write(to: home.appendingPathComponent(".ssh/id_bundle_check"), atomically: false, encoding: .utf8)
-    if ProcessInfo.processInfo.environment["CREDHYG_APP_CHECK_OMIT_AWS"] != "1" {
+    if ProcessInfo.processInfo.environment["LOOSE_KEYS_APP_CHECK_OMIT_AWS"] != "1" {
         try "[bundle-check]\naws_access_key_id = \(access)\naws_secret_access_key = \(secret)\n"
             .write(to: home.appendingPathComponent(".aws/credentials"), atomically: false, encoding: .utf8)
     }

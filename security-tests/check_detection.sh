@@ -9,9 +9,9 @@ cd "$(dirname "$0")/.."
 # workspace's tests are `cargo test --locked --workspace`, run on its own.
 cargo test --locked --test detection_corpus
 cargo build --locked --release --target-dir target
-work=$(mktemp -d "$TMPDIR/credhyg-detection.XXXXXX")
+work=$(mktemp -d "$TMPDIR/loose-keys-detection.XXXXXX")
 status=0
-CREDHYG_DETECTION_CLI="$PWD/target/release/loose-keys" \
+LOOSE_KEYS_DETECTION_CLI="$PWD/target/release/loose-keys" \
     cargo test --manifest-path gui/Cargo.toml --locked --lib \
     tests::shared_detection_corpus_matches_manifest -- --exact --nocapture \
     >"$work/engine.log" 2>&1 || status=$?

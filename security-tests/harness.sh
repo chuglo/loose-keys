@@ -3,7 +3,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 TMP_BASE=${TMPDIR:?TMPDIR must name a symlink-free scratch directory}
-META=$(mktemp "$TMP_BASE/credhyg-harness-build.XXXXXX")
+META=$(mktemp "$TMP_BASE/loose-keys-harness-build.XXXXXX")
 trap 'rm -f "$META"' EXIT HUP INT TERM
 cargo test --locked --test security_harness --no-run --message-format=json > "$META"
 BIN=$(sed -n '/"name":"security_harness"/s/.*"executable":"\([^"]*\)".*/\1/p' "$META")

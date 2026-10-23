@@ -56,10 +56,10 @@ The work folder must not exist. It keeps the driver, app log and a checked
 report copy there. Do not run this command on a real home:
 
 ```sh
-CREDHYG_APP_CHECK=synthetic-home sh gui/tests/check-app.sh "$TMPDIR/app-check"
+LOOSE_KEYS_APP_CHECK=synthetic-home sh gui/tests/check-app.sh "$TMPDIR/app-check"
 ```
 
-For the negative control, also set `CREDHYG_APP_CHECK_OMIT_AWS=1` and use a
+For the negative control, also set `LOOSE_KEYS_APP_CHECK_OMIT_AWS=1` and use a
 different new work folder. That run must fail, which shows that a missing row
 fails the check; nothing tests the export assertion's failure path.
 

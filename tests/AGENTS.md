@@ -13,8 +13,8 @@ Run from the repository root on macOS, as an ordinary user, with Rust 1.88
 or later. First set up scratch space in the same shell as the checks:
 
 ```sh
-mkdir -p /private/tmp/credhyg-scratch
-export TMPDIR="$(cd /private/tmp/credhyg-scratch && pwd -P)"
+mkdir -p /private/tmp/loose-keys-scratch
+export TMPDIR="$(cd /private/tmp/loose-keys-scratch && pwd -P)"
 ```
 
 Every component of `TMPDIR` must be free of symbolic links. Do not use `/tmp`
@@ -42,9 +42,9 @@ order:
 
 ```sh
 sh security-tests/harness.sh --self-tests
-sh security-tests/harness.sh selftest --work "$TMPDIR/credhyg-selftest"
-security-tests/check_scanner.sh "$TMPDIR/credhyg-gate"
-sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$TMPDIR/credhyg-platform"
+sh security-tests/harness.sh selftest --work "$TMPDIR/loose-keys-selftest"
+security-tests/check_scanner.sh "$TMPDIR/loose-keys-gate"
+sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$TMPDIR/loose-keys-platform"
 sh security-tests/harness.sh helper-self-tests
 ```
 

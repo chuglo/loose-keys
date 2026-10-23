@@ -128,7 +128,7 @@ pub(crate) fn caught_up(
     private_dir(evidence)?;
     let marker = fixed_marker
         .map(str::to_owned)
-        .unwrap_or(format!("CREDHYG-MARK-{}", random_hex()?));
+        .unwrap_or(format!("LOOSE-KEYS-MARK-{}", random_hex()?));
     let since = log_start()?;
     let made_at = timestamp(0, "%Y-%m-%dT%H:%M:%S")?;
     let started = Instant::now();
@@ -410,7 +410,7 @@ pub(crate) fn integration_self_tests(work: &Path) -> Result<()> {
             if !barrier["reason"].is_null()
                 || !barrier["marker"]
                     .as_str()
-                    .is_some_and(|s| s.starts_with("CREDHYG-MARK-"))
+                    .is_some_and(|s| s.starts_with("LOOSE-KEYS-MARK-"))
             {
                 return Err("clean run passed without denial barrier".into());
             }

@@ -3,7 +3,7 @@
 # Usage: security-tests/check_scanner.sh [work-dir]
 set -eu
 cd "$(dirname "$0")/.."
-BASE=${1:-${TMPDIR:-/tmp}/credhyg-check}
+BASE=${1:-${TMPDIR:-/tmp}/loose-keys-check}
 mkdir -p "$BASE"
 WORK=$(mktemp -d "$BASE/check.XXXXXX")
 cargo build --locked --release --quiet

@@ -36,8 +36,8 @@ files are opened without following links and tests build synthetic homes
 there. On macOS `/tmp` and the default under `/var` are links, so:
 
 ```sh
-mkdir -p /private/tmp/credhyg-scratch
-export TMPDIR="$(cd /private/tmp/credhyg-scratch && pwd -P)"
+mkdir -p /private/tmp/loose-keys-scratch
+export TMPDIR="$(cd /private/tmp/loose-keys-scratch && pwd -P)"
 ```
 
 For changes to code, tests, build scripts, dependencies or configuration:

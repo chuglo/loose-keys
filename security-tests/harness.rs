@@ -150,7 +150,7 @@ fn scratch(name: &str) -> Result<PathBuf> {
         return Err("TMPDIR must have no symbolic link in its path".into());
     }
     let path = base.join(format!(
-        "credhyg-{name}-{}-{}",
+        "loose-keys-{name}-{}-{}",
         std::process::id(),
         random_hex()?
     ));
@@ -305,7 +305,7 @@ fn check(args: &[String]) -> Result<i32> {
     if argv.is_empty() {
         return Err("missing scanner command".into());
     }
-    let tag = format!("CREDHYG-NET-{}", random_hex()?);
+    let tag = format!("LOOSE-KEYS-NET-{}", random_hex()?);
     let mut command = Command::new("sandbox-exec");
     command.args(["-p",&format!("(version 1)(allow default)(deny network* (with send-signal SIGKILL) (with message \"{tag}\"))(allow network-outbound (literal \"/private/var/run/syslog\"))")]);
     command.arg(&argv[0]);

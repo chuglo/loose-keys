@@ -757,7 +757,7 @@ impl Run {
 
 pub(crate) fn run(args: &[String]) -> Result<i32> {
     let result = (|| -> Check<i32> {
-        if std::env::var("CREDHYG_HELPER_CHECK").as_deref() != Ok("disposable-guest") {
+        if std::env::var("LOOSE_KEYS_HELPER_CHECK").as_deref() != Ok("disposable-guest") {
             return Err(blocked("guest-only opt-in required"));
         }
         let model = hardware()?;
@@ -947,7 +947,7 @@ pub(crate) fn self_tests() -> Result<()> {
     let out = run_capture(
         Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
             .arg("helper-check")
-            .env_remove("CREDHYG_HELPER_CHECK"),
+            .env_remove("LOOSE_KEYS_HELPER_CHECK"),
         &root,
         Duration::from_secs(5),
     )?;
@@ -957,7 +957,7 @@ pub(crate) fn self_tests() -> Result<()> {
     let malformed = run_capture(
         Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
             .arg("helper-check")
-            .env("CREDHYG_HELPER_CHECK", "disposable-guest"),
+            .env("LOOSE_KEYS_HELPER_CHECK", "disposable-guest"),
         &root,
         Duration::from_secs(5),
     )?;

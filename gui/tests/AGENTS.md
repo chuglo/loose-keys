@@ -14,8 +14,8 @@ command-line tools, Node for the bundle contract, and Rust 1.88 or later for
 the engine. Set up scratch space in the same shell as the checks:
 
 ```sh
-mkdir -p /private/tmp/credhyg-scratch
-export TMPDIR="$(cd /private/tmp/credhyg-scratch && pwd -P)"
+mkdir -p /private/tmp/loose-keys-scratch
+export TMPDIR="$(cd /private/tmp/loose-keys-scratch && pwd -P)"
 ```
 
 Run one command at a time and record each exit status. Keep `TMPDIR` free

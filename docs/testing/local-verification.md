@@ -12,8 +12,8 @@ scanner follows none and tests build synthetic homes there. On macOS `/tmp`
 and the default under `/var` are links, so:
 
 ```sh
-mkdir -p /private/tmp/credhyg-scratch
-export TMPDIR="$(cd /private/tmp/credhyg-scratch && pwd -P)"
+mkdir -p /private/tmp/loose-keys-scratch
+export TMPDIR="$(cd /private/tmp/loose-keys-scratch && pwd -P)"
 ```
 
 ## Scanner and engine
@@ -41,9 +41,9 @@ This is the check that the security rules hold: run it for any change under
 
 ```sh
 sh security-tests/harness.sh --self-tests
-sh security-tests/harness.sh selftest --work "$TMPDIR/credhyg-selftest"
-security-tests/check_scanner.sh "$TMPDIR/credhyg-gate"
-sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$TMPDIR/credhyg-platform"
+sh security-tests/harness.sh selftest --work "$TMPDIR/loose-keys-selftest"
+security-tests/check_scanner.sh "$TMPDIR/loose-keys-gate"
+sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$TMPDIR/loose-keys-platform"
 sh security-tests/harness.sh helper-self-tests
 ```
 

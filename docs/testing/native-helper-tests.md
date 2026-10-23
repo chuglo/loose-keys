@@ -14,8 +14,8 @@ and no real credentials. **The helper scans that account's own home, whatever
 `HOME` the window was given.** The runner refuses to start unless it is on a
 virtual Mac (`VirtualMac`), as an ordinary console user whose `HOME` is the
 account's real home, with SIP and Gatekeeper on and
-`CREDHYG_HELPER_CHECK=disposable-guest` set. That stops an accidental run on a
-host, but it cannot tell whether the guest holds real data: check that
+`LOOSE_KEYS_HELPER_CHECK=disposable-guest` set. That stops an accidental run
+on a host, but it cannot tell whether the guest holds real data: check that
 yourself first.
 
 Use Rust 1.88 or later and Apple's Swift command-line tools in the guest, with
@@ -49,7 +49,7 @@ echo "$candidate_sha256"
 Supply that digest and a new work folder under an existing guest scratch folder:
 
 ```sh
-CREDHYG_HELPER_CHECK=disposable-guest sh security-tests/harness.sh helper-check \
+LOOSE_KEYS_HELPER_CHECK=disposable-guest sh security-tests/harness.sh helper-check \
   --bundle "$bundle" --sha256 "$candidate_sha256" \
   --guest-home "$HOME" --work "$HOME/verification-scratch/helper-positive"
 ```
