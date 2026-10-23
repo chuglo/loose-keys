@@ -12,7 +12,7 @@ pub const CLI_LOGIN: Rule = Rule {
     title: "Command-line tool sign-in stored in a file",
     explanation: "A command-line tool keeps its sign-in token in this file as plain text. This is how the tool stores it; validity and permissions were not checked.",
     reason: None,
-    next_step: Some("Nothing to fix while you use the tool. Sign out of tools you have stopped using, which removes the stored token."),
+    next_step: Some("Sign out of tools you no longer use, which removes the stored token."),
     advice: Advice {
         steps: &[
             "For a tool you still use, leave this in place. If the tool can keep its token in the macOS Keychain instead, turn that on.",
@@ -106,7 +106,7 @@ pub const AWS_SESSION: Rule = Rule {
     id: "dev.aws.session-cache",
     title: "AWS sign-in session stored by the AWS CLI",
     explanation: "The AWS CLI keeps single sign-on and temporary role credentials in this folder. They expire on their own, usually within hours; a refresh token here can last longer.",
-    next_step: Some("Nothing to fix while you use AWS on this Mac. Sign out when you finish a piece of work, which removes the cached sessions."),
+    next_step: Some("Sign out when you finish working with AWS, which removes the cached sessions."),
     advice: Advice {
         steps: &[
             "Sign out and clear the cache when you are done: aws sso logout",

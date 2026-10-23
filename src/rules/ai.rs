@@ -263,7 +263,7 @@ pub const AI_TOOL_LOGIN: Rule = Rule {
     title: "AI coding tool sign-in stored in a file",
     explanation: "An AI coding tool keeps its sign-in token or API key in this file as plain text. This is how the tool stores it; validity and permissions were not checked.",
     reason: None,
-    next_step: Some("Nothing to fix while you use the tool. Sign out of tools you have stopped using, which removes the stored token."),
+    next_step: Some("Sign out of tools you no longer use, which removes the stored token."),
     advice: Advice {
         steps: &[
             "For a tool you still use, leave this in place. Prefer signing in with your account over pasting an API key, so the stored token can be revoked by signing out.",
@@ -302,7 +302,7 @@ pub const OAUTH_TOKENS: Rule = Rule {
     id: "dev.oauth.token-file",
     title: "OAuth sign-in tokens stored in a file",
     explanation: "This file holds an OAuth access or refresh token as plain text, the way mcp-remote keeps the sign-in to each remote MCP server in ~/.mcp-auth. This is how such tools store a sign-in; validity and permissions were not checked.",
-    next_step: Some("Nothing to fix while you use the connection. Remove connections you have stopped using, which removes the stored token."),
+    next_step: Some("Remove connections you no longer use, which removes the stored token."),
     advice: Advice {
         steps: &[
             "For a connection you still use, leave this in place.",

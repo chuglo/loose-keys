@@ -126,7 +126,7 @@ pub const GCLOUD_LOGIN: Rule = Rule {
     title: "Google Cloud sign-in stored by gcloud",
     explanation: "gcloud keeps a refresh token for application-default sign-in in this file. This is how the tool works; the token's validity and permissions were not checked.",
     reason: None,
-    next_step: Some("Nothing to fix while you use gcloud on this Mac. Sign out when you stop using it, which revokes the token."),
+    next_step: Some("Sign out when you stop using gcloud, which revokes the token."),
     advice: Advice {
         steps: &[
             "When you no longer need it, revoke the stored sign-in: gcloud auth application-default revoke",
@@ -192,7 +192,7 @@ pub const AZURE_LOGIN: Rule = Rule {
     id: "dev.azure.stored-login",
     title: "Azure sign-in stored by the Azure CLI",
     explanation: "On macOS the Azure CLI keeps its refresh tokens in this file as plain text. This is how the tool works; the tokens' validity and permissions were not checked.",
-    next_step: Some("Nothing to fix while you use the Azure CLI on this Mac. Sign out when you stop using it."),
+    next_step: Some("Sign out when you stop using the Azure CLI."),
     advice: Advice {
         steps: &[
             "When you no longer need it, sign out and clear the stored tokens: az logout, then az account clear",

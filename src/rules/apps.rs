@@ -65,7 +65,7 @@ pub const KEEPASS_DATABASE: Rule = Rule {
     title: "KeePass password database",
     explanation: "The file header matches a KeePass password database. Its contents were not decrypted, and its password or key-file protection was not checked.",
     reason: None,
-    next_step: Some("Nothing to fix if the master password is long and used nowhere else. Stealers copy these files and guess weak master passwords offline."),
+    next_step: Some("Check that the master password is long and used nowhere else. Stealers copy these files and guess weak master passwords offline."),
     advice: Advice {
         steps: &[
             "Use a master password of several random words, used nowhere else.",
@@ -315,7 +315,7 @@ pub const RCLONE_LOGIN: Rule = Rule {
     title: "Cloud storage sign-in stored by rclone",
     explanation: "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. This is how the tool stores it; validity and permissions were not checked.",
     reason: None,
-    next_step: Some("Nothing to fix while you use the remote. Setting a password on the rclone config encrypts these tokens."),
+    next_step: Some("Set a password on the rclone config to encrypt these tokens."),
     matcher: Matcher::Whole {
         candidate: any,
         test: |bytes| rclone_hits(bytes, true),
