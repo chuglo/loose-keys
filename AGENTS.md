@@ -72,9 +72,8 @@ guest; `docs/testing/guest.md` has its setup and both checks.
 There is no CI. Before a push to `main` that is not prose-only, run
 `sh tests/check-all.sh` on the exact commit and report each check's exit
 status ("Before a push to `main`" in `docs/testing/local-verification.md`).
-Run the guest checks when the person directing the session asks or
-when the change is to what they check; otherwise list them under "Not
-verified".
+Run the guest checks only when the person directing the session asks;
+otherwise list them under "Not verified".
 
 ## Keep the machine you work on safe
 
