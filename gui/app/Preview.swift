@@ -934,10 +934,9 @@ enum Checks {
             expect(model.storedSort.isEmpty && model.storedRows.map(\.id) == listed.map(\.index) && drawn,
                    "until a heading is pressed, the stored sign-ins are in the order the scan listed them (listed \(listed.map(\.index)), shown \(model.storedRows.map(\.id)))")
             #if PREVIEW
-            // Rows a pressed heading ranks the same keep that order. Two of
-            // the sample's sign-ins have nothing under About, and the scan
-            // lists them the other way round from their indexes.
-            await press(headingButtons(list).first { names($0).contains("About") }, "pressing the About heading")
+            // Rows a pressed heading ranks the same keep that order: the
+            // sample's sign-ins of one rule share a title.
+            await press(headingButtons(list).first { names($0).contains("Sign-in") }, "pressing the Sign-in heading")
             let place = Dictionary(uniqueKeysWithValues: listed.enumerated().map { ($0.element.index, $0.offset) })
             let shown = model.storedRows
             let level = zip(shown, shown.dropFirst()).filter { pair in
@@ -952,15 +951,15 @@ enum Checks {
             let chosen = model.storedRows[1].id
             await choose(rows(list)[1], "choosing a stored sign-in")
             expect(model.selectedStored == chosen, "choosing a stored sign-in selects it")
-            let keys: [PartialKeyPath<StoredRow>] = [\.group.title, \.file.path, \.about]
+            let keys: [PartialKeyPath<StoredRow>] = [\.group.title, \.file.path]
             await headings(list, keys, sort: { model.storedSort }, rows: { model.storedRows })
             model.search = "no sign-in has this text"
             await settle(after: "filtering out the selected sign-in")
             expect(model.selectedStored == nil && model.currentStored == nil, "a sign-in the filter hides is no longer selected")
             #if PREVIEW
             model.search = "Claude Code"
-            await settle(after: "filtering by what the About column shows")
-            expect(model.storedRows.count == 1, "the filter finds a sign-in by what its About column shows (\(model.storedRows.count) of 1 rows)")
+            await settle(after: "filtering by what the inspector shows under a sign-in's title")
+            expect(model.storedRows.count == 1, "the filter finds a sign-in by what the inspector shows under its title (\(model.storedRows.count) of 1 rows)")
             #endif
             model.search = ""
             await settle(after: "clearing the filter")

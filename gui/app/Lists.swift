@@ -154,10 +154,6 @@ struct StoredTable: View {
                     PathText(path: row.file.path)
                 }
                 .width(min: 140, ideal: 240)
-                TableColumn("About", value: \.about) { (row: StoredRow) in
-                    Text(row.file.subject ?? "").foregroundStyle(.secondary).lineLimit(1)
-                }
-                .width(min: 80, ideal: 150)
             }
             .contextMenu(forSelectionType: StoredRow.ID.self) { ids in
                 // Not for a file whose name the app does not act on.

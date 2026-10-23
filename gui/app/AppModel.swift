@@ -18,7 +18,6 @@ struct StoredRow: Identifiable {
     /// Where the engine listed it among the sign-ins: a rule at a time.
     let place: Int
     var id: Int { file.index }
-    var about: String { file.subject ?? "" }
 }
 
 /// The order in which the window asked for the folders it shows. Engine calls
@@ -200,7 +199,7 @@ final class AppModel: ObservableObject {
             .flatMap { group in group.items.map { (file: $0, group: group) } }
             .enumerated()
             .map { StoredRow(file: $0.element.file, group: $0.element.group, place: $0.offset) }
-            .filter { wanted.isEmpty || "\($0.group.title) \($0.file.path) \($0.about)".lowercased().contains(wanted) }
+            .filter { wanted.isEmpty || "\($0.group.title) \($0.file.path) \($0.file.subject ?? "")".lowercased().contains(wanted) }
     }
 
     var storedRows: [StoredRow] {
