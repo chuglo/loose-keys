@@ -2,30 +2,18 @@
 
 [Project README](../README.md) · [Documentation index](README.md)
 
-Commands run from the repository root.
-
 ## The app
-
-The app is a native macOS window over the scanner. It needs macOS 14 or
-later, and building it needs Rust 1.88 or later and Apple's command-line
-developer tools:
-
-```sh
-sh gui/build-macos.sh
-open "target/release/bundle/macos/Loose Keys.app"
-```
 
 On the first page, click **Enable Background Checks**. The helper then checks
 your home folder on its own, and its findings appear without a manual scan.
 If macOS requires approval, Overview tells you where to give it. Allow
 notifications separately if you want alerts while the app is closed.
 
-For a detailed point-in-time report, click **Scan Now**. The sidebar lists what is
-worth reviewing, the sign-ins that are stored, and the places that could not
-be checked. Select a finding to see
-what it is, why it matters and what to do. **Export** saves the full report or
-a counts-only file, and copies the text summary. Supported checks and limits
-are listed below. Opening the app turns on neither background checks nor
+For a detailed point-in-time report, click **Scan Now**. The sidebar lists
+what is worth reviewing, the sign-ins that are stored, and the places that
+could not be checked. Select a finding to see what it is, why it matters and
+what to do. **Export** saves the full report or a counts-only file, and copies
+the text summary. Opening the app turns on neither background checks nor
 notifications.
 
 Before a scan or turning on background checks, the app asks macOS for
@@ -74,12 +62,11 @@ credential, the other copies remain in Worth Reviewing.
 Setting an item aside never stops it being found or counted in scan results,
 saved reports or copied summaries. The counts under the window's title still
 include it ("3 to review, 5 set aside"). A folder can be left out (**Stop
-Checking** and the folder's name); it then appears in every summary as not checked, and Not
-Checked can include it again. Known sign-in files in it, and the files
-directly in an AI tool's own folder, are still read by a scan and by the
-weekly pass, though not when they change.
-Nothing inside a scanned folder can silence the scanner: there is no ignore
-file or inline comment, by design.
+Checking** and the folder's name); it then appears in every summary as not
+checked, and Not Checked can include it again. Known sign-in files in it, and
+the files directly in an AI tool's own folder, are still read by a scan and by
+the weekly pass, though not when they change. Nothing inside a scanned folder
+can silence the scanner: there is no ignore file or inline comment, by design.
 
 Every check looks at each pending item's own file again. When the file is gone
 or no longer matches, the item is marked fixed, even if the rest of the scan was
@@ -105,8 +92,7 @@ Checks react to filesystem events. Busy files, work limits, sleep, Low Power
 Mode and macOS permission prompts can delay detection. Added folders and
 drives are included in one-time scans, not watched by the helper.
 
-Background checks are done by a separate helper, not by the app's window: the
-app's own executable run with `--agent`, with no window and no Dock icon.
+Background checks are done by a separate helper with no window or Dock icon.
 Giving consent registers it with macOS as a launchd job, which starts it at
 login and restarts it if it stops unexpectedly. It checks a file when it
 changes, works through the whole home folder in short slices at low priority,
@@ -219,11 +205,12 @@ The scanner does not execute credential helpers, contact services or show
 secret values. It does not follow symlinks, with one exception: when a known
 sign-in location such as `~/.npmrc` or `~/.aws` is a link to somewhere else
 inside your home folder (as dotfile managers set up), the real file is checked
-and reported at its real path. A link that leaves the home folder is reported as not checked.
-It does not determine whether a credential is valid or authorized. An empty
-report means none of the supported patterns turned up in the places it looked,
-not that the Mac is clean. A matched header can be an empty template. A file's permission bits do not show who can
-actually read it: ACLs and parent folders count too.
+and reported at its real path. A link that leaves the home folder is reported
+as not checked. It does not determine whether a credential is valid or
+authorized. An empty report means none of the supported patterns turned up in
+the places it looked, not that the Mac is clean. A matched header can be an
+empty template. A file's permission bits do not show who can actually read
+it: ACLs and parent folders count too.
 
 Discovery includes hidden folders and nested backups. It skips directories
 ending in `.git`, `node_modules`, `target`, `.venv`, `venv`, `__pycache__`,

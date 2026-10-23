@@ -119,8 +119,6 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   link built from the app's bundle identifier, with nothing from a scan in
   it. It goes through `AppModel.openURL`, which the window check replaces so
   that the check opens nothing on the Mac running it.
-- `prepare_quit` closes the scan gate for the life of the process. Call it
-  only when the app is really quitting.
 - `set_monitoring` does not take an approved helper registration as proof
   that its launchd job is loaded. On new consent it unregisters that
   registration and registers again, with no store or app lock held across
@@ -132,10 +130,7 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   retried; withdrawing consent unregisters it too. A native failure becomes a
   fixed error, never system error text. Consent is saved even when
   registration fails, so the status and the manual helper controls stay
-  available. A fake native service and engine tests cover the order, the
-  failures and pausing without starting a helper. Recovery after
-  `launchctl bootout` is unverified, and this sequence did not clear a
-  Launch Constraint Violation after a rebuild.
+  available. Recovery after `launchctl bootout` is unverified.
 - A decision about an item's value carries the `revision` the row was drawn
   with. Check it against freshly loaded state inside the store
   transaction: an id can outlive the value the person saw.
@@ -176,10 +171,7 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   kind `arm` last let through, so a pause or a change of consent never ends a
   scan the person started.
 - The worker sets its own priority where its thread starts, in `run`, not
-  inside the loop, so tests run the worker at ordinary priority. At
-  background priority with every core busy, its 5-second slice ends
-  unfinished and it waits 30 seconds for the next, which is also the tests'
-  deadline.
+  inside the loop, so tests run the worker at ordinary priority.
 
 ## Files
 
@@ -215,9 +207,7 @@ The threats are a local user racing a root run with links, and hostile files
   probe is not a denial: the scan that follows checks each folder itself and
   reports its own gaps. The window sends these one at a time, before a manual
   scan or turning on the helper; cancelling takes effect once the open call
-  returns, and a call that blocks has no timeout. Model tests cover order,
-  cancelling and command failures, and an engine test covers the bounded
-  probe and a denied folder staying a scan gap. Prompt order on a real Mac,
+  returns, and a call that blocks has no timeout. Prompt order on a real Mac,
   and whether the window's grants cover the helper, are unverified.
 - There are two ways to write, and a new file uses one of them. An export is
   created with `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 0600, relative to the
@@ -236,9 +226,7 @@ The threats are a local user racing a root run with links, and hostile files
   once, holding both folders' locks, only when the old file is a private
   regular file of the user's and the new folder holds none; anything else
   there is left as it is. A helper from before the move that is still running
-  writes to the removed old folder until it restarts. Review tests in
-  `gui/src/review.rs` cover the location, the move, newer state winning, and
-  links on the path and at the old folder.
+  writes to the removed old folder until it restarts.
 
 ## Secrets
 
@@ -365,45 +353,19 @@ vendors change their settings.
   careless scanner and expects the harness to catch it. Change the two
   together.
 - The harness finds a network attempt only by the denial the kernel logs,
-  which it reads with `log show`. Two things seen on macOS 14 shape the
-  check. What `log show` returns can trail the kernel by many seconds, and the
-  log stamps entries with its own clock, which can run behind the harness's.
-  So after a run the harness makes one more denial on purpose, with a marker,
-  and asks for the scanner's only once the log returns that one
-  (`network::caught_up` in `security-tests/network.rs`), and every query
-  starts a minute early (`log_start`). Each run keeps what it saw in
-  `network-log/`, with both clocks' times for the marker in
-  `caught-up.json`. If you see a miss, read the times there and report it
-  with its evidence. Do not rerun until it passes and call that a pass.
-- The window check (`sh gui/tests/check-window.sh`;
-  [local checks](../testing/local-verification.md)) runs the steps in
-  `Checks` in `gui/app/Preview.swift`. It sets the filter in
-  code because it cannot type, and does in code what it has no control to
-  press for: choosing a reason from the Set Aside… menu, clearing the chosen
-  row, putting a list's sort back. Most steps after the two lists need
-  `SampleEngine`, which keeps a little state and has switches the check sets
-  (a failed store, a refused request, a full list, everything set aside).
-  With the screen locked, or its saver on though not
-  yet locked, macOS puts a shield over every window and gives a window's
-  contents to nobody, so the check asks for its window first and stops with
-  status 2 when AppKit logs the shield. Both were made on purpose only in
-  the virtual machine. A step that reads what the window drew waits
-  for it (`eventually`), because a busy Mac draws late. A step must not
-  close an alert in code while the page under it is changing: AppKit stops
-  the window doing that, so such a step uses a model that is in no window.
-  The picture-taking build only shows that pages draw: it changes pages in
-  code, where the check presses the controls.
-- The model check (`sh gui/tests/check-model.sh`;
-  [local checks](../testing/local-verification.md)) builds
-  `gui/tests/refresh-order.swift` with the real `AppModel.swift`,
-  `Models.swift` and `Engine.swift` and no window. Its `HeldEngine` holds
-  each command until the test answers it and counts simultaneous calls.
-  Cases cover coalesced review/status reads, a change or failure during a
-  read, latest failures, out-of-order folder answers, concurrent scan/Stop,
-  and the id and revision sent with decisions.
-  A call the test never answers fails after ten seconds, naming the command.
-  It is a model with a stand-in engine, not the running window or the real
-  engine, and it does not show which orders macOS produces.
+  read with `log show`, which can trail the kernel and stamps entries with
+  its own clock. So it waits for a marker denial of its own before reading
+  (`network::caught_up` in `security-tests/network.rs`). If you see a miss,
+  report it with `network-log/caught-up.json` from that run. Do not rerun
+  until it passes and call that a pass.
+- The window check runs the steps in `Checks` in `gui/app/Preview.swift`. It
+  cannot type, so it sets the filter in code, and does in code what it has
+  no control to press for. With the screen locked or its saver on, macOS
+  shows assistive software no window, so the check stops with status 2. A
+  step that reads what the window drew waits for it (`eventually`), because
+  a busy Mac draws late. A step must not close an alert in code while the
+  page under it is changing: AppKit stops the window doing that, so such a
+  step uses a model that is in no window.
 
 ## Toolchain, lints and dependencies
 
@@ -462,9 +424,7 @@ vendors change their settings.
   status, waiting five seconds after each pair of reads. Leaving the front or
   quitting cancels it; a read already sent may still finish. A manual scan
   pauses these reads. Show a failure of them without opening an alert every
-  five seconds. `gui/tests/refresh-order.swift` checks that a helper finding
-  shows up with no scan or injected event, that a failure is shown as one,
-  and that cancelling works.
+  five seconds.
 - The engine's JSON is decoded into the types in `Models.swift`, snake case
   to camel case. `Preview.swift` holds sample JSON for the sample-data build,
   which has to change with them. Text from a scan is shown as text, never as
@@ -498,23 +458,18 @@ vendors change their settings.
   a previous choice and is never guessed into either. An older build,
   including a helper still running from before an update, cannot decode
   the review list once it holds a new reason, so it can neither read nor
-  save the list until a build that knows them runs. That is from the
-  code; no running app has shown it. Scan and report contracts are
-  unchanged.
+  save the list until a build that knows them runs (from the code,
+  unverified).
 - There is no snooze. Private state still has each item's `deferred` field,
   always written false, because older builds cannot read the list without
-  it. What they saved there is not read: an item they snoozed is open, and
-  from the code it may be notified once more. A test round-trips the field;
-  no older build has been run against the new state.
+  it. What they saved there is not read: an item they snoozed is open and
+  may be notified once more (from the code, unverified).
 - Move to Worth Reviewing sends the displayed row's id and revision, so the
   engine can refuse a click after that value has changed. The window
   follows the returned finding only after the command and its ordered
   refresh succeed, and only if the person chose no other row and did not
-  change page in the meantime. The model and window checks cover moving
-  between pages, filters, failed decisions, reopened findings, a stale click
-  and a choice made while the move is saved; they do not cover pointer
-  placement, a move with several set-aside rows in the real table, or the
-  real engine.
+  change page in the meantime. The checks do not cover pointer placement, a
+  move with several set-aside rows in the real table, or the real engine.
 - Two messages in the window's log are known and come from SwiftUI's own
   tables, not from this code: "Publishing changes from within view updates"
   on each selection change, and AppKit's "reentrant operation" warning when
@@ -530,13 +485,8 @@ synthetic home first (`sh security-tests/harness.sh generate-home`, as in
 open --env HOME="$TMPDIR/synth/home" "target/release/bundle/macos/Loose Keys.app"
 ```
 
-- Confirm the process has that synthetic `HOME`. Do not collect a full process
-  environment from the host.
-- Quit the app before rebuilding. The build writes over the executable.
-- The standing guest-only authorization does not cover host privacy changes
-  or `sfltool resetbtm`, which resets background items for every app.
-- A registered helper once failed to start after a rebuild, for a reason not
-  yet known. Use a fresh guest clone for each helper check.
+Confirm the process has that synthetic `HOME`. Do not collect a full process
+environment from the host.
 
 Looking at the window without a screen. Two development builds, defined in
 `gui/app/Preview.swift`, save a picture of each page into `SNAPSHOT_DIR` and

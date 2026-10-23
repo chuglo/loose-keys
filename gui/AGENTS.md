@@ -2,8 +2,9 @@
 
 For coding agents changing the app. The repository's `AGENTS.md` applies here
 too, and this file does not repeat it: it adds what is true only of this
-folder. The reasons are in `docs/development/standards.md`, under "The C
-interface", "Locks, threads and waits" and "The window and running the app".
+folder. Before changing code here, read `docs/development/standards.md` under
+"The C interface", "Locks, threads and waits" and "The window and running the
+app": it has the reasons, and the rules this file leaves to it.
 
 ## Layout
 
@@ -46,19 +47,6 @@ in the guest.
   builds still work.
 - Changing one of the five functions means changing `Bridge.h`, `src/lib.rs`
   and `app/Engine.swift` together. Ask first.
-- Callbacks from macOS arrive on any thread. Return at once when the state
-  they need is not set up yet, as they do with `AGENT.get()`.
-- A command that acts on a file or link takes a finding's index or id, never a
-  path from the window. Copy `item_path`: look the path up, check it again,
-  return it. A link is returned only if `rules::known_link` lists it.
-- A decision carries the `revision` the row was drawn with, and is checked
-  against freshly loaded state inside the store's `update`.
-- Keep a closure passed to `Store::update` to the change itself: the app and
-  the helper both wait while it runs.
-- A new `Mutex` field in `App` goes into `App::recover` only if its value is
-  always replaced whole.
-- Stopping work is cooperative, through `Monitor::cancel`. A pause or a change
-  of consent cancels automatic work only, never a scan the person started.
 - Call `prepare_quit` only when the app is really quitting: it closes the scan
   gate for the life of the process.
 - The crate type is `staticlib` alone. Adding `rlib` makes Cargo leave `lto`
@@ -72,10 +60,4 @@ in the guest.
   main actor so the scan gate closes before termination. Keep that call
   synchronous. Engine startup also stays on the main thread, as `Bridge.h`
   requires.
-- A change to `Models.swift` changes the sample JSON in `Preview.swift` with
-  it. Development-only code stays inside `#if PREVIEW || SNAPSHOTS`.
-- Show text from a scan as text, never as markup.
-- Keep the Filter field in the toolbar on every page. Removed and put back as
-  the page changed, it stopped the app about one run in five.
 - An API newer than macOS 14 needs an availability check, or the build fails.
-- The `SNAPSHOTS` build uses the real engine, so it runs only in the guest.

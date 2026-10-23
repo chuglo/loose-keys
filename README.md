@@ -36,8 +36,7 @@ sh gui/build-macos.sh
 open "target/release/bundle/macos/Loose Keys.app"
 ```
 
-The app is built to `target/release/bundle/macos/Loose Keys.app`; to keep it,
-move it to Applications.
+To keep it, move it to Applications.
 
 ## Command line
 

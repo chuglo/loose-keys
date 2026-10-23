@@ -53,8 +53,6 @@ review the edited text and check referenced local paths and commands against
 their definitions. No build or test reads them, so no other check is required,
 before a push to `main` either.
 
-The Rust 1.88 build runs in the list before a push, not for every change.
-
 The table below is the verification matrix for the whole repository,
 including `gui/`. [Local checks](docs/testing/local-verification.md) has each
 command, what it needs and what it does not cover:
@@ -71,8 +69,7 @@ command, what it needs and what it does not cover:
 The shipped-bundle and native-helper checks run only in the disposable macOS
 guest; `docs/testing/guest.md` has its setup and both checks.
 
-There is no CI: no workflow runs these checks, so none exists to wait for or
-to cite. Before a push to `main` that is not prose-only, run
+There is no CI. Before a push to `main` that is not prose-only, run
 `sh tests/check-all.sh` on the exact commit and report each check's exit
 status ("Before a push to `main`" in `docs/testing/local-verification.md`).
 Run the guest checks when the person directing the session asks or
