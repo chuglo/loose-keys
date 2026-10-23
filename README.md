@@ -6,7 +6,7 @@ private keys, API tokens, saved sign-ins, and secrets your AI agents leave
 around. For each one it tells you what it found and how to take care of it.
 It never connects to the network or changes the files it reads.
 
-Version 0.1.0, MIT licensed.
+Version 0.2.0, MIT licensed.
 
 ## Installing the beta
 
