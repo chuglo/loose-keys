@@ -1,6 +1,6 @@
 #!/bin/sh
 # Every check in docs/testing/local-verification.md except the scan by hand,
-# one at a time. Prints one line per check with its exit status and keeps going
+# one at a time. Prints each exit status and elapsed seconds and keeps going
 # after a failure; exits 1 if any check failed. Each check's output is in its
 # own log. The window check puts a window on screen for about a minute, and the
 # dependency audit needs the network. No guest check runs.
@@ -19,19 +19,20 @@ failed=0
 check() {
     name=$1
     shift
+    started=$(date +%s)
     "$@" > "$RUN/$name.log" 2>&1
     code=$?
-    printf '%s: exit %s\n' "$name" "$code"
+    elapsed=$(( $(date +%s) - started ))
+    printf '%s: exit %s (%ss)\n' "$name" "$code" "$elapsed"
     [ "$code" -eq 0 ] || failed=1
 }
 check fmt cargo fmt --all --check
 check clippy cargo clippy --locked --workspace --all-targets -- -D warnings
-check test cargo test --locked --workspace
+check test-and-detection sh security-tests/check_detection.sh --workspace
 check rust-1.88 cargo +1.88.0 build --locked --workspace
 check harness-selftest sh security-tests/harness.sh selftest --work "$RUN/selftest"
 check scanner-gate sh security-tests/check_scanner.sh "$RUN/gate"
 check platform sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$RUN/platform"
-check detection sh security-tests/check_detection.sh
 check bundle sh gui/build-macos.sh
 check bundle-contract node --test gui/tests/bundle-contract.test.js
 printf '%s\n' 'window: a window appears for about a minute'

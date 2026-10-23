@@ -362,6 +362,10 @@ enum Checks {
     private static func settle(after step: String? = nil) async {
         try? await Task.sleep(nanoseconds: 400_000_000)
         guard let step else { return }
+        checkComplaints(after: step)
+    }
+
+    private static func checkComplaints(after step: String) {
         let logged = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
         let count = logged.components(separatedBy: "reentrant operation").count - 1
         if count > complaints {
@@ -373,7 +377,10 @@ enum Checks {
     /// Waits, six seconds at most, for what the window should come to show.
     /// A busy Mac draws late, and one look after a fixed pause then misses it.
     private static func eventually(_ shown: () -> Bool) async -> Bool {
-        for _ in 0..<15 where !shown() { await settle() }
+        let deadline = ProcessInfo.processInfo.systemUptime + 6
+        while !shown() && ProcessInfo.processInfo.systemUptime < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
         return shown()
     }
 
@@ -466,10 +473,15 @@ enum Checks {
         await settle(after: step)
     }
 
-    private static func press(_ element: AXUIElement?, _ step: String) async {
+    private static func press(_ element: AXUIElement?, _ step: String, until shown: (() -> Bool)? = nil) async {
         begin(step)
         if let element { AXUIElementPerformAction(element, kAXPressAction as CFString) }
-        await settle(after: step)
+        if let shown {
+            expect(await eventually(shown), step)
+            checkComplaints(after: step)
+        } else {
+            await settle(after: step)
+        }
     }
 
     /// If the window stops, the last step named in its output is the one that stopped it.
@@ -610,7 +622,7 @@ enum Checks {
                "Overview offers background setup without enabling it before consent")
         let accessGate = DispatchSemaphore(value: 0)
         SampleEngine.accessGate = accessGate
-        await press(button("Enable Background Checks"), "preparing folder access")
+        await press(button("Enable Background Checks"), "preparing folder access", until: { button("Cancel Preparation") != nil && written().contains("Preparing folder access…") })
         // A Form section heading is not exposed as AXValue. Check the
         // accessible status and explanation, as well as the usable control.
         expect(await eventually {
@@ -626,17 +638,17 @@ enum Checks {
                "cancelling preparation returns to the start choices")
         expect(!SampleEngine.monitoring && model.results == nil,
                "cancelled preparation neither enables the helper nor scans")
-        await press(button("Enable Background Checks"), "enabling background checks from Overview")
+        await press(button("Enable Background Checks"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains("Active") })
         expect(await eventually { SampleEngine.monitoring && written().contains("Active") },
                "background setup starts the helper without a one-time scan")
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
                "background consent neither runs a manual scan nor asks for notification permission")
         expect(written().contains("Checking existing files…") && !written().contains("Last Recorded Check"),
                "initial checking is visible while diagnostic timestamps start collapsed")
-        await press(button("Show Details"), "expanding Overview check details")
+        await press(button("Show Details"), "expanding Overview check details", until: { written().contains("Last Recorded Check") && written().contains("Last Completed Full Scan") })
         expect(await eventually { written().contains("Last Recorded Check") && written().contains("Last Completed Full Scan") && written().contains { $0.contains("4 folders left") } },
                "Overview check details reveal both diagnostic timestamps")
-        await press(button("Hide Details"), "collapsing Overview check details")
+        await press(button("Hide Details"), "collapsing Overview check details", until: { !written().contains("Last Recorded Check") })
         expect(await eventually { !written().contains("Last Recorded Check") }, "Overview check details collapse")
         SampleEngine.completedPass = true
         await model.refreshMonitor()

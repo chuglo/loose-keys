@@ -48,6 +48,9 @@ interface:
 sh security-tests/check_detection.sh
 ```
 
+With `--workspace` it also runs every workspace test, so one run replaces
+this and `cargo test --locked --workspace`.
+
 ## App bundle
 
 Needs Apple's command-line tools and Node. It builds the app and does not
@@ -63,7 +66,8 @@ node --test gui/tests/bundle-contract.test.js
 The window check runs the sample-data build, with no engine and no home
 folder. A window appears for about a minute, and the screen must be awake and
 unlocked. Status 2 means it was blocked, not passed. The model check shows no
-window.
+window, and it uses a fake clock for the window's five- and two-second timers,
+so it does not check real timing.
 
 ```sh
 sh gui/tests/check-window.sh "$TMPDIR/window-check"
@@ -111,7 +115,8 @@ exit status it prints for each check:
 sh tests/check-all.sh
 ```
 
-It runs every command above except the scan by hand, one at a time, keeps
-going after a failure and exits 1 if any check failed. Each check's log is in
-the folder it names at the end. A later pass does not cancel an earlier
+It runs every command above except the scan by hand, one at a time, with the
+workspace tests and detection as one `--workspace` run. It keeps going after a
+failure, exits 1 if any check failed and prints how long each check took.
+Each check's log is in the folder it names at the end. A later pass does not cancel an earlier
 failure. The guest checks are not in it.

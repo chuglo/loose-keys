@@ -79,6 +79,32 @@ func check(_ holds: Bool, _ what: String) {
     }
 }
 
+/// Test-controlled wakeups. Cancellation is checked both before suspension and
+/// after a wakeup, as Task.sleep does. No wall-clock interval needs to pass.
+@MainActor final class HeldSleep {
+    private var waiting: [(UInt64, CheckedContinuation<Void, Never>)] = []
+    private(set) var cancelled = 0
+    var isWaiting: Bool { !waiting.isEmpty }
+
+    func sleep(_ nanoseconds: UInt64) async throws {
+        do {
+            try Task.checkCancellation()
+            await withCheckedContinuation { waiting.append((nanoseconds, $0)) }
+            try Task.checkCancellation()
+        } catch {
+            cancelled += 1
+            throw error
+        }
+    }
+
+    func wake(after nanoseconds: UInt64) async {
+        await eventually("the model waits for its next timer") { !self.waiting.isEmpty }
+        let (requested, continuation) = waiting.removeFirst()
+        check(requested == nanoseconds, "the model requests its production timer interval")
+        continuation.resume()
+    }
+}
+
 typealias Asked = (call: HeldCall, done: Task<Void, Never>)
 
 /// How many requests the test has put to the model.
@@ -91,7 +117,10 @@ typealias Asked = (call: HeldCall, done: Task<Void, Never>)
     let model: AppModel
     private let made = Made()
 
-    init() { model = AppModel(engine: engine) }
+    init(clock: HeldSleep? = nil) {
+        if let clock { model = AppModel(engine: engine, sleep: clock.sleep) }
+        else { model = AppModel(engine: engine) }
+    }
 
     /// Starts work that sends `command` and waits until the engine holds the
     /// call. Asked one at a time, calls are held in the order they were asked.
@@ -577,7 +606,8 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 
 @MainActor func folderAccessBeforeWork() async {
     for background in [false, true] {
-        let bench = Bench()
+        let clock = HeldSleep()
+        let bench = Bench(clock: clock)
         bench.model.places = try? decodeEngine(ScanPlaces.self, from: Data(places([]).utf8))
         if background { bench.model.setMonitoring(enabled: true, paused: false) }
         else { bench.model.startScan() }
@@ -595,6 +625,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
             check(enabled.args["enabled"] as? Bool == true, "access: enabling follows preparation")
             bench.answer(enabled, .success("null"))
             bench.answer(await bench.next("monitor_status"), .success(monitorStatus(enabled: true)))
+            await clock.wake(after: 2_000_000_000)
             bench.answer(await bench.next("monitor_status", after: 1), .success(monitorStatus(enabled: true)))
         } else {
             bench.answer(await bench.next("start_scan"), .success(scanResults(review: 0)))
@@ -660,16 +691,19 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 
 /// The helper writes in a separate process and sends no event to this window.
 @MainActor func foregroundFollowsHelper() async {
-    let bench = Bench()
+    let clock = HeldSleep()
+    let bench = Bench(clock: clock)
     bench.model.becameActive()
     bench.model.becameActive()
     bench.answer(await bench.next("pending_review"), .success(reviewList(0)))
     bench.answer(await bench.next("monitor_status"), .success(monitorStatus(enabled: true)))
     // No activation, scan or injected engine event accompanies the new finding.
+    await clock.wake(after: 5_000_000_000)
     bench.answer(await bench.next("pending_review", after: 1), .success(reviewList(1)))
     bench.answer(await bench.next("monitor_status", after: 1), .success(monitorStatus(enabled: true)))
     await eventually("a helper finding appears while the window stays active") { bench.model.openCount == 1 }
     check(bench.engine.held("start_scan").isEmpty, "following the helper never starts a scan")
+    await clock.wake(after: 5_000_000_000)
     bench.answer(await bench.next("pending_review", after: 2), refused)
     let status = await bench.next("monitor_status", after: 2)
     check(bench.model.reviewProblem != nil && bench.model.failure == nil,
@@ -677,11 +711,20 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     bench.model.becameInactive()
     bench.answer(status, refused)
     await eventually("failed status becomes unavailable") { bench.model.monitor == nil }
-    try? await Task.sleep(nanoseconds: 5_100_000_000)
-    check(bench.engine.held("pending_review").count == 3,
+    await eventually("the late status answer reaches the cancelled timer") { clock.cancelled == 1 }
+    check(await bench.holdsOnly(3, "pending_review"),
           "leaving the foreground cancels periodic reads, including one finishing after cancellation")
     check(bench.engine.mostAtOnce("pending_review") == 1,
           "repeated activation does not start parallel polling loops")
+    bench.model.becameActive()
+    bench.answer(await bench.next("pending_review", after: 3), .success(reviewList(1)))
+    bench.answer(await bench.next("monitor_status", after: 3), .success(monitorStatus(enabled: true)))
+    // wake() waits until the timer is suspended; cancel before releasing it.
+    await eventually("the restarted polling loop reaches its timer") { clock.isWaiting }
+    bench.model.becameInactive()
+    await clock.wake(after: 5_000_000_000)
+    await eventually("the sleeping timer observes cancellation") { clock.cancelled == 2 }
+    check(await bench.holdsOnly(4, "pending_review"), "a cancelled sleeping timer cannot start another read")
 }
 
 /// A change made in System Settings reaches the window only when it asks.

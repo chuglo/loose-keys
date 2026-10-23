@@ -18,8 +18,8 @@ fn snap(path: &Path, entries: &mut serde_json::Map<String, Value>) -> Result<()>
             .map_err(|e| e.to_string())?
             .to_string_lossy());
     } else if meta.is_file() && meta.len() <= 64 * 1024 * 1024 {
-        let mut command = Command::new("/usr/bin/shasum");
-        command.args(["-a", "256"]);
+        let mut command = Command::new("/usr/bin/openssl");
+        command.args(["dgst", "-sha256", "-binary"]);
         let input = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)
@@ -32,14 +32,14 @@ fn snap(path: &Path, entries: &mut serde_json::Map<String, Value>) -> Result<()>
         if !output.status.success() {
             return Err("snapshot SHA-256 failed".into());
         }
-        let digest = std::str::from_utf8(&output.stdout)
-            .map_err(|_| "invalid SHA-256 output")?
-            .split_whitespace()
-            .next()
-            .ok_or("missing SHA-256 digest")?;
-        if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err("invalid SHA-256 digest".into());
+        if output.stdout.len() != 32 {
+            return Err("invalid SHA-256 output".into());
         }
+        let digest: String = output
+            .stdout
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
         record["sha256"] = json!(digest);
     }
     entries.insert(path.to_string_lossy().into_owned(), record);
@@ -602,4 +602,48 @@ pub(crate) fn generate(out: &Path, large_mib: usize, bomb_mib: usize) -> Result<
         manifest["skipped"].as_array().map_or(0, Vec::len)
     );
     Ok(manifest)
+}
+
+/// Check the faster hashing command against the previous implementation,
+/// including empty/binary files and names that must never become arguments.
+pub(crate) fn self_tests() -> Result<()> {
+    let work = scratch("snapshot-tests")?;
+    let result = (|| {
+        for (name, bytes) in [
+            ("empty", vec![]),
+            ("-option\nname", vec![0, 255, 10, 13]),
+            ("larger", vec![42; 128 * 1024]),
+        ] {
+            let file = work.join(name);
+            write_private(&file, &bytes)?;
+            let expected = Command::new("/usr/bin/shasum")
+                .args(["-a", "256"])
+                .stdin(Stdio::from(File::open(&file).map_err(|e| e.to_string())?))
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !expected.status.success() {
+                return Err("snapshot reference hash failed".into());
+            }
+            let text =
+                std::str::from_utf8(&expected.stdout).map_err(|_| "invalid reference hash")?;
+            let expected = text
+                .split_whitespace()
+                .next()
+                .ok_or("missing reference hash")?;
+            let actual = snapshot(std::slice::from_ref(&file))?;
+            if actual[file.to_string_lossy().as_ref()]["sha256"] != expected {
+                return Err("snapshot hash differs from reference".into());
+            }
+        }
+        let link = work.join("link");
+        symlink("missing", &link).map_err(|e| e.to_string())?;
+        let actual = snapshot(std::slice::from_ref(&link))?;
+        let entry = &actual[link.to_string_lossy().as_ref()];
+        if entry["link"] != "missing" || entry.get("sha256").is_some() {
+            return Err("snapshot followed a link".into());
+        }
+        Ok(())
+    })();
+    fs::remove_dir_all(work).map_err(|e| e.to_string())?;
+    result
 }

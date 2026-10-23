@@ -88,6 +88,7 @@ final class ReadTurns {
 @MainActor
 final class AppModel: ObservableObject {
     let engine: Engine
+    private let sleep: @MainActor (UInt64) async throws -> Void
 
     @Published var pane: Pane? = .overview {
         didSet {
@@ -160,7 +161,10 @@ final class AppModel: ObservableObject {
     var openSettings: () -> Void = {}
     #endif
 
-    init(engine: Engine) {
+    init(engine: Engine, sleep: @escaping @MainActor (UInt64) async throws -> Void = {
+        try await Task.sleep(nanoseconds: $0)
+    }) {
+        self.sleep = sleep
         self.engine = engine
     }
 
@@ -317,7 +321,7 @@ final class AppModel: ObservableObject {
                 }
                 // Await each pair before sleeping: a busy store never builds
                 // up a queue of polling tasks. These calls read state only.
-                do { try await Task.sleep(nanoseconds: 5_000_000_000) }
+                do { try await sleep(5_000_000_000) }
                 catch { return }
             }
         }
@@ -748,7 +752,7 @@ final class AppModel: ObservableObject {
     /// The helper takes a moment to start or stop after macOS is asked, and
     /// tells this window nothing when it has.
     private func refreshMonitorSoon() async {
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        try? await sleep(2_000_000_000)
         await refreshMonitor()
     }
 

@@ -34,6 +34,7 @@ fn main() {
 fn dispatch(args: &[String]) -> Result<i32> {
     match args.first().map(String::as_str) {
         None | Some("--self-tests") | Some("--nocapture") => {
+            fixtures::self_tests()?;
             validator::self_tests()?;
             network::self_tests()?;
             gates::self_tests()?;
