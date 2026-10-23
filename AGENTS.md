@@ -162,6 +162,9 @@ verified".
 
 ## How to work
 
+- **Work in a worktree.** Make every change, code or prose, in a git
+  worktree under `.claude/worktrees/`, never in the main checkout. Reading
+  and investigating in the main checkout is fine.
 - **Judge by exit status and report what you checked.** A command passed if
   it exited 0, not if the end of its output looks right. In reports and
   commits write "Checked:" for what you ran and "Not verified:" for what you
