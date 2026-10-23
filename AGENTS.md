@@ -65,17 +65,17 @@ command, what it needs and what it does not cover:
 | rules, scan/report code, the engine's scan/export commands, the detection corpus | `sh security-tests/check_detection.sh` |
 | `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, the C interface | the bundle build and its contract test |
 | `gui/app/` | also the window check and the model check |
-| the helper runner or its Settings driver | helper self-tests, then the guest controls |
-| `gui/src/notifications.m` | the login bridge and notification contracts, and the power bridge |
+| the helper runner or its Settings driver | the guest controls |
+| `gui/src/notifications.m` | the bridge checks |
 
 The shipped-bundle and native-helper checks run only in the disposable macOS
 guest; `docs/testing/guest.md` has its setup and both checks.
 
 There is no CI: no workflow runs these checks, so none exists to wait for or
-to cite. Before a push to `main` that is not prose-only, follow "Before a
-push to `main`" in `docs/testing/local-verification.md`: every check there on
-the exact commit, one command at a time, with each one's exit status
-reported. Run the guest checks when the person directing the session asks or
+to cite. Before a push to `main` that is not prose-only, run
+`sh tests/check-all.sh` on the exact commit and report each check's exit
+status ("Before a push to `main`" in `docs/testing/local-verification.md`).
+Run the guest checks when the person directing the session asks or
 when the change is to what they check; otherwise list them under "Not
 verified".
 

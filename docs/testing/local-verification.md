@@ -29,12 +29,13 @@ cargo +1.88.0 build --locked --workspace
 
 ## Security harness
 
+`cargo test` already runs the harness's own self-tests and the helper
+runner's.
+
 ```sh
-sh security-tests/harness.sh --self-tests
 sh security-tests/harness.sh selftest --work "$TMPDIR/loose-keys-selftest"
 security-tests/check_scanner.sh "$TMPDIR/loose-keys-gate"
 sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$TMPDIR/loose-keys-platform"
-sh security-tests/harness.sh helper-self-tests
 ```
 
 ## Detection
@@ -71,13 +72,11 @@ sh gui/tests/check-model.sh "$TMPDIR/model-check"
 
 ## Notifications and power
 
-These register no real service, deliver no notification and do not check
-macOS launch constraints:
+The login, notification and power bridge contracts. They register no real
+service, deliver no notification and do not check macOS launch constraints:
 
 ```sh
-(cd gui && clang -fobjc-arc -fblocks -mmacosx-version-min=10.15 tests/login_test.m -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices -o "$TMPDIR/login-contract" && "$TMPDIR/login-contract")
-(cd gui && clang -fobjc-arc -fblocks -mmacosx-version-min=10.15 tests/notifications_test.m -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices -o "$TMPDIR/notification-contract" && "$TMPDIR/notification-contract")
-(cd gui && clang -fobjc-arc -fblocks -mmacosx-version-min=10.15 tests/power_test.m -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices -o "$TMPDIR/power-bridge" && "$TMPDIR/power-bridge")
+sh gui/tests/check-bridges.sh "$TMPDIR/bridge-check"
 ```
 
 Not verified: real sleep and wake delivery, the installed helper's suspension
@@ -105,7 +104,14 @@ HOME="$TMPDIR/synth/home" ./target/release/loose-keys scan --feedback -
 ## Before a push to `main`
 
 A push that changes only Markdown and images under `docs/` needs only a review
-of the text. For any other push, run every command above except the scan by
-hand, on the exact commit, one at a time, and report each exit status. A later
-pass does not cancel an earlier failure. The guest checks are not in this
-list.
+of the text. For any other push, run this on the exact commit and report the
+exit status it prints for each check:
+
+```sh
+sh tests/check-all.sh
+```
+
+It runs every command above except the scan by hand, one at a time, keeps
+going after a failure and exits 1 if any check failed. Each check's log is in
+the folder it names at the end. A later pass does not cancel an earlier
+failure. The guest checks are not in it.

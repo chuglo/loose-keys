@@ -51,8 +51,7 @@ later pass. If cleanup fails or the run is killed, do not reuse the guest or
 say the helper is off: stop the guest, keep the work folder and reset the
 clone.
 
-The runner's self-tests need no guest:
-`sh security-tests/harness.sh helper-self-tests`.
+`cargo test` runs the runner's self-tests, which need no guest.
 
 ## Limits
 
