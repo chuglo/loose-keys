@@ -35,22 +35,9 @@ helper. Both link the engine, which links the scanner crate in `src/`.
 ## Commands
 
 Before running or changing GUI checks, read [tests/AGENTS.md](tests/AGENTS.md).
-
-Use the [root verification matrix](../AGENTS.md#commands), including its
-prose-only exception. Run from the repository root, with `TMPDIR` set as
-that file says. Each check passes only if it exits 0.
-[Local checks](../docs/testing/local-verification.md) has the commands,
-prerequisites and coverage limits. `cargo test` covers the engine, helper
-and monitor.
-
-- The window check uses the host-safe sample-data `PREVIEW` build described
-  in the root file. It puts a window on screen for about a minute and needs
-  the screen awake. Status 2 means it was blocked and checked nothing: not a pass.
-- `tests/check-app.sh` and the native-helper integration checks run only in
-  the guest ([guest checks](../docs/testing/guest.md)), never on this Mac.
-  Helper runner self-tests need no guest or permissions.
-- `build-macos.sh` writes over the executable. Quit the app and stop the
-  helper first when either runs in the guest.
+`cargo test` covers the engine, helper and monitor. `build-macos.sh` writes
+over the executable: quit the app and stop the helper first when either runs
+in the guest.
 
 ## The engine
 

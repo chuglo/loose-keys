@@ -218,8 +218,7 @@ The threats are a local user racing a root run with links, and hostile files
   returns, and a call that blocks has no timeout. Model tests cover order,
   cancelling and command failures, and an engine test covers the bounded
   probe and a denied folder staying a scan gap. Prompt order on a real Mac,
-  and whether the window's grants cover the helper, are unverified
-  ([the macOS guest](../testing/guest.md#folder-access-preparation)).
+  and whether the window's grants cover the helper, are unverified.
 - There are two ways to write, and a new file uses one of them. An export is
   created with `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 0600, relative to the
   parent handle that was checked (`write_export`); as root the folder must be
