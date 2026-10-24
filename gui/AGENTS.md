@@ -18,8 +18,8 @@ helper. Both link the engine, which links the scanner crate in `src/`.
 - `src/monitor.rs`: the helper's schedule, cancellation and the gate for
   manual scans.
 - `src/review.rs`: the review store, shared by the app and the helper.
-- `src/notifications.m`: the macOS side: notifications, the helper's login
-  item, sleep and wake, and file events.
+- `src/notifications.m`: the macOS side: notifications, the helper's and the
+  app's login items, sleep and wake, and file events.
   `build.rs` compiles it with `clang` and archives it with `ar`. Subprocesses
   are confined to build scripts and tests.
 - `app/`: the window. `Engine.swift` is its side of `Bridge.h`, `AppModel.swift`

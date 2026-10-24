@@ -11,6 +11,12 @@ enum Phase {
     case ready, scanning, done
 }
 
+/// What the menu bar icon shows. No count: the menu has it. `full` is a
+/// list that left findings out, whatever is open on it.
+enum MenuBarMark {
+    case unknown, open, plain, problem, full
+}
+
 /// A stored sign-in from the last scan, with its rule's advice.
 struct StoredRow: Identifiable {
     let file: FindingFile
@@ -155,6 +161,31 @@ final class AppModel: ObservableObject {
     private let reviewReads = ReadTurns()
     private let monitorReads = ReadTurns()
     private var backgroundUpdates: Task<Void, Never>?
+    /// How often `backgroundUpdates` reads, if it runs.
+    private var pollInterval: UInt64?
+    private var active = false
+    private var quitting = false
+    /// Show in Menu Bar, as the engine last said or as the person last set
+    /// it. A failed read leaves it as it was: the app is never left running
+    /// with no icon and no window.
+    @Published private(set) var menuBarOn = false {
+        didSet {
+            // Out of the menu bar with no window open, the app has nothing
+            // left to show: it quits, as when its last window closes.
+            if oldValue, !menuBarOn, let app = NSApp, !Self.windowOpen(in: app.windows) {
+                app.terminate(nil)
+            }
+        }
+    }
+    /// macOS opened the app at login, in the menu bar and with no window.
+    /// Over once the person opens the window, Settings or a menu.
+    var quietLaunch = false {
+        didSet { if quietLaunch { menuBarOn = true } }
+    }
+    /// Opens the main window, captured from a view that can.
+    var openMainWindow: () -> Void = {
+        for window in NSApp.windows where window.canBecomeMain { window.makeKeyAndOrderFront(nil) }
+    }
     #if PREVIEW || SNAPSHOTS
     /// Opens the Settings window, for the picture-taking code.
     var openSettings: () -> Void = {}
@@ -281,6 +312,28 @@ final class AppModel: ObservableObject {
         if selectedStored != nil, currentStored == nil { selectedStored = nil }
     }
 
+    var menuBarMark: MenuBarMark {
+        if reviewProblem != nil { return .problem }
+        guard let review else { return .unknown }
+        if review.full == true { return .full }
+        return openCount > 0 ? .open : .plain
+    }
+
+    /// The menu's first line: fixed words and a count, never a path or a name.
+    var menuBarLine: String {
+        switch menuBarMark {
+        case .open, .plain: return "\(plural(openCount, "loose key", "loose keys")) to review"
+        case .full: return "\(plural(openCount, "loose key", "loose keys")) to review, list full"
+        case .problem: return "Worth Reviewing could not be read"
+        case .unknown: return "Reading Worth Reviewing…"
+        }
+    }
+
+    /// Unless the checks are known to be running, what Settings calls them.
+    var menuBarCheckLine: String? {
+        backgroundState == "Active" ? nil : "Background checks: \(backgroundState)"
+    }
+
     /// Nothing looks cleaner than it is: everything set aside or skipped is counted.
     var reviewSummary: String {
         guard reviewProblem == nil, let counts = review?.counts else { return "" }
@@ -305,12 +358,32 @@ final class AppModel: ObservableObject {
 
     /// The helper may have found something while the window was in the background.
     func becameActive() {
-        guard backgroundUpdates == nil else { return }
         // Notifications may have been allowed or blocked in System Settings
         // meanwhile. While macOS is asking, its answer is on the way.
-        if !awaitingPermission {
+        if !active, !awaitingPermission {
             Task { try? await engine.send("refresh_notifications") }
         }
+        active = true
+        updatePolling()
+    }
+
+    func becameInactive() {
+        active = false
+        updatePolling()
+    }
+
+    /// Every 5 seconds while the app is in front, every 30 behind it when
+    /// the menu bar shows the list, and otherwise not at all. A loop is
+    /// replaced only when its interval changes.
+    private func updatePolling() {
+        let interval: UInt64? = quitting ? nil
+            : active ? 5_000_000_000
+            : menuBarOn ? 30_000_000_000 : nil
+        guard interval != pollInterval else { return }
+        backgroundUpdates?.cancel()
+        backgroundUpdates = nil
+        pollInterval = interval
+        guard let interval else { return }
         backgroundUpdates = Task {
             while !Task.isCancelled {
                 if phase != .scanning {
@@ -320,15 +393,10 @@ final class AppModel: ObservableObject {
                 }
                 // Await each pair before sleeping: a busy store never builds
                 // up a queue of polling tasks. These calls read state only.
-                do { try await sleep(5_000_000_000) }
+                do { try await sleep(interval) }
                 catch { return }
             }
         }
-    }
-
-    func becameInactive() {
-        backgroundUpdates?.cancel()
-        backgroundUpdates = nil
     }
 
     func refresh() async {
@@ -377,6 +445,8 @@ final class AppModel: ObservableObject {
             // None when the request failed: the window then says the checks are
             // unavailable, not what an older status said of them.
             monitor = answer
+            if let answer { menuBarOn = answer.menuBar }
+            updatePolling()
             // The engine keeps the last scan this process ran, for a window opened after it.
             if results == nil, phase == .ready, let held = monitor?.results {
                 results = held
@@ -390,12 +460,7 @@ final class AppModel: ObservableObject {
             if phase == .scanning { progress = try? decodeEngine(ScanProgress.self, from: payload) }
         case "open-review":
             // A notification was clicked: bring the window forward on what it was about.
-            NSApp.activate(ignoringOtherApps: true)
-            for window in NSApp.windows where window.canBecomeMain {
-                window.deminiaturize(nil)
-                window.makeKeyAndOrderFront(nil)
-            }
-            pane = .review
+            showWindow(review: true)
             Task {
                 await refreshReview()
                 selectedReview = review?.items.filter { $0.status == "open" }
@@ -411,6 +476,30 @@ final class AppModel: ObservableObject {
         default:
             break
         }
+    }
+
+    /// Whether a window the person can come back to is open: a minimized
+    /// one too. `closing` is one about to go.
+    static func windowOpen(in windows: [NSWindow], except closing: Int? = nil) -> Bool {
+        windows.contains { window in
+            window.windowNumber != closing && (window.isVisible || window.isMiniaturized)
+                && window.styleMask.contains(.titled)
+        }
+    }
+
+    /// In front with a Dock icon, for a window the person asked for.
+    func comeForward() {
+        quietLaunch = false
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The window in front, with a Dock icon while it is open.
+    func showWindow(review: Bool) {
+        comeForward()
+        for window in NSApp.windows where window.isMiniaturized { window.deminiaturize(nil) }
+        openMainWindow()
+        if review { pane = .review }
     }
 
     /// Show a short confirmation under the window title, then give the subtitle back.
@@ -766,6 +855,19 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func setMenuBar(_ on: Bool) {
+        Task {
+            do {
+                try await engine.send("set_menu_bar", ["enabled": on])
+                menuBarOn = on
+                updatePolling()
+            } catch {
+                failure = error.localizedDescription
+            }
+            await refreshMonitor()
+        }
+    }
+
     func enableNotifications() {
         guard !awaitingPermission else { return }
         awaitingPermission = true
@@ -788,7 +890,8 @@ final class AppModel: ObservableObject {
 
     func prepareToQuit() {
         accessCancelled = true
-        becameInactive()
+        quitting = true
+        updatePolling()
         _ = try? engine.call("prepare_quit", [:])
     }
 }

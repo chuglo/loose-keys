@@ -1,4 +1,4 @@
-// Settings: background checks, their helper, and notifications.
+// Settings: background checks, their helper, notifications and the menu bar.
 import SwiftUI
 
 struct SettingsView: View {
@@ -10,6 +10,7 @@ struct SettingsView: View {
                 checks(monitor)
                 helper(monitor)
                 notifications(monitor)
+                menuBar(monitor)
             } else {
                 Section {
                     Text("Background checks are not available.").foregroundStyle(.secondary)
@@ -126,6 +127,22 @@ struct SettingsView: View {
             Text("Notifications")
         } footer: {
             Text("A notification says only that something needs review. It never names a file or a credential.")
+        }
+    }
+
+    @ViewBuilder private func menuBar(_ monitor: MonitorStatus) -> some View {
+        Section {
+            Toggle("Show in Menu Bar", isOn: Binding(
+                get: { monitor.menuBar },
+                set: { model.setMenuBar($0) }))
+                .disabled(model.monitorFailure != nil)
+            if monitor.enabled, monitor.menuBar {
+                if monitor.appLogin == 3 {
+                    Text("Allow Loose Keys in Login Items to show it at login.").foregroundStyle(.secondary)
+                } else if monitor.appLogin == 1 || monitor.appLogin == 4 {
+                    Text("Not in Login Items: shown only while the app is open.").foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

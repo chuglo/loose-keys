@@ -97,8 +97,8 @@ Giving consent registers it with macOS as a launchd job, which starts it at
 login and restarts it if it stops unexpectedly. It checks a file when it
 changes, works through the whole home folder in short slices at low priority,
 repeats that pass weekly, and marks an item fixed when its file no longer
-matches. Closing the window quits the app, and quitting the app does not stop
-the helper. **Pause Checks** stops its checks; turning background checks off
+matches. Closing the window quits the app, unless it is in the menu bar, and
+quitting the app does not stop the helper. **Pause Checks** stops its checks; turning background checks off
 also removes the launchd job.
 
 The build signs ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
@@ -119,10 +119,25 @@ became readable by others, can produce one grouped alert. Stored sign-ins and
 scan gaps do not alert, an unresolved item does not alert again across scans
 or restarts, and nothing is sent while the app is in front.
 
+### Menu bar
+
+**Show in Menu Bar**, in Settings, is on until you turn it off. The key in the menu bar
+has a dot while items are open in Worth Reviewing or the list is full, and is
+a warning triangle when the list cannot be read. A key with no dot means
+nothing is open in what was checked, or the list is still being read, not
+that nothing is exposed. Its menu shows the count and the state of background
+checks, and opens the window or Settings; it changes nothing.
+
+While it is on, closing the window leaves the app in the menu bar, with no Dock icon
+until a window opens. With background checks also on, the app is in Login
+Items and opens at login in the menu bar; turning either off removes it.
+Quit lasts until the next login.
+
 ### Removing Loose Keys
 
-1. In Settings, turn off **Check in the Background**. This stops the helper
-   and removes its launchd job.
+1. In Settings, turn off **Show in Menu Bar** and **Check in the
+   Background**. This removes the app from Login Items, stops the helper and
+   removes its launchd job.
 2. Quit the app and move it to the Trash.
 3. Delete `~/Library/Application Support/dev.loosekeys.desktop`, and
    `~/.loose-keys-review` if an earlier version left one.

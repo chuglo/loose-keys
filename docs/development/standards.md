@@ -131,6 +131,26 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   fixed error, never system error text. Consent is saved even when
   registration fails, so the status and the manual helper controls stay
   available. Recovery after `launchctl bootout` is unverified.
+- The app adds itself to Login Items (`SMAppService.mainAppService`,
+  through `ch_app_login_status` and `ch_app_login_set` in `notifications.m`,
+  declared only in `lib.rs`, not in `Bridge.h`) only while Show in Menu Bar
+  and background checks are both on. Show in Menu Bar is on until the person
+  turns it off, stored as `menu_bar_off` so state without it reads as on. `set_menu_bar` and `set_monitoring`
+  each save their setting, then `reconcile_app_login` registers or
+  unregisters only when the item differs, waiting for unregister as for the
+  helper, and never repeats a request waiting for approval. Both hold
+  `app_login` from the save to the change, so the later of two changes at
+  once decides the item. When the engine first reads the state, it removes
+  an item the state does not want, as after a state reset, and adds none
+  back; unreadable state changes nothing. A helper failure is reported before
+  a Login Items failure. Quitting leaves the item, so it opens the app at the
+  next login. The menu bar menu changes nothing: its text is a fixed phrase
+  and a count (`menuBarLine`) and the status Settings shows. Remaining risks:
+  an older build saving the state drops `menu_bar_off`, which turns the
+  icon back on; checks already on from before this setting add no item
+  until either setting changes; the person removing the item in System
+  Settings, which the window shows as not in Login Items; whether
+  registering needs the person's approval, unverified.
 - A decision about an item's value carries the `revision` the row was drawn
   with. Check it against freshly loaded state inside the store
   transaction: an id can outlive the value the person saw.
@@ -150,8 +170,11 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   `agent.known.lock().unwrap().skip.clone()`. The guard in such an expression
   is dropped at the end of the statement. `Mutex` is not reentrant, so a guard
   held across a call that locks it again waits for ever. [4]
-- Where two locks are held, the order is: in the app `review`, then
-  `storage_error` or `report`; in the agent `inbox`, then `known`. `Monitor`'s
+- Where two locks are held, the order is: in the app `app_login` first, then
+  `review`, then `storage_error` or `report`; in the agent `inbox`, then
+  `known`. `app_login` holds no data and is the one guard held across the
+  store and `ch_*` calls, because it orders whole Login Items changes;
+  nothing it calls takes it, and it is dropped before `emit`. `Monitor`'s
   lock is taken with no other held (`Agent::remember` drops `known` first).
   Two threads taking two locks in opposite orders can each wait on the other.
 - The store has its own pair, taken inside `read` and `update`: a mutex for
@@ -421,17 +444,31 @@ vendors change their settings.
   changes that overlap may need another refresh to show the result. Scans and
   cancelling are not ordered with these reads.
 - While the window is in front, one task refreshes the review list and helper
-  status, waiting five seconds after each pair of reads. Leaving the front or
-  quitting cancels it; a read already sent may still finish. A manual scan
-  pauses these reads. Show a failure of them without opening an alert every
-  five seconds.
+  status, waiting five seconds after each pair of reads. Leaving the front
+  cancels it, unless Show in Menu Bar is on: it then waits thirty seconds
+  instead (App Nap may stretch that, unverified). Quitting cancels it; a read
+  already sent may still finish. A manual scan pauses these reads. Show a
+  failure of them without opening an alert every five seconds.
+- Opened at login (`keyAELaunchedAsLogInItem`, checked in both launch
+  calls), the app gives way to a copy already running, has no Dock icon, and
+  orders out each window it makes or restores until the person opens a menu
+  or a window: macOS 14 has no way to start a scene without its window. A
+  failed status read never removes the icon. Turned off with no window open,
+  the app quits; a minimized window counts as open. With the option on,
+  closing the last window removes the Dock icon and hides the app, so the
+  helper does not take it for one in front. The window is opened through an
+  `openWindow` taken from the icon, which outlives it, and a Dock reopen also
+  runs the system's own. All of this is unverified on a real login.
 - The engine's JSON is decoded into the types in `Models.swift`, snake case
   to camel case. `Preview.swift` holds sample JSON for the sample-data build,
   which has to change with them. Text from a scan is shown as text, never as
   markup. Development-only code sits inside `#if PREVIEW || SNAPSHOTS`.
 - The controls are the system's: `NavigationSplitView`, `Table`, `List`, the
-  toolbar, `.inspector`, `Form` in a `Settings` scene, `NSOpenPanel` and
-  `NSSavePanel`. Add a feature with one of these before drawing anything.
+  toolbar, `.inspector`, `Form` in a `Settings` scene, `MenuBarExtra`,
+  `NSOpenPanel` and `NSSavePanel`. Add a feature with one of these before
+  drawing anything. The one drawing is the menu bar's key with a dot for
+  open items or a full list (`MenuBarIcon`), because SF Symbols has no key
+  with a badge.
 - Overview shows scan results, background status and folder controls, not
   what a scan covers. That is in [usage](../usage.md), in
   `loose-keys --list-rules` and in every saved report, which keeps the

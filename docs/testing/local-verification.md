@@ -64,10 +64,11 @@ node --test gui/tests/bundle-contract.test.js
 ## The window
 
 The window check runs the sample-data build, with no engine and no home
-folder. A window appears for about a minute, and the screen must be awake and
-unlocked. Status 2 means it was blocked, not passed. The model check shows no
-window, and it uses a fake clock for the window's five- and two-second timers,
-so it does not check real timing.
+folder. A window appears for about a minute, with a menu bar icon and a
+minimized window for a moment, and the screen must be awake and unlocked. Status 2 means it was
+blocked, not passed. It reads the icon's label but cannot open its menu. The
+model check shows no window, and it uses a fake clock for the window's five-,
+two- and thirty-second timers, so it does not check real timing.
 
 ```sh
 sh gui/tests/check-window.sh "$TMPDIR/window-check"
@@ -76,7 +77,8 @@ sh gui/tests/check-model.sh "$TMPDIR/model-check"
 
 ## Notifications and power
 
-The login, notification and power bridge contracts. They register no real
+The login, notification and power bridge contracts. The login check covers
+the helper's job and the app's own Login Items entry. They register no real
 service, deliver no notification and do not check macOS launch constraints:
 
 ```sh
@@ -86,6 +88,12 @@ sh gui/tests/check-bridges.sh "$TMPDIR/bridge-check"
 Not verified: real sleep and wake delivery, the installed helper's suspension
 and resumption, the real Low Power Mode setting, and battery use. The guest
 refuses sleep and has no Low Power Mode, so it cannot check them either.
+
+Guest only, and not yet checked: the app opening at login with no window or
+Dock icon, a restored window put away then, whether registering it needs
+approval, the icon and its menu in a light and a dark menu bar, closing the
+window and quitting, reopening from the Dock, a notification click while no
+window is open, and the helper still notifying then.
 
 ## Dependency advisories
 

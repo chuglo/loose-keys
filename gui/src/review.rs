@@ -184,6 +184,10 @@ pub struct Review {
     /// ran to its end has since found room on the list. `ingest` only sets it.
     #[serde(default)]
     pub full: bool,
+    /// Show in Menu Bar turned off. The icon is shown unless the person
+    /// turns it off. With `monitoring` it also puts the app in Login Items.
+    #[serde(default)]
+    pub menu_bar_off: bool,
 }
 
 /// What the background agent last did, and where its file-change history is.

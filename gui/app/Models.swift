@@ -111,6 +111,10 @@ struct MonitorStatus: Decodable {
     /// The helper's registration with macOS: 0 unavailable, 1 not registered,
     /// 2 registered, 3 needs approval, 4 failed.
     let login: Int
+    /// Show in Menu Bar, and the app itself in Login Items, with the same
+    /// codes as `login`.
+    let menuBar: Bool
+    let appLogin: Int
     let health: HelperHealth
     let error: String?
     let pendingDelivery: Bool

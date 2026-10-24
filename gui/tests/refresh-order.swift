@@ -197,7 +197,7 @@ func reviewList(_ open: Int, revision: Int = 1) -> String {
                  "skipped": [String](), "full": false])
 }
 
-func reviewStates(_ states: [String], revision: Int = 1) -> String {
+func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> String {
     let items: [[String: Any]] = states.enumerated().map { index, state in
         ["id": index + 1, "rule": "fixture-rule", "path": "~/fixture-\(index + 1).txt",
          "title": "Synthetic finding \(index + 1)", "explanation": "Review fixture",
@@ -208,7 +208,7 @@ func reviewStates(_ states: [String], revision: Int = 1) -> String {
                  "counts": ["open": states.filter { $0 == "open" }.count,
                             "set_aside": states.filter { $0 == "set-aside" }.count,
                             "kept": 0, "fixed": states.filter { $0 == "fixed" }.count],
-                 "skipped": [String](), "full": false])
+                 "skipped": [String](), "full": full])
 }
 
 @MainActor func setAsideLeavesReview() async {
@@ -345,9 +345,10 @@ func reviewStates(_ states: [String], revision: Int = 1) -> String {
           "an unavailable Set Aside list shows no count and never claims an empty result")
 }
 
-func monitorStatus(enabled: Bool) -> String {
-    json(["enabled": enabled, "paused": false, "scanning": false, "login": enabled ? 2 : 1,
-          "health": [String: Any](), "pending_delivery": false, "attempts": 0])
+func monitorStatus(enabled: Bool, paused: Bool = false, menuBar: Bool = false, running: Bool? = nil) -> String {
+    json(["enabled": enabled, "paused": paused, "scanning": false, "login": enabled ? 2 : 1,
+          "menu_bar": menuBar, "app_login": menuBar && enabled ? 2 : 1,
+          "health": running.map { ["running": $0] } ?? [String: Any](), "pending_delivery": false, "attempts": 0])
 }
 
 func places(_ extra: [String]) -> String {
@@ -752,12 +753,176 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
         (true, false, 2, true, "Active"),
     ] {
         let value = json(["enabled": enabled, "paused": paused, "scanning": false, "login": login,
-                          "health": ["running": running], "pending_delivery": false, "attempts": 0])
+                          "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
         model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(value.utf8))
         check(model.backgroundState == expected, "background status: \(expected)")
     }
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true).utf8))
     check(model.backgroundState == "Waiting for Helper Status", "registration alone is not a running helper")
+}
+
+/// With Show in Menu Bar on, the icon follows the helper while the window is
+/// in the background, more slowly, and still one read at a time.
+@MainActor func menuBarFollowsHelperInBackground() async {
+    let clock = HeldSleep()
+    let bench = Bench(clock: clock)
+    bench.model.becameActive()
+    bench.answer(await bench.next("pending_review"), .success(reviewList(0)))
+    bench.answer(await bench.next("monitor_status"), .success(monitorStatus(enabled: true, menuBar: true)))
+    await eventually("the menu bar setting is read") { bench.model.menuBarOn }
+    await eventually("the foreground loop reaches its timer") { clock.isWaiting }
+    bench.model.becameInactive()
+    bench.answer(await bench.next("pending_review", after: 1), .success(reviewList(0)))
+    bench.answer(await bench.next("monitor_status", after: 1), .success(monitorStatus(enabled: true, menuBar: true)))
+    await clock.wake(after: 5_000_000_000)
+    await eventually("the foreground timer is cancelled") { clock.cancelled == 1 }
+    await clock.wake(after: 30_000_000_000)
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewList(1)))
+    bench.answer(await bench.next("monitor_status", after: 2), refused)
+    await eventually("a helper finding reaches the menu bar while the window is in the background") {
+        bench.model.openCount == 1 && bench.model.monitor == nil
+    }
+    check(bench.model.menuBarOn, "a status that could not be read does not take the icon away")
+    check(bench.model.menuBarMark == .open, "an open item marks the icon")
+    await eventually("the background loop reaches its timer") { clock.isWaiting }
+
+    // Coming forward and going back, again and again, never reads twice at once.
+    bench.model.becameActive()
+    let out = await bench.next("pending_review", after: 3)
+    bench.model.becameInactive()
+    bench.model.becameActive()
+    bench.model.becameInactive()
+    check(await bench.holdsOnly(4, "pending_review"), "menu bar: a read that is out is not joined by another")
+    bench.answer(out, .success(reviewList(1)))
+    bench.answer(await bench.next("pending_review", after: 4), .success(reviewList(1)))
+    bench.answer(await bench.next("monitor_status", after: 3), .success(monitorStatus(enabled: true, menuBar: true)))
+    await clock.wake(after: 30_000_000_000)
+    await eventually("the replaced background timer is cancelled") { clock.cancelled == 2 }
+    await eventually("the last loop reaches its timer") { clock.isWaiting }
+    check(bench.engine.mostAtOnce("pending_review") == 1 && bench.engine.mostAtOnce("monitor_status") == 1,
+          "menu bar: switching between foreground and background never reads twice at once")
+
+    // Turned off, the background reads stop.
+    let off = await bench.ask("set_menu_bar") { $0.setMenuBar(false) }
+    check(off.call.args["enabled"] as? Bool == false, "menu bar: the switch sends the setting")
+    bench.answer(off.call, .success("null"))
+    bench.answer(await bench.next("monitor_status", after: 4), .success(monitorStatus(enabled: true)))
+    await eventually("the setting is off") { !bench.model.menuBarOn }
+    await clock.wake(after: 30_000_000_000)
+    await eventually("the background timer is cancelled") { clock.cancelled == 3 }
+    check(await bench.holdsOnly(5, "pending_review"), "menu bar off: no reads while the window is in the background")
+}
+
+@MainActor func menuBarSettingFailures() async {
+    let bench = Bench()
+    let on = await bench.ask("set_menu_bar") { $0.setMenuBar(true) }
+    bench.answer(on.call, refused)
+    // Before the status read after it answers, so that no read can put it back.
+    let after = await bench.next("monitor_status")
+    check(bench.model.failure != nil && !bench.model.menuBarOn,
+          "a refused switch is reported and keeps the setting as the engine has it")
+    bench.answer(after, refused)
+    // Sent only once the read before it has finished.
+    let again = await bench.ask("monitor_status") { await $0.refreshMonitor() }
+    await bench.answer(again, refused)
+    check(!bench.model.menuBarOn, "a refused switch is not turned on by a failed read")
+    bench.model.failure = nil
+    bench.model.quietLaunch = true
+    check(bench.model.menuBarOn, "opened at login, the app is in the menu bar before any read")
+    let failed = await bench.ask("monitor_status") { await $0.refreshMonitor() }
+    await bench.answer(failed, refused)
+    check(bench.model.menuBarOn, "a failed read never leaves the app with no icon and no window")
+}
+
+/// Quitting stops the background reads, and none starts after.
+@MainActor func quittingStopsMenuBarReads() async {
+    let clock = HeldSleep()
+    let bench = Bench(clock: clock)
+    let status = await bench.ask("monitor_status") { await $0.refreshMonitor() }
+    await bench.answer(status, .success(monitorStatus(enabled: true, menuBar: true)))
+    bench.answer(await bench.next("pending_review"), .success(reviewList(0)))
+    bench.answer(await bench.next("monitor_status", after: 1), .success(monitorStatus(enabled: true, menuBar: true)))
+    await eventually("the background loop reaches its timer") { clock.isWaiting }
+    let engine = bench.engine
+    // prepare_quit is sent on the main actor and waits for its answer.
+    DispatchQueue.global().async {
+        let deadline = Date().addingTimeInterval(10)
+        while engine.held("prepare_quit").isEmpty, Date() < deadline { usleep(1000) }
+        engine.held("prepare_quit").first?.gate.signal()
+    }
+    bench.model.prepareToQuit()
+    check(engine.held("prepare_quit").count == 1, "quitting tells the engine")
+    await clock.wake(after: 30_000_000_000)
+    await eventually("the background timer is cancelled on quit") { clock.cancelled == 1 }
+    let late = await bench.ask("monitor_status") { await $0.refreshMonitor() }
+    await bench.answer(late, .success(monitorStatus(enabled: true, menuBar: true)))
+    check(await bench.holdsOnly(1, "pending_review") && !clock.isWaiting,
+          "after quitting, no read or timer starts again")
+}
+
+@MainActor func menuBarSaysOnlyWhatTheListSays() async {
+    let bench = Bench()
+    let model = bench.model
+    check(model.menuBarMark == .unknown && model.menuBarLine == "Reading Worth Reviewing…",
+          "menu bar: before the list is read it says so")
+    let failed = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(failed, refused)
+    check(model.menuBarMark == .problem && model.menuBarLine == "Worth Reviewing could not be read",
+          "menu bar: a list that could not be read is a problem, not nothing")
+    let one = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(one, .success(reviewList(1)))
+    check(model.menuBarLine == "1 loose key to review", "menu bar: one open item is one loose key")
+    let two = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(two, .success(reviewList(2)))
+    check(model.menuBarMark == .open && model.menuBarLine == "2 loose keys to review", "menu bar: open items are counted")
+    let lost = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(lost, refused)
+    check(model.menuBarMark == .problem && !model.menuBarLine.contains("2"),
+          "menu bar: a failure after a good read does not show the old count")
+    let decided = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(decided, .success(reviewStates(["set-aside", "fixed"])))
+    check(model.menuBarMark == .plain && model.menuBarLine == "0 loose keys to review",
+          "menu bar: everything set aside or fixed is a count of none, never a claim of safety")
+    // A full list left findings out: it is not a list with nothing open.
+    let crowded = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(crowded, .success(reviewStates(["set-aside"], full: true)))
+    check(model.menuBarMark == .full && model.menuBarLine == "0 loose keys to review, list full",
+          "menu bar: a full list with nothing open says it is full")
+    let crowdedOpen = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(crowdedOpen, .success(reviewStates(["open", "open"], full: true)))
+    check(model.menuBarMark == .full && model.menuBarLine == "2 loose keys to review, list full",
+          "menu bar: a full list with items open counts them and says it is full")
+    // Checks that are not known to be running say so, as Settings does.
+    model.monitor = nil
+    check(model.menuBarCheckLine == "Background checks: Unavailable", "menu bar: a status not read is not running checks")
+    for (status, line) in [(monitorStatus(enabled: false), "Background checks: Off"),
+                           (monitorStatus(enabled: true, paused: true, running: true), "Background checks: Paused"),
+                           (monitorStatus(enabled: true, running: false), "Background checks: Helper Not Running"),
+                           (monitorStatus(enabled: true), "Background checks: Waiting for Helper Status")] {
+        model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(status.utf8))
+        check(model.menuBarCheckLine == line, "menu bar: \(line)")
+    }
+    model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true, running: true).utf8))
+    check(model.menuBarCheckLine == nil, "menu bar: running checks need no line")
+
+    // Whatever the items hold, the menu says a fixed phrase and a count.
+    let pieces = ["synthetic", "planted", "menu"]
+    let path = "~/" + pieces.joined(separator: "-") + ".txt"
+    let subject = pieces.reversed().joined(separator: "_")
+    let planted = json(["items": [["id": 1, "rule": "fixture-rule", "path": path, "title": "Synthetic finding",
+                                    "explanation": "Review fixture", "severity": "high", "state": "open",
+                                    "subject": subject, "detail": subject, "revision": 1]],
+                        "counts": ["open": 1, "set_aside": 0, "kept": 0, "fixed": 0],
+                        "skipped": [path], "full": false])
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(planted))
+    check(model.openCount == 1, "menu bar: the planted item is read")
+    for status in [monitorStatus(enabled: false), monitorStatus(enabled: true, paused: true, running: true)] {
+        model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(status.utf8))
+        let shown = model.menuBarLine + (model.menuBarCheckLine ?? "")
+        check(!([path, subject] + pieces).contains { shown.contains($0) },
+              "menu bar: no path, subject or piece of either is shown")
+    }
 }
 
 @main enum RefreshOrder {
@@ -786,6 +951,10 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
             ("background checks: foreground follows the helper", foregroundFollowsHelper),
             ("background checks: honest helper status", backgroundStatusIsHonest),
             ("notifications: coming forward re-reads permission", activationRereadsNotificationPermission),
+            ("menu bar: follows the helper in the background", menuBarFollowsHelperInBackground),
+            ("menu bar: a refused switch or failed read keeps the icon", menuBarSettingFailures),
+            ("menu bar: quitting stops its reads", quittingStopsMenuBarReads),
+            ("menu bar: says only what the list says", menuBarSaysOnlyWhatTheListSays),
         ]
         for (name, run) in cases {
             let before = failures

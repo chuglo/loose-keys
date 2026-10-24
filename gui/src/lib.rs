@@ -42,6 +42,9 @@ struct App {
     review: Mutex<review::Review>,
     store: Result<review::Store, String>,
     storage_error: Mutex<Option<String>>,
+    /// Held for the whole of a change that decides the app's Login Items
+    /// entry, so the last change decides it. Holds no data.
+    app_login: Mutex<()>,
     /// How long a scan's rechecks of the listed items may take.
     rechecks: std::time::Duration,
     /// Set once the store has been read, which the first command does.
@@ -74,6 +77,8 @@ unsafe extern "C" {
     );
     fn ch_login_status() -> u8;
     fn ch_login_set(enabled: bool) -> u8;
+    fn ch_app_login_status() -> u8;
+    fn ch_app_login_set(enabled: bool) -> u8;
     fn ch_fingerprint(key: *const u8, bytes: *const u8, length: usize, shared: bool, out: *mut u8);
 }
 
@@ -156,6 +161,9 @@ struct MonitorView {
     paused: bool,
     scanning: bool,
     login: u8,
+    menu_bar: bool,
+    /// The app itself in Login Items, with the same codes as `login`.
+    app_login: u8,
     health: Health,
     error: Option<String>,
     pending_delivery: bool,
@@ -197,6 +205,9 @@ fn monitor_status(app: &App) -> MonitorView {
         scanning: app.scanning.load(Ordering::SeqCst),
         // SAFETY: takes no argument and touches no memory of ours.
         login: unsafe { ch_login_status() },
+        menu_bar: !r.menu_bar_off,
+        // SAFETY: takes no argument and touches no memory of ours.
+        app_login: unsafe { ch_app_login_status() },
         health: health(&r.agent),
         error: app.storage_error.lock().unwrap().clone().or_else(|| {
             r.full.then(|| {
@@ -215,15 +226,27 @@ fn monitor_status(app: &App) -> MonitorView {
 }
 
 fn set_monitoring(app: &App, enabled: bool, paused: bool) -> Answer<()> {
-    // SAFETY: these bridge calls take only value arguments and borrow no Rust memory.
+    // SAFETY: takes no argument and touches no memory of ours.
     let status = unsafe { ch_login_status() };
-    set_monitoring_with_login(app, enabled, paused, status, |on| {
-        // SAFETY: the bridge takes a bool and borrows no Rust memory.
-        unsafe { ch_login_set(on) }
-    })
+    set_monitoring_with_login(
+        app,
+        enabled,
+        paused,
+        status,
+        |on| {
+            // SAFETY: the bridge takes a bool and borrows no Rust memory.
+            unsafe { ch_login_set(on) }
+        },
+        // SAFETY: takes no argument and touches no memory of ours.
+        || unsafe { ch_app_login_status() },
+        |on| {
+            // SAFETY: the bridge takes a bool and borrows no Rust memory.
+            unsafe { ch_app_login_set(on) }
+        },
+    )
 }
 
-/// The injected native operation lets tests exercise consent and registration
+/// The injected native operations let tests exercise consent and registration
 /// together without registering a helper or scanning the test account's home.
 fn set_monitoring_with_login(
     app: &App,
@@ -231,6 +254,8 @@ fn set_monitoring_with_login(
     paused: bool,
     mut status: u8,
     mut set_login: impl FnMut(bool) -> u8,
+    app_status: impl FnOnce() -> u8,
+    set_app_login: impl FnMut(bool) -> u8,
 ) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Monitoring cannot start while private state is unavailable.".into());
@@ -238,34 +263,87 @@ fn set_monitoring_with_login(
     if scan::is_root() {
         return Err("Automatic monitoring is not available as root.".into());
     }
-    let was_enabled = update_state(app, |state| {
+    let one_change = app.app_login.lock().unwrap();
+    let (was_enabled, menu_bar) = update_state(app, |state| {
         let was_enabled = state.monitoring;
         state.monitoring = enabled;
         state.paused = paused;
-        was_enabled
+        (was_enabled, !state.menu_bar_off)
     })?;
     app.monitor.configure(enabled, paused);
-    // Registration survives a state reset or a launchctl bootout. New consent
-    // refreshes an already-approved registration; it is not proof that the
-    // job is loaded. Pause/resume leaves an existing registration alone.
-    if enabled && !was_enabled && status == 2 {
-        status = set_login(false);
-        if status != 1 {
-            emit(c"monitor-status", ());
-            return Err("macOS could not reset the background helper registration. Open Settings and use Stop Helper, then Start Helper.".into());
+    let helper = 'helper: {
+        // Registration survives a state reset or a launchctl bootout. New consent
+        // refreshes an already-approved registration; it is not proof that the
+        // job is loaded. Pause/resume leaves an existing registration alone.
+        if enabled && !was_enabled && status == 2 {
+            status = set_login(false);
+            if status != 1 {
+                break 'helper Err("macOS could not reset the background helper registration. Open Settings and use Stop Helper, then Start Helper.".into());
+            }
         }
-    }
-    // Do not repeat a request awaiting approval, but withdrawing consent must
-    // unregister that pending request too. Native failures are never success.
-    if !matches!((enabled, status), (true, 2 | 3) | (false, 1)) {
-        status = set_login(enabled);
-    }
+        // Do not repeat a request awaiting approval, but withdrawing consent must
+        // unregister that pending request too. Native failures are never success.
+        if !matches!((enabled, status), (true, 2 | 3) | (false, 1)) {
+            status = set_login(enabled);
+        }
+        if matches!((enabled, status), (true, 2 | 3) | (false, 1)) {
+            Ok(())
+        } else {
+            Err("macOS could not start or stop the background helper. Check System Settings > General > Login Items, or use Stop Helper, then Start Helper in the app's Settings.".into())
+        }
+    };
+    let login = reconcile_app_login(enabled && menu_bar, app_status(), set_app_login);
+    drop(one_change);
     emit(c"monitor-status", ());
-    if matches!((enabled, status), (true, 2 | 3) | (false, 1)) {
+    // The helper's failure is the one to report: it stops the checks.
+    helper.and(login)
+}
+
+/// The app opens at login, in the menu bar, only while it is wanted there:
+/// Show in Menu Bar and background checks both on. `status` has the codes of
+/// `ch_app_login_status`. A request awaiting approval is not repeated.
+fn reconcile_app_login(want: bool, status: u8, mut set: impl FnMut(bool) -> u8) -> Answer<()> {
+    let status = match (want, status) {
+        (true, 1 | 4) => set(true),
+        (false, 2 | 3) => set(false),
+        _ => return Ok(()),
+    };
+    if matches!((want, status), (true, 2 | 3) | (false, 1)) {
         Ok(())
     } else {
-        Err("macOS could not start or stop the background helper. Check System Settings > General > Login Items, or use Stop Helper, then Start Helper in the app's Settings.".into())
+        Err("macOS could not change Loose Keys in Login Items. Check System Settings > General > Login Items.".into())
     }
+}
+
+fn set_menu_bar(app: &App, enabled: bool) -> Answer<()> {
+    // SAFETY: takes no argument and touches no memory of ours.
+    let status = || unsafe { ch_app_login_status() };
+    set_menu_bar_with_login(app, enabled, status, |on| {
+        // SAFETY: the bridge takes a bool and borrows no Rust memory.
+        unsafe { ch_app_login_set(on) }
+    })
+}
+
+fn set_menu_bar_with_login(
+    app: &App,
+    enabled: bool,
+    status: impl FnOnce() -> u8,
+    set: impl FnMut(bool) -> u8,
+) -> Answer<()> {
+    if app.storage_error.lock().unwrap().is_some() {
+        return Err(
+            "The menu bar setting cannot be saved while private state is unavailable.".into(),
+        );
+    }
+    let one_change = app.app_login.lock().unwrap();
+    let monitoring = update_state(app, |state| {
+        state.menu_bar_off = !enabled;
+        state.monitoring
+    })?;
+    let login = reconcile_app_login(enabled && monitoring && !scan::is_root(), status(), set);
+    drop(one_change);
+    emit(c"monitor-status", ());
+    login
 }
 
 fn set_login_startup(app: &App, enabled: bool) -> Answer<u8> {
@@ -596,6 +674,7 @@ impl App {
             review: Mutex::new(review::Review::default()),
             store,
             storage_error: Mutex::new(None),
+            app_login: Mutex::new(()),
             rechecks: RECHECKS,
             read: OnceLock::new(),
         }
@@ -603,6 +682,18 @@ impl App {
 
     /// Read the store, once, before the first command runs.
     fn ready(&self) {
+        self.ready_with(
+            // SAFETY: takes no argument and touches no memory of ours.
+            || unsafe { ch_app_login_status() },
+            // SAFETY: the bridge takes a bool and borrows no Rust memory.
+            |on| unsafe { ch_app_login_set(on) },
+        );
+    }
+
+    /// Also removes the app from Login Items when the state says it is not
+    /// wanted there: a registration outlives a state reset. Every other
+    /// command waits for this, so none changes the settings meanwhile.
+    fn ready_with(&self, app_login: impl FnOnce() -> u8, set_app_login: impl FnMut(bool) -> u8) {
         self.read.get_or_init(|| {
             let loaded = self
                 .store
@@ -615,8 +706,15 @@ impl App {
                 storage_error.is_none() && loaded.monitoring && !scan::is_root(),
                 loaded.paused,
             );
+            let wanted = loaded.monitoring && !loaded.menu_bar_off && !scan::is_root();
             *self.review.lock().unwrap() = loaded;
+            let readable = storage_error.is_none();
             *self.storage_error.lock().unwrap() = storage_error;
+            // Only taken away: one the person removed is not added back. A
+            // failure shows in Settings, which reads the status again.
+            if readable && !wanted {
+                let _ = reconcile_app_login(false, app_login(), set_app_login);
+            }
         });
     }
 
@@ -627,6 +725,7 @@ impl App {
         self.report.clear_poison();
         self.review.clear_poison();
         self.storage_error.clear_poison();
+        self.app_login.clear_poison();
     }
 }
 
@@ -700,6 +799,7 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
             args.get("paused")?,
         )?),
         "set_login_startup" => done(set_login_startup(app, args.get("enabled")?)?),
+        "set_menu_bar" => done(set_menu_bar(app, args.get("enabled")?)?),
         "prepare_quit" => {
             prepare_quit(app);
             done(())
@@ -1350,15 +1450,25 @@ mod tests {
     fn new_consent_reloads_a_registration_left_after_a_reset() {
         let _alone = one_scan();
         let (home, app) = engine("helper-reset-registration");
+        // Show in Menu Bar off: only the helper is registered.
+        update_state(&app, |state| state.menu_bar_off = true).unwrap();
         let mut calls = Vec::new();
-        set_monitoring_with_login(&app, true, false, 2, |on| {
-            calls.push(on);
-            if on {
-                2
-            } else {
-                1
-            }
-        })
+        set_monitoring_with_login(
+            &app,
+            true,
+            false,
+            2,
+            |on| {
+                calls.push(on);
+                if on {
+                    2
+                } else {
+                    1
+                }
+            },
+            || 1,
+            |_| panic!("no app login item without the menu bar"),
+        )
         .unwrap();
         assert_eq!(
             calls,
@@ -1367,10 +1477,18 @@ mod tests {
         );
         assert!(app.store.as_ref().unwrap().read().unwrap().monitoring);
         calls.clear();
-        set_monitoring_with_login(&app, true, true, 2, |on| {
-            calls.push(on);
-            2
-        })
+        set_monitoring_with_login(
+            &app,
+            true,
+            true,
+            2,
+            |on| {
+                calls.push(on);
+                2
+            },
+            || 1,
+            |_| panic!("no app login item without the menu bar"),
+        )
         .unwrap();
         assert!(
             calls.is_empty(),
@@ -1399,12 +1517,22 @@ mod tests {
             ("stop-failed", false, 2, vec![4], vec![false], false),
         ] {
             let (home, app) = engine(name);
+            // Show in Menu Bar off: only the helper is registered.
+            update_state(&app, |state| state.menu_bar_off = true).unwrap();
             let mut calls = Vec::new();
             let mut answers = answers.into_iter();
-            let result = set_monitoring_with_login(&app, enabled, false, status, |on| {
-                calls.push(on);
-                answers.next().expect("no extra native operation")
-            });
+            let result = set_monitoring_with_login(
+                &app,
+                enabled,
+                false,
+                status,
+                |on| {
+                    calls.push(on);
+                    answers.next().expect("no extra native operation")
+                },
+                || 1,
+                |_| panic!("no app login item without the menu bar"),
+            );
             assert_eq!(result.is_ok(), succeeds, "{name}");
             assert_eq!(calls, expected_calls, "{name}");
             assert_eq!(
@@ -1413,6 +1541,311 @@ mod tests {
             );
             std::fs::remove_dir_all(home).unwrap();
         }
+    }
+
+    #[test]
+    fn a_state_saved_before_the_menu_bar_setting_shows_the_icon() {
+        let state: review::Review =
+            serde_json::from_str(r#"{"items":[],"monitoring":true}"#).unwrap();
+        assert!(state.monitoring && !state.menu_bar_off);
+        assert!(!review::Review::default().menu_bar_off);
+    }
+
+    #[test]
+    fn background_checks_alone_put_the_app_in_login_items_by_default() {
+        let _alone = one_scan();
+        let (home, app) = engine("menu-bar-default");
+        let mut calls = Vec::new();
+        set_monitoring_with_login(
+            &app,
+            true,
+            false,
+            1,
+            |_| 2,
+            || 1,
+            |on| {
+                calls.push(on);
+                2
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, [true], "Show in Menu Bar is on until turned off");
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn the_menu_bar_setting_is_kept_and_needs_private_state() {
+        let _alone = one_scan();
+        let (home, app) = engine("menu-bar-setting");
+        assert_eq!(ask(&app, "monitor_status", "{}")["ok"]["menu_bar"], true);
+        set_menu_bar_with_login(&app, false, || 1, |_| panic!("not in Login Items")).unwrap();
+        let reopened = App::open(Ok(home.clone()));
+        reopened.ready();
+        assert!(reopened.review.lock().unwrap().menu_bar_off);
+        let status = ask(&reopened, "monitor_status", "{}");
+        assert_eq!(status["ok"]["menu_bar"], false);
+        assert!(status["ok"]["app_login"].is_u64());
+        *reopened.storage_error.lock().unwrap() = Some("synthetic failure".into());
+        assert!(
+            set_menu_bar_with_login(&reopened, true, || 1, |_| panic!("refused first")).is_err()
+        );
+        assert!(app.store.as_ref().unwrap().read().unwrap().menu_bar_off);
+        assert_eq!(
+            ask(&app, "set_menu_bar", "{}")["error"],
+            "The request has no usable \"enabled\"."
+        );
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn the_app_login_item_is_changed_only_when_it_differs() {
+        for (name, want, status, answers, expected_calls, succeeds) in [
+            ("register", true, 1, vec![2], vec![true], true),
+            ("register-after-error", true, 4, vec![2], vec![true], true),
+            ("approval-new", true, 1, vec![3], vec![true], true),
+            ("approval-pending", true, 3, vec![], vec![], true),
+            ("already-on", true, 2, vec![], vec![], true),
+            ("unregister", false, 2, vec![1], vec![false], true),
+            ("approval-withdrawn", false, 3, vec![1], vec![false], true),
+            ("already-off", false, 1, vec![], vec![], true),
+            ("register-failed", true, 1, vec![4], vec![true], false),
+            ("unregister-failed", false, 2, vec![4], vec![false], false),
+        ] {
+            let mut calls = Vec::new();
+            let mut answers = answers.into_iter();
+            let result = reconcile_app_login(want, status, |on| {
+                calls.push(on);
+                answers.next().expect("no extra native operation")
+            });
+            assert_eq!(result.is_ok(), succeeds, "{name}");
+            assert_eq!(calls, expected_calls, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_app_opens_at_login_only_while_both_settings_are_on() {
+        let _alone = one_scan();
+        let (home, app) = engine("menu-bar-login");
+        let mut calls = Vec::new();
+        set_menu_bar_with_login(
+            &app,
+            true,
+            || 1,
+            |on| {
+                calls.push(on);
+                2
+            },
+        )
+        .unwrap();
+        assert!(calls.is_empty(), "the menu bar alone adds no login item");
+        set_monitoring_with_login(
+            &app,
+            true,
+            false,
+            1,
+            |_| 2,
+            || 1,
+            |on| {
+                calls.push(on);
+                2
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, [true], "both on adds the app");
+        calls.clear();
+        set_menu_bar_with_login(
+            &app,
+            false,
+            || 2,
+            |on| {
+                calls.push(on);
+                1
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, [false], "menu bar off removes the app");
+        calls.clear();
+        set_menu_bar_with_login(
+            &app,
+            true,
+            || 1,
+            |on| {
+                calls.push(on);
+                2
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, [true]);
+        calls.clear();
+        set_monitoring_with_login(
+            &app,
+            true,
+            true,
+            2,
+            |_| 2,
+            || 2,
+            |on| {
+                calls.push(on);
+                2
+            },
+        )
+        .unwrap();
+        assert!(calls.is_empty(), "pausing leaves the login item alone");
+        set_monitoring_with_login(
+            &app,
+            false,
+            false,
+            2,
+            |_| 1,
+            || 2,
+            |on| {
+                calls.push(on);
+                1
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, [false], "checks off removes the app");
+        calls.clear();
+
+        // The helper's failure is the one reported, though the app's change worked.
+        set_monitoring_with_login(&app, true, false, 1, |_| 2, || 1, |_| 2).unwrap();
+        let helper = set_monitoring_with_login(
+            &app,
+            false,
+            false,
+            2,
+            |_| 4,
+            || 2,
+            |on| {
+                calls.push(on);
+                1
+            },
+        )
+        .unwrap_err();
+        assert_eq!(calls, [false], "the app's login item is still removed");
+        assert!(helper.contains("background helper"), "{helper}");
+        let login =
+            set_monitoring_with_login(&app, true, false, 1, |_| 2, || 1, |_| 4).unwrap_err();
+        assert!(login.contains("Login Items"), "{login}");
+        assert!(app.store.as_ref().unwrap().read().unwrap().monitoring);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn a_login_item_its_settings_no_longer_want_is_removed_at_start() {
+        let _alone = one_scan();
+        for (name, saved, status, expected_calls) in [
+            // No state file: reset, or the documented removal step.
+            ("reset", None, 2, vec![false]),
+            ("menu-bar-only", Some((false, true)), 3, vec![false]),
+            ("checks-only", Some((true, false)), 2, vec![false]),
+            ("both-on", Some((true, true)), 2, vec![]),
+            // Removed by the person in System Settings: not added back.
+            ("both-on-removed", Some((true, true)), 1, vec![]),
+            ("already-off", None, 1, vec![]),
+        ] {
+            let (home, first) = engine(&format!("start-login-{name}"));
+            if let Some((monitoring, menu_bar)) = saved {
+                update_state(&first, |state| {
+                    state.monitoring = monitoring;
+                    state.menu_bar_off = !menu_bar;
+                })
+                .unwrap();
+            }
+            let app = App::open(Ok(home.clone()));
+            let mut calls = Vec::new();
+            app.ready_with(
+                || status,
+                |on| {
+                    calls.push(on);
+                    1
+                },
+            );
+            assert_eq!(calls, expected_calls, "{name}");
+            std::fs::remove_dir_all(home).unwrap();
+        }
+
+        // State that cannot be read says nothing of what is wanted.
+        use std::os::unix::fs::PermissionsExt;
+        let (home, first) = engine("start-login-unreadable");
+        update_state(&first, |state| state.menu_bar_off = false).unwrap();
+        let state = home.join(review::STATE_DIR).join("state.json");
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let app = App::open(Ok(home.clone()));
+        app.ready_with(
+            || 2,
+            |_| panic!("no change from state that could not be read"),
+        );
+        assert!(app.storage_error.lock().unwrap().is_some());
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn the_app_login_item_follows_the_last_of_two_changes_at_once() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let _alone = one_scan();
+        let (home, app) = engine("menu-bar-login-race");
+        // Show in Menu Bar off: only the helper is registered.
+        update_state(&app, |state| state.menu_bar_off = true).unwrap();
+        set_monitoring_with_login(
+            &app,
+            true,
+            false,
+            1,
+            |_| 2,
+            || 1,
+            |_| panic!("no login item without the menu bar"),
+        )
+        .unwrap();
+        let registered = AtomicU8::new(1);
+        let fake = |on: bool| {
+            let status = if on { 2 } else { 1 };
+            registered.store(status, Ordering::SeqCst);
+            status
+        };
+        let (app, registered_now) = (&app, || registered.load(Ordering::SeqCst));
+        let (reached, at_status) = mpsc::channel();
+        let (release, gate) = mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            // Show in Menu Bar turned on, held as it reads the Login Items status...
+            let menu = scope.spawn(move || {
+                set_menu_bar_with_login(
+                    app,
+                    true,
+                    move || {
+                        reached.send(()).unwrap();
+                        gate.recv().unwrap();
+                        registered_now()
+                    },
+                    fake,
+                )
+            });
+            at_status
+                .recv_timeout(Duration::from_secs(10))
+                .expect("Show in Menu Bar reads the Login Items status");
+            // ...while background checks are turned off.
+            let (finished, done) = mpsc::channel();
+            let checks = scope.spawn(move || {
+                let result =
+                    set_monitoring_with_login(app, false, false, 2, |_| 1, registered_now, fake);
+                finished.send(()).unwrap();
+                result
+            });
+            // One change at a time keeps the second waiting here. Without that,
+            // it finishes now, before the first has added the app.
+            let _ = done.recv_timeout(Duration::from_millis(500));
+            release.send(()).unwrap();
+            menu.join().unwrap().unwrap();
+            checks.join().unwrap().unwrap();
+        });
+        assert!(!app.store.as_ref().unwrap().read().unwrap().monitoring);
+        assert_eq!(
+            registered.load(Ordering::SeqCst),
+            1,
+            "with background checks off, the app is not left in Login Items"
+        );
+        std::fs::remove_dir_all(home).unwrap();
     }
 
     #[test]

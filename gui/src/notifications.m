@@ -167,45 +167,60 @@ void ch_background_init(void (*sleep)(bool), void (*delivery)(unsigned long long
     }];
 }
 
-// The background agent's launchd job.
 // 0 unavailable, 1 disabled, 2 enabled, 3 approval required, 4 error/not found.
-unsigned char ch_login_status(void) {
-    if (@available(macOS 13.0, *)) {
-        switch ([SMAppService agentServiceWithPlistName:agentPlist].status) {
-            case SMAppServiceStatusNotRegistered: return 1;
-            case SMAppServiceStatusEnabled: return 2;
-            case SMAppServiceStatusRequiresApproval: return 3;
-            default: return 4;
-        }
+static unsigned char serviceStatus(SMAppService *service) API_AVAILABLE(macos(13.0)) {
+    switch (service.status) {
+        case SMAppServiceStatusNotRegistered: return 1;
+        case SMAppServiceStatusEnabled: return 2;
+        case SMAppServiceStatusRequiresApproval: return 3;
+        default: return 4;
     }
+}
+
+static unsigned char serviceSet(SMAppService *service, bool enabled) API_AVAILABLE(macos(13.0)) {
+    NSError *error = nil;
+    BOOL ok;
+    if (enabled) {
+        ok = [service registerAndReturnError:&error];
+    } else {
+        // The synchronous unregister returns before the old service is
+        // reaped. Wait for Apple's completion before allowing a subsequent
+        // registration. Engine requests run off the main thread; Apple's
+        // completion runs on the default dispatch queue.
+        dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+        __block BOOL removed = NO;
+        [service unregisterWithCompletionHandler:^(NSError *failure) {
+            removed = failure == nil;
+            dispatch_semaphore_signal(finished);
+        }];
+        // A missing completion must not hang the request or permit a new
+        // registration. The block retains its state if it completes late.
+        if (dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) != 0) return 4;
+        ok = removed;
+    }
+    return ok ? serviceStatus(service) : 4;
+}
+
+// The background agent's launchd job.
+unsigned char ch_login_status(void) {
+    if (@available(macOS 13.0, *)) return serviceStatus([SMAppService agentServiceWithPlistName:agentPlist]);
     return 0;
 }
 
 unsigned char ch_login_set(bool enabled) {
-    if (@available(macOS 13.0, *)) {
-        NSError *error = nil;
-        SMAppService *agent = [SMAppService agentServiceWithPlistName:agentPlist];
-        BOOL ok;
-        if (enabled) {
-            ok = [agent registerAndReturnError:&error];
-        } else {
-            // The synchronous unregister returns before the old service is
-            // reaped. Wait for Apple's completion before allowing a subsequent
-            // registration. Engine requests run off the main thread; Apple's
-            // completion runs on the default dispatch queue.
-            dispatch_semaphore_t finished = dispatch_semaphore_create(0);
-            __block BOOL removed = NO;
-            [agent unregisterWithCompletionHandler:^(NSError *failure) {
-                removed = failure == nil;
-                dispatch_semaphore_signal(finished);
-            }];
-            // A missing completion must not hang the request or permit a new
-            // registration. The block retains its state if it completes late.
-            if (dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) != 0) return 4;
-            ok = removed;
-        }
-        return ok ? ch_login_status() : 4;
-    }
+    if (@available(macOS 13.0, *)) return serviceSet([SMAppService agentServiceWithPlistName:agentPlist], enabled);
+    return 0;
+}
+
+// The app itself in Login Items, which opens it at login in the menu bar.
+// Same codes as the agent's job.
+unsigned char ch_app_login_status(void) {
+    if (@available(macOS 13.0, *)) return serviceStatus([SMAppService mainAppService]);
+    return 0;
+}
+
+unsigned char ch_app_login_set(bool enabled) {
+    if (@available(macOS 13.0, *)) return serviceSet([SMAppService mainAppService], enabled);
     return 0;
 }
 

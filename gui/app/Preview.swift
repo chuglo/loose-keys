@@ -39,6 +39,10 @@ final class SampleEngine: Engine {
     /// given. set_monitoring changes it, and the checks put it back.
     static var monitoring = false
     static var paused = false
+    /// Show in Menu Bar. set_menu_bar changes it, and the checks put it back.
+    static var menuBar = true
+    /// The app's own Login Items status, when the checks set one.
+    static var appLogin: Int?
     static var completedPass = false
     /// An error the helper kept from before checks were turned off.
     static var helperError = false
@@ -91,6 +95,9 @@ final class SampleEngine: Engine {
                     Self.decisions[id] = args["reason"] as? String
                 }
             }
+            return Data("null".utf8)
+        case "set_menu_bar":
+            Self.menuBar = args["enabled"] as? Bool ?? false
             return Data("null".utf8)
         case "set_monitoring":
             Self.monitoring = args["enabled"] as? Bool ?? false
@@ -153,7 +160,7 @@ final class SampleEngine: Engine {
     private static var everythingSetAside: String {
         """
         {"items":[\(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open", aside: "kept"))],
-         "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"\(permission)"}
+         "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":\(listFull),"route":false,"permission":"\(permission)"}
         """
     }
 
@@ -199,6 +206,7 @@ final class SampleEngine: Engine {
         let helperFailed = helperError ? #""Could not watch the home folder for changes.""# : "null"
         return """
         {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring ? 2 : 1),
+         "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
          "health":{"running":\(monitoring),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"changes":0,"error":\(helperFailed)},
          "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
         """
@@ -448,6 +456,18 @@ enum Checks {
     /// A toolbar button, where the page may have a button of the same name.
     private static func toolbarButton(_ name: String) -> AXUIElement? {
         everything().first { role($0) == kAXToolbarRole }.flatMap { button(name, in: $0) }
+    }
+
+    /// This app's icons in the menu bar, as assistive software is told about them.
+    private static func menuBarItems() -> [AXUIElement] {
+        guard let extras = value(AXUIElementCreateApplication(getpid()), kAXExtrasMenuBarAttribute),
+              CFGetTypeID(extras) == AXUIElementGetTypeID() else { return [] }
+        return children(extras as! AXUIElement)
+    }
+
+    /// Whether closing the last window would quit the app, asked as AppKit asks.
+    private static func quitsWithLastWindow() -> Bool? {
+        NSApp.delegate?.applicationShouldTerminateAfterLastWindowClosed?(NSApp)
     }
 
     /// Links the window opened, recorded instead of opened.
@@ -1168,6 +1188,39 @@ enum Checks {
         await press(button("Hide Check Details"), "collapsing Settings check details")
         expect(await eventually { !written().contains("Last Recorded Check") && written().contains { $0.contains("3 places were not read") } },
                "collapsing Settings details keeps unread places visible")
+        // Show in Menu Bar is saved by the engine and on until turned off.
+        // While on, an icon is in this Mac's menu bar.
+        expect(await eventually { model.menuBarOn && menuBarItems().count == 1 }, "Show in Menu Bar is on by default, with one icon in the menu bar")
+        expect(quitsWithLastWindow() == false, "with Show in Menu Bar on, closing the last window leaves the app running")
+        // Settings says when the app is not in Login Items, so not opened at login.
+        SampleEngine.appLogin = 3
+        await model.refreshMonitor()
+        expect(await eventually { written().contains("Allow Loose Keys in Login Items to show it at login.") },
+               "Settings says when Login Items needs the person's approval for the app")
+        SampleEngine.appLogin = 1
+        await model.refreshMonitor()
+        expect(await eventually { written().contains("Not in Login Items: shown only while the app is open.") },
+               "Settings says when the app is not in Login Items")
+        SampleEngine.appLogin = nil
+        await model.refreshMonitor()
+        expect(await eventually { !written().contains { $0.contains("Login Items") } },
+               "Settings says nothing of Login Items while the app is in them")
+        // The engine refuses the switch while private state cannot be used.
+        SampleEngine.storeFailed = true
+        await model.refreshReview()
+        await model.refreshMonitor()
+        expect(await eventually { toggle("Show in Menu Bar").flatMap { value($0, kAXEnabledAttribute) as? Bool } == false },
+               "with private state unavailable, the Show in Menu Bar switch is disabled")
+        SampleEngine.storeFailed = false
+        await model.refreshReview()
+        await model.refreshMonitor()
+        await press(toggle("Show in Menu Bar"), "turning Show in Menu Bar off",
+                    until: { !SampleEngine.menuBar && !model.menuBarOn })
+        expect(await eventually { menuBarItems().isEmpty }, "with Show in Menu Bar off, the icon leaves the menu bar")
+        expect(quitsWithLastWindow() == true, "with Show in Menu Bar off, closing the last window quits the app")
+        await press(toggle("Show in Menu Bar"), "turning Show in Menu Bar back on",
+                    until: { SampleEngine.menuBar && model.menuBarOn })
+        expect(await eventually { menuBarItems().count == 1 }, "with Show in Menu Bar on again, the icon is back")
         let told = consent.flatMap { value($0, kAXEnabledAttribute) as? Bool }
         await press(consent, "turning background checks off with the review list full")
         for _ in 0..<10 where SampleEngine.monitoring { await settle() }
@@ -1183,6 +1236,56 @@ enum Checks {
         await model.refreshReview()
         await model.refreshMonitor()
         await open(.review)
+
+        // The menu bar icon is marked from the same list as the window, and
+        // assistive software is told the mark. Its menu is not reachable from here.
+        let labels = [MenuBarMark.unknown, .open, .plain, .problem, .full].map(MenuBarIcon.label)
+        expect(Set(labels).count == labels.count, "each menu bar mark has its own label for assistive software")
+        model.setMenuBar(true)
+        expect(await eventually { model.menuBarOn && menuBarItems().count == 1 }, "the menu bar icon is shown again")
+        func marked(_ mark: MenuBarMark) async -> Bool {
+            await eventually { menuBarItems().first.map(names)?.contains(MenuBarIcon.label(mark)) == true }
+        }
+        SampleEngine.refused = true
+        await model.refreshReview(reportFailure: false)
+        let problemMarked = await marked(.problem)
+        expect(model.menuBarMark == .problem && model.menuBarLine == "Worth Reviewing could not be read" && problemMarked,
+               "with the review list refused, the menu bar shows a problem, not a count")
+        SampleEngine.refused = false
+        SampleEngine.storeFailed = true
+        await model.refreshReview()
+        expect(model.menuBarMark == .problem, "with the review list not saved, the menu bar shows a problem")
+        SampleEngine.storeFailed = false
+        SampleEngine.allSetAside = true
+        await model.refreshReview()
+        let plainMarked = await marked(.plain)
+        expect(model.menuBarMark == .plain && model.menuBarLine == "0 loose keys to review" && plainMarked,
+               "with everything set aside, the menu bar counts none to review")
+        SampleEngine.listFull = true
+        await model.refreshReview()
+        let fullMarked = await marked(.full)
+        expect(model.menuBarMark == .full && model.menuBarLine == "0 loose keys to review, list full" && fullMarked,
+               "with everything set aside and the list full, the menu bar says the list is full")
+        SampleEngine.listFull = false
+        SampleEngine.allSetAside = false
+        await model.refreshReview()
+        let openMarked = await marked(.open)
+        expect(model.openCount > 0 && model.menuBarMark == .open && model.menuBarLine == plural(model.openCount, "loose key", "loose keys") + " to review" && openMarked,
+               "with items open, the menu bar is marked and the menu counts them")
+        // A minimized window is one to come back to: with it, turning the
+        // menu bar off or closing another window neither quits nor hides the app.
+        let spare = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+                             styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        spare.isReleasedWhenClosed = false
+        spare.orderFront(nil)
+        spare.miniaturize(nil)
+        let minimized = await eventually { spare.isMiniaturized }
+        expect(minimized && AppModel.windowOpen(in: [spare]),
+               "a minimized window counts as open (AppKit calls it \(spare.isVisible ? "visible" : "not visible"))")
+        spare.close()
+        model.setMenuBar(false)
+        expect(await eventually { !model.menuBarOn && menuBarItems().isEmpty }, "the menu bar icon is taken away again")
+        await settle(after: "the review list read again")
 
         // The Overview explains a list shorter than the scan's count: one
         // credential is one item. A full list is shorter for a worse reason,

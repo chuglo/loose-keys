@@ -153,8 +153,9 @@ otherwise list them under "Not verified".
 - **macOS only:** the code has no branch for
   another system, and nothing is built, checked or claimed for
   one. The engine still has no window, dialog or clipboard code.
-- **Standard macOS controls only** in the window, with system fonts, colours
-  and symbols.
+- **Standard macOS controls only** in the window and menu bar, with system
+  fonts, colours and symbols. The one drawing is the menu bar key's dot for
+  open items or a full list.
 
 ## How to work
 
@@ -206,9 +207,10 @@ otherwise list them under "Not verified".
   `extern "C"` function it ends the process, so keep those small.
 - **Locks.** In new code, copy what you need out of a `Mutex` and drop the
   guard before calling the scanner, the store, the event handler, `Monitor`
-  or a `ch_*` function. Where two locks are held, take `review` before
-  `storage_error` or `report` in the app, and `inbox` before `known` in the
-  agent; take `Monitor`'s with no other held.
+  or a `ch_*` function (`app_login` alone is held across them, to order
+  Login Items changes). Where two locks are held, take `app_login` first,
+  then `review` before `storage_error` or `report` in the app, and `inbox`
+  before `known` in the agent; take `Monitor`'s with no other held.
 - **Files.** Open and read scanned files only through `src/fsutil.rs`, which
   opens without following links and bounds every read. The one deliberate
   resolution exception is `through_links`: a known sign-in location may

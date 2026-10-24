@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationSplitView(columnVisibility: columns) {
@@ -39,6 +40,8 @@ struct MainView: View {
         } message: { text in
             Text(text)
         }
+        // For a notification click or the Dock once this window has closed.
+        .onAppear { model.openMainWindow = { openWindow(id: "main") } }
     }
 
     /// Only lists have something to inspect.
