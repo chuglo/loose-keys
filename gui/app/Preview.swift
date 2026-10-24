@@ -1214,12 +1214,14 @@ enum Checks {
         SampleEngine.storeFailed = false
         await model.refreshReview()
         await model.refreshMonitor()
+        // The switch shows what was saved at once, so a second press undoes the first.
+        func menuBarSwitch() -> Int? { toggle("Show in Menu Bar").flatMap { value($0, kAXValueAttribute) as? Int } }
         await press(toggle("Show in Menu Bar"), "turning Show in Menu Bar off",
-                    until: { !SampleEngine.menuBar && !model.menuBarOn })
+                    until: { !SampleEngine.menuBar && !model.menuBarOn && menuBarSwitch() == 0 })
         expect(await eventually { menuBarItems().isEmpty }, "with Show in Menu Bar off, the icon leaves the menu bar")
         expect(quitsWithLastWindow() == true, "with Show in Menu Bar off, closing the last window quits the app")
         await press(toggle("Show in Menu Bar"), "turning Show in Menu Bar back on",
-                    until: { SampleEngine.menuBar && model.menuBarOn })
+                    until: { SampleEngine.menuBar && model.menuBarOn && menuBarSwitch() == 1 })
         expect(await eventually { menuBarItems().count == 1 }, "with Show in Menu Bar on again, the icon is back")
         let told = consent.flatMap { value($0, kAXEnabledAttribute) as? Bool }
         await press(consent, "turning background checks off with the review list full")

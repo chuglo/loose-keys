@@ -132,8 +132,9 @@ struct SettingsView: View {
 
     @ViewBuilder private func menuBar(_ monitor: MonitorStatus) -> some View {
         Section {
+            // What was last saved, which the next status read only confirms.
             Toggle("Show in Menu Bar", isOn: Binding(
-                get: { monitor.menuBar },
+                get: { model.menuBarOn },
                 set: { model.setMenuBar($0) }))
                 .disabled(model.monitorFailure != nil)
             if monitor.enabled, monitor.menuBar {
