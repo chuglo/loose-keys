@@ -62,4 +62,5 @@ test whole-home coverage, folder permissions, failed-save recovery, linked
 targets, browser sidecars, notifications, login or reboot, sleep and wake,
 Low Power Mode, foreground refresh or every consent path. Its leak checks
 look for full fixture values and their first and last ten characters, not
-every fragment or system log.
+every fragment or system log. The Settings driver finds controls by their
+English names, so the guest's language must be English.

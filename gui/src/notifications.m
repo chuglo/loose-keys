@@ -57,7 +57,8 @@ static BOOL shouldOpenReview(NSString *identifier, NSString *action) {
 static UNNotificationRequest *reviewRequest(void) {
     UNMutableNotificationContent *content = [UNMutableNotificationContent new];
     content.title = @"Loose Keys";
-    content.body = @"Potential local credential exposure found. Review safe next steps. This does not prove theft.";
+    content.body = NSLocalizedString(@"Potential local credential exposure found. Review safe next steps. This does not prove theft.",
+        @"Notification body, sent by the background helper when it finds something new to review.");
     content.categoryIdentifier = @"credential-review";
     // No userInfo, paths, accounts, counts, secrets, attachments, or sound.
     return [UNNotificationRequest requestWithIdentifier:@"credential-review" content:content trigger:nil];
@@ -115,7 +116,8 @@ void ch_notifications_init(ReviewCallback callback, void (*permission)(unsigned 
     notificationDelegate = [ReviewNotifications new];
     center.delegate = notificationDelegate;
     UNNotificationAction *action = [UNNotificationAction actionWithIdentifier:@"review"
-        title:@"Review" options:UNNotificationActionOptionForeground];
+        title:NSLocalizedString(@"Review", @"Notification button that opens the app's review list.")
+        options:UNNotificationActionOptionForeground];
     UNNotificationCategory *category = [UNNotificationCategory categoryWithIdentifier:@"credential-review"
         actions:@[action] intentIdentifiers:@[] options:UNNotificationCategoryOptionNone];
     [center setNotificationCategories:[NSSet setWithObject:category]];

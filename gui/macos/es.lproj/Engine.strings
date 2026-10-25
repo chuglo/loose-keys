@@ -1,0 +1,780 @@
+/* What the engine and scanner say, as the window shows it, in Spanish. Keys
+   are the engine's English. %@ stands for any text and %lld for a number,
+   once per entry. */
+
+/* rule export.password-csv */
+"Possible password export file" = "Posible archivo de exportación de contraseñas";
+"The CSV header resembles a browser or password-manager export. A header does not prove that password rows are present or populated; values are not inspected." = "El encabezado CSV parece el de una exportación de un navegador o de un gestor de contraseñas. Un encabezado no demuestra que haya filas de contraseñas ni que tengan contenido; los valores no se examinan.";
+"If populated, this export may expose passwords to programs able to read the file." = "Si contiene datos, esta exportación puede exponer contraseñas a los programas capaces de leer el archivo.";
+"Delete exports you no longer need, including Trash and synced copies. Deleting a file does not revoke credentials; change exposed passwords separately." = "Elimina las exportaciones que ya no necesites, incluidas las copias en la papelera y las sincronizadas. Eliminar un archivo no revoca las credenciales; cambia por separado las contraseñas expuestas.";
+"Open the file's folder and confirm it is a password export you made." = "Abre la carpeta del archivo y confirma que es una exportación de contraseñas que hiciste tú.";
+"If you still need these passwords, import the file into a password manager first." = "Si aún necesitas estas contraseñas, importa primero el archivo en un gestor de contraseñas.";
+"Delete the file, then empty the Trash. Look for other copies in Downloads, Desktop and iCloud Drive." = "Elimina el archivo y luego vacía la papelera. Busca otras copias en Descargas, Escritorio y iCloud Drive.";
+"If the file sat in a shared or synced folder, or you think this Mac had malware, change the passwords for your email and bank accounts first, then the rest." = "Si el archivo estuvo en una carpeta compartida o sincronizada, o crees que tu Mac tuvo malware, cambia primero las contraseñas de tu correo electrónico y de tus cuentas bancarias, y luego las demás.";
+
+/* rule key.ssh.private */
+"Private key with no passphrase" = "Clave privada sin contraseña";
+"A private-key header was found. The key has not been validated or tested for access; a passphrase can make a copied key harder to use." = "Se encontró un encabezado de clave privada. No se ha validado la clave ni se ha probado si da acceso; una contraseña puede dificultar el uso de una copia de la clave.";
+"The key has no passphrase, so a copy of this file works as it is. The header does not show that the key is valid or has current authorization." = "La clave no tiene contraseña, así que una copia de este archivo funciona tal cual. El encabezado no muestra que la clave sea válida ni que tenga autorización vigente.";
+"If this key has only ever been in ~/.ssh on this Mac, adding a passphrase protects it from now on. If it has been anywhere else, such as a synced folder, a repository, an email or a backup, or you're not sure, replace it: create a new key with a passphrase, add it where the old one is trusted, then remove the old one from each of those places. Deleting the file or adding a passphrase does not stop a copy made earlier from working." = "Si esta clave solo ha estado en ~/.ssh de tu Mac, añadirle una contraseña la protege a partir de ahora. Si ha estado en cualquier otro lugar, como una carpeta sincronizada, un repositorio, un correo electrónico o una copia de seguridad, o tienes dudas, sustitúyela: crea una clave nueva con contraseña, añádela en los lugares donde la antigua está autorizada y luego quita la antigua de cada uno de ellos. Eliminar el archivo o añadir una contraseña no impide que una copia hecha antes siga funcionando.";
+"If it is an SSH key you use, add a passphrase: ssh-keygen -p -f <key file>. Don't run this on a key another program reads, such as a web server's HTTPS key: it rewrites the file in SSH's own format." = "Si es una clave SSH que usas, añádele una contraseña: ssh-keygen -p -f <archivo de clave>. No ejecutes este comando con una clave que lea otro programa, como la clave HTTPS de un servidor web: reescribe el archivo en el formato propio de SSH.";
+"To avoid typing the passphrase each time, run ssh-add --apple-use-keychain <key file>, and put UseKeychain yes at the top of ~/.ssh/config so SSH still finds it after a restart." = "Para no escribir la contraseña cada vez, ejecuta ssh-add --apple-use-keychain <archivo de clave> y pon UseKeychain yes al principio de ~/.ssh/config para que SSH la siga encontrando después de reiniciar.";
+"If a script or server signs in with this key unattended, a passphrase will stop it. Leave the key without one and limit what it can do where it's trusted, for example as a read-only deploy key." = "Si un script o un servidor inicia sesión con esta clave sin que nadie intervenga, una contraseña impedirá que funcione. Deja la clave sin contraseña y limita lo que puede hacer donde está autorizada, por ejemplo, como clave de despliegue de solo lectura (deploy key).";
+"If you don't use it, remove it where it's trusted, then delete the file and its .pub. ssh-keygen -lf <key file> prints its fingerprint, which GitHub (Settings > SSH and GPG keys) and similar services show beside each key." = "Si no la usas, quítala de donde está autorizada y luego elimina el archivo y su .pub. ssh-keygen -lf <archivo de clave> muestra su huella digital, que GitHub (Settings > SSH and GPG keys) y servicios similares indican junto a cada clave.";
+"Possible private key" = "Posible clave privada";
+
+/* rule export.password-bitwarden-json */
+"Possible plaintext Bitwarden password export" = "Posible exportación sin cifrar de contraseñas de Bitwarden";
+"A plaintext Bitwarden personal-export structure with a nonempty login password field was found. Password validity and account access were not checked; field values are never reported." = "Se encontró la estructura de una exportación personal sin cifrar de Bitwarden, con un campo de contraseña de inicio de sesión que no está vacío. No se comprobó si la contraseña es válida ni si da acceso a la cuenta; los valores de los campos nunca se incluyen en los resultados.";
+
+/* rule export.password-1pux */
+"1Password export file" = "Archivo de exportación de 1Password";
+"This file has the name and format of a 1Password export (1PUX), which holds every exported item unencrypted. It was recognised by its name and file signature; nothing inside it was read." = "Este archivo tiene el nombre y el formato de una exportación de 1Password (1PUX), que guarda sin cifrar todos los elementos exportados. Se reconoció por su nombre y por la firma del archivo; no se leyó nada de su interior.";
+
+/* rule secret.service-token */
+"Service token stored in a file" = "Token de servicio guardado en un archivo";
+"Text in the format of a service's access token was found. Whether the token is still valid, and what it can do, was not checked." = "Se encontró texto con el formato de un token de acceso de un servicio. No se comprobó si el token sigue siendo válido ni lo que permite hacer.";
+"A token like this usually works from any computer until it is revoked. Programs able to read this file can copy it." = "Un token como este suele funcionar desde cualquier dispositivo hasta que se revoca. Los programas capaces de leer este archivo pueden copiarlo.";
+"Revoke the token where it was issued, then remove it from this file. Deleting the text does not revoke the token." = "Revoca el token en el servicio que lo emitió y luego quítalo de este archivo. Eliminar el texto no revoca el token.";
+"Revoke or roll the token where it was issued. Do this first: the old value keeps working until then, wherever it has been copied." = "Revoca o rota el token en el servicio que lo emitió. Hazlo primero: hasta entonces, el valor antiguo sigue funcionando dondequiera que se haya copiado.";
+"If something still needs access, issue a replacement with the smallest permissions and the shortest expiry that work." = "Si algo todavía necesita acceso, emite un token nuevo que sustituya al antiguo, con los permisos mínimos y el plazo de expiración más corto que sirvan.";
+"Keep the replacement out of plain files. Store it in the macOS Keychain or a password manager and load it when needed." = "No dejes el token nuevo en archivos sin cifrar. Guárdalo en el llavero de macOS o en un gestor de contraseñas y cárgalo cuando haga falta.";
+"Remove the old value from this file. If it is a shell history file, delete that line." = "Quita el valor antiguo de este archivo. Si es un archivo de historial de shell, elimina esa línea.";
+
+/* rule dev.gcp.service-account-key */
+"Google Cloud service account key file" = "Archivo de clave de cuenta de servicio de Google Cloud";
+"A JSON file with a service account's private key was found. The key's validity and permissions were not checked." = "Se encontró un archivo JSON con la clave privada de una cuenta de servicio. No se comprobaron la validez ni los permisos de la clave.";
+"A service account key does not expire by default and works from any computer. These files are often left in Downloads after being created." = "Una clave de cuenta de servicio no expira de forma predeterminada y funciona desde cualquier dispositivo. Estos archivos suelen quedarse en Descargas después de crearse.";
+"Delete the key in Google Cloud, not just this file. Use sign-in or impersonation instead of a downloaded key." = "Elimina la clave en Google Cloud, no solo este archivo. Usa un inicio de sesión o la identidad temporal como cuenta de servicio en lugar de una clave descargada.";
+"In the Google Cloud console, open IAM & Admin > Service Accounts, choose the account named here, and open its Keys tab." = "En la consola de Google Cloud, abre IAM y administración > Cuentas de servicio, elige la cuenta que aparece aquí y abre su pestaña Claves.";
+"Delete the key. If something still uses it, switch that to 'gcloud auth application-default login' with service account impersonation, or to workload identity, first." = "Elimina la clave. Si algo todavía la usa, primero cámbialo a 'gcloud auth application-default login' con identidad temporal como cuenta de servicio, o a identidades para cargas de trabajo (workload identity).";
+"Delete this file and empty the Trash. Look for other copies in Downloads and project folders." = "Elimina este archivo y vacía la papelera. Busca otras copias en Descargas y en las carpetas de proyectos.";
+
+/* rule secret.env-assignment */
+"Secret assigned in a plain-text settings file" = "Secreto asignado en un archivo de configuración sin cifrar";
+"A variable whose name says it holds a password, key or token is set to a literal value. The value was not inspected beyond ruling out placeholders, and it may be a local or test value." = "Una variable cuyo nombre indica que contiene una contraseña, una clave o un token tiene asignado un valor literal. El valor no se examinó más allá de descartar marcadores de posición, y puede ser un valor local o de prueba.";
+"Supply-chain malware and infostealers collect .env and shell files because they hold working credentials in plain text." = "El malware que ataca la cadena de suministro y los programas ladrones de información (infostealers) recopilan archivos .env y de shell porque guardan sin cifrar credenciales que funcionan.";
+"Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file." = "Decide si es una credencial real. Si lo es, revócala en el servicio y carga la nueva desde un gestor de contraseñas, no desde este archivo.";
+"Check what the variable is for. A value for a local test database needs nothing more." = "Comprueba para qué sirve la variable. Un valor para una base de datos de prueba local no necesita nada más.";
+"For a real credential, revoke or change it at the service that issued it. Removing the line does not do that." = "Si es una credencial real, revócala o cámbiala en el servicio que la emitió. Quitar la línea no la revoca ni la cambia.";
+"Load the replacement at run time instead of storing it: a password manager CLI (for example 'op run' or 'security find-generic-password') can fill the variable when the program starts." = "Carga la nueva credencial en tiempo de ejecución en lugar de guardarla: la herramienta de línea de comandos de un gestor de contraseñas (por ejemplo, 'op run' o 'security find-generic-password') puede dar valor a la variable cuando se inicia el programa.";
+"Remove the old value from this file. Check that the file is in .gitignore and was never committed." = "Quita el valor antiguo de este archivo. Comprueba que el archivo está en .gitignore y que nunca se incluyó en un commit.";
+
+/* rule dev.docker.inline-auth */
+"Docker registry password in the config file" = "Contraseña de un registro de Docker en el archivo de configuración";
+"A nonempty inline auth field was found. Docker stores this as base64, which is encoding, not encryption; validity and effective file access have not been checked." = "Se encontró un campo auth no vacío escrito directamente en el archivo. Docker lo guarda en base64, que es una codificación, no un cifrado; no se ha comprobado si es válido ni quién tiene acceso efectivo al archivo.";
+"Docker on macOS can keep this in the Keychain instead." = "En macOS, Docker puede guardarlo en el llavero en vez de en el archivo.";
+"Move the sign-in to the Keychain. Removing an inline entry does not revoke the credential; change it at the registry." = "Mueve los datos de inicio de sesión al llavero. Quitar una entrada escrita en el archivo no revoca la credencial; cámbiala en el registro.";
+"Sign out of each registry listed in the file, which removes the inline entry: docker logout <registry>" = "Cierra sesión en cada registro que aparece en el archivo, con lo que se quita su entrada del archivo: docker logout <registro>";
+"Set \"credsStore\": \"osxkeychain\" in ~/.docker/config.json. Docker Desktop does this by default." = "Establece \"credsStore\": \"osxkeychain\" en ~/.docker/config.json. Docker Desktop lo hace de forma predeterminada.";
+"Sign in again with 'docker login'. Use a personal access token, not your account password." = "Vuelve a iniciar sesión con 'docker login'. Usa un token de acceso personal, no la contraseña de tu cuenta.";
+"At the registry, revoke the old token or change the password that was stored here." = "En el registro, revoca el token antiguo o cambia la contraseña que estaba guardada aquí.";
+
+/* rule dev.aws.inline-credentials */
+"AWS access keys stored in a file" = "Claves de acceso de AWS guardadas en un archivo";
+"A nonempty AWS secret-access-key field was found. Its validity, lifetime and authorization have not been checked." = "Se encontró un campo de clave de acceso secreta de AWS que no está vacío. No se ha comprobado su validez, su vigencia ni su autorización.";
+"Static AWS access keys do not expire and work from any computer. Programs able to read this file can copy them." = "Las claves de acceso estáticas de AWS no expiran y funcionan desde cualquier dispositivo. Los programas capaces de leer este archivo pueden copiarlas.";
+"Replace static keys with short-lived sign-in. Deleting this file does not revoke keys; deactivate them in IAM." = "Sustituye las claves estáticas por un inicio de sesión de corta duración. Eliminar este archivo no revoca las claves; desactívalas en IAM.";
+"Find out what still uses this profile. In the IAM console, the key's 'Last used' column shows when and for which service." = "Averigua qué sigue usando este perfil. En la consola de IAM, la columna “Último uso” de la clave muestra cuándo y para qué servicio.";
+"Switch to short-lived credentials: run 'aws configure sso' (IAM Identity Center), which stores no long-lived secret." = "Cambia a credenciales de corta duración: ejecuta 'aws configure sso' (IAM Identity Center), que no guarda ningún secreto de larga duración.";
+"In IAM > Users > Security credentials, make the old access key inactive, confirm nothing broke, then delete it." = "En IAM > Usuarios > Credenciales de seguridad, desactiva la clave de acceso antigua, confirma que nada dejó de funcionar y luego elimínala.";
+"Remove the profile's aws_access_key_id and aws_secret_access_key lines from ~/.aws/credentials." = "Quita las líneas aws_access_key_id y aws_secret_access_key del perfil en ~/.aws/credentials.";
+
+/* rule dev.git.inline-credentials */
+"Possible Git plaintext credential" = "Posible credencial de Git sin cifrar";
+"A URL with inline username and password fields was found in Git's plaintext credential file. The credential's validity and authorization were not checked." = "En el archivo de credenciales sin cifrar de Git se encontró una URL que incluye campos de nombre de usuario y contraseña. No se comprobaron la validez ni la autorización de la credencial.";
+"Programs able to read this file may obtain the inline credential." = "Los programas capaces de leer este archivo pueden obtener la credencial que contiene.";
+"Let Git keep this in the Keychain instead. Deleting an inline entry does not revoke the credential; revoke it at the host." = "Deja que Git guarde esto en el llavero en lugar de en el archivo. Eliminar una entrada escrita en el archivo no revoca la credencial; revócala en el host.";
+"Tell Git to use the macOS Keychain: git config --global credential.helper osxkeychain" = "Indica a Git que use el llavero de macOS: git config --global credential.helper osxkeychain";
+"At the host named here, revoke this token or change this password (GitHub: Settings > Developer settings > Personal access tokens)." = "En el host que aparece aquí, revoca este token o cambia esta contraseña (GitHub: Settings > Developer settings > Personal access tokens).";
+"Delete the line from ~/.git-credentials, or the whole file if nothing else is in it." = "Elimina la línea de ~/.git-credentials, o el archivo entero si no contiene nada más.";
+"The next push or pull asks you to sign in once and stores the new credential in the Keychain." = "En el siguiente push o pull, Git te pide que inicies sesión una vez y guarda la nueva credencial en el llavero.";
+
+/* rule dev.gh.inline-token */
+"Possible GitHub CLI inline token" = "Posible token de GitHub CLI guardado en un archivo";
+"GitHub CLI's sign-in token is stored as plain text in its hosts file instead of the Keychain. The token's validity and permissions were not checked." = "El token de inicio de sesión de GitHub CLI está guardado sin cifrar en su archivo de hosts en lugar de en el llavero. No se comprobaron la validez ni los permisos del token.";
+"Sign in again so GitHub CLI stores the token in the Keychain. Removing the line does not revoke the token." = "Vuelve a iniciar sesión para que GitHub CLI guarde el token en el llavero. Quitar la línea no revoca el token.";
+"Sign out, which also removes the stored token: gh auth logout" = "Cierra sesión, lo que también elimina el token guardado: gh auth logout";
+"Sign in again: gh auth login. It uses the system credential store when available but can fall back to a plain-text file. Use gh auth status to check the storage location." = "Vuelve a iniciar sesión: gh auth login. Este comando usa el almacén de credenciales del sistema cuando está disponible, pero puede recurrir a un archivo sin cifrar. Ejecuta gh auth status para comprobar dónde se guarda el token.";
+"In GitHub Settings > Applications > Authorized OAuth Apps, revoke 'GitHub CLI' if the old token may have been copied." = "En GitHub, en Settings > Applications > Authorized OAuth Apps, revoca “GitHub CLI” si es posible que se haya copiado el token antiguo.";
+
+/* rule dev.npm.inline-credentials */
+"Possible npm inline credential" = "Posible credencial de npm guardada en un archivo";
+"A token or password is stored in npm's user config. npm tokens are a common target of supply-chain malware because they can publish packages. Validity and permissions were not checked." = "En la configuración de usuario de npm hay guardado un token o una contraseña. Los tokens de npm son un objetivo habitual del malware que ataca la cadena de suministro porque permiten publicar paquetes. No se comprobaron la validez ni los permisos.";
+"Revoke this token and replace it with a narrower one. Removing the line does not revoke it." = "Revoca este token y sustitúyelo por uno más limitado. Quitar la línea no lo revoca.";
+"List your tokens with 'npm token list', then revoke this one: npm token revoke <id>" = "Consulta la lista de tus tokens con 'npm token list' y luego revoca este: npm token revoke <id>";
+"If you still publish from this Mac, create a granular access token limited to the packages you need, with an expiry date." = "Si todavía publicas desde tu Mac, crea un token de acceso granular (“granular access token”) limitado a los paquetes que necesites y con fecha de expiración.";
+"npm has no Keychain storage. To keep the value out of this file, write //registry.npmjs.org/:_authToken=${NPM_TOKEN} and supply NPM_TOKEN from a password manager when you publish." = "npm no ofrece almacenamiento en el llavero. Para que el valor no quede en este archivo, escribe //registry.npmjs.org/:_authToken=${NPM_TOKEN} y proporciona NPM_TOKEN desde un gestor de contraseñas cuando publiques.";
+"If you only install public packages, delete the line: no token is needed." = "Si solo instalas paquetes públicos, elimina la línea: no hace falta ningún token.";
+
+/* rule dev.kube.inline-credentials */
+"Kubernetes credential stored in kubeconfig" = "Credencial de Kubernetes guardada en kubeconfig";
+"A token, password or client key is written directly in the kubeconfig file. Whether it still works, and on which cluster, was not checked." = "En el archivo kubeconfig hay escrito directamente un token, una contraseña o una clave de cliente. No se comprobó si sigue funcionando ni en qué clúster.";
+"Inline kubeconfig credentials are long-lived and work from any computer that can reach the cluster." = "Las credenciales escritas directamente en kubeconfig son de larga duración y funcionan desde cualquier dispositivo que pueda conectarse al clúster.";
+"Replace inline credentials with a sign-in plugin that fetches short-lived ones. Removing the entry does not revoke it on the cluster." = "Sustituye las credenciales escritas en el archivo por un complemento de inicio de sesión que obtenga credenciales de corta duración. Quitar la entrada no revoca la credencial en el clúster.";
+"See which users hold inline credentials: kubectl config view (values are hidden unless you add --raw)." = "Consulta qué usuarios tienen credenciales escritas en el archivo: kubectl config view (los valores se ocultan salvo que incluyas --raw).";
+"Recreate each entry with the provider's sign-in plugin, which stores no secret: 'aws eks update-kubeconfig', 'gcloud container clusters get-credentials' or 'az aks get-credentials' with kubelogin." = "Vuelve a crear cada entrada con el complemento de inicio de sesión del proveedor, que no guarda ningún secreto: 'aws eks update-kubeconfig', 'gcloud container clusters get-credentials' o 'az aks get-credentials' con kubelogin.";
+"Remove users you no longer need: kubectl config delete-user <name>" = "Elimina los usuarios que ya no necesites: kubectl config delete-user <nombre>";
+"On the cluster, delete the service account token or rotate the client certificate that was stored here." = "En el clúster, elimina el token de la cuenta de servicio o rota el certificado de cliente que estaba guardado aquí.";
+
+/* rule dev.terraform.state-secret */
+"Secret stored in a Terraform state file" = "Secreto guardado en un archivo de estado de Terraform";
+"Terraform keeps what it created in this state file as plain JSON, including passwords and keys that providers return. The values were not read beyond ruling out empty ones and placeholders." = "Terraform guarda en este archivo de estado lo que creó, como JSON sin cifrar, incluidas las contraseñas y claves que devuelven los proveedores. Los valores no se leyeron más allá de descartar los vacíos y los marcadores de posición.";
+"State files hold working database passwords and cloud keys, and they stay in project folders long after the work is done." = "Los archivos de estado contienen contraseñas de bases de datos y claves de la nube que funcionan, y permanecen en las carpetas de los proyectos mucho después de terminar el trabajo.";
+"Rotate what the state names, and move the state to a remote backend. Deleting the file does not revoke anything." = "Rota lo que aparece en el estado y mueve el estado a un backend remoto. Eliminar el archivo no revoca nada.";
+"Rotate the password or key of each resource named here at its service." = "Rota, en su servicio, la contraseña o la clave de cada recurso que aparece aquí.";
+"Store state remotely (HCP Terraform, or an encrypted bucket with locking) so no copy stays on this Mac: add a backend block and run 'terraform init -migrate-state'." = "Guarda el estado de forma remota (HCP Terraform o un bucket cifrado con bloqueo) para que no quede ninguna copia en tu Mac: añade un bloque backend y ejecuta 'terraform init -migrate-state'.";
+"Delete the local state file and its .backup copy once the remote state works." = "Elimina el archivo de estado local y su copia .backup cuando el estado remoto funcione.";
+
+/* rule dev.gcloud.stored-login */
+"Google Cloud sign-in stored by gcloud" = "Inicio de sesión de Google Cloud guardado por gcloud";
+"gcloud keeps a refresh token for application-default sign-in in this file. This is how the tool works; the token's validity and permissions were not checked." = "gcloud guarda en este archivo un token de actualización para iniciar sesión con las credenciales predeterminadas de la aplicación. Así funciona la herramienta; no se comprobaron la validez ni los permisos del token.";
+"Sign out when you stop using gcloud, which revokes the token." = "Cierra sesión cuando dejes de usar gcloud: así se revoca el token.";
+"When you no longer need it, revoke the stored sign-in: gcloud auth application-default revoke" = "Cuando ya no lo necesites, revoca el inicio de sesión guardado: gcloud auth application-default revoke";
+"To sign out of gcloud itself as well: gcloud auth revoke --all" = "Para cerrar sesión también en el propio gcloud: gcloud auth revoke --all";
+
+/* rule dev.azure.stored-login */
+"Azure sign-in stored by the Azure CLI" = "Inicio de sesión de Azure guardado por la CLI de Azure";
+"On macOS the Azure CLI keeps its refresh tokens in this file as plain text. This is how the tool works; the tokens' validity and permissions were not checked." = "En macOS, la CLI de Azure guarda sus tokens de actualización en este archivo como texto sin cifrar. Así funciona la herramienta; no se comprobaron la validez ni los permisos de los tokens.";
+"Sign out when you stop using the Azure CLI." = "Cierra sesión cuando dejes de usar la CLI de Azure.";
+"When you no longer need it, sign out and clear the stored tokens: az logout, then az account clear" = "Cuando ya no lo necesites, cierra sesión y borra los tokens guardados: az logout y, después, az account clear";
+
+/* rule dev.terraform.inline-token */
+"Terraform Cloud token stored in a file" = "Token de Terraform Cloud guardado en un archivo";
+"Terraform keeps its API token for HCP Terraform or Terraform Enterprise in this file as plain text. The token's validity and permissions were not checked." = "Terraform guarda en este archivo, como texto sin cifrar, su token de API para HCP Terraform o Terraform Enterprise. No se comprobaron la validez ni los permisos del token.";
+"A Terraform user token does not expire by default and can run plans that change infrastructure." = "Un token de usuario de Terraform no expira de forma predeterminada y puede ejecutar planes que modifiquen la infraestructura.";
+"Sign out to remove the token, and revoke it in your Terraform account. Deleting the file does not revoke it." = "Cierra sesión para quitar el token y revócalo en tu cuenta de Terraform. Eliminar el archivo no lo revoca.";
+"Remove the stored token: terraform logout" = "Quita el token guardado: terraform logout";
+"In HCP Terraform, open User Settings > Tokens and delete the token, since removing the file does not revoke it." = "En HCP Terraform, abre User Settings > Tokens y elimina el token, ya que quitar el archivo no lo revoca.";
+"When you next need it, 'terraform login' creates a new token. Give it an expiry date." = "La próxima vez que lo necesites, 'terraform login' crea un token nuevo. Ponle una fecha de expiración.";
+
+/* rule dev.vault.token */
+"Vault token stored in a file" = "Token de Vault guardado en un archivo";
+"The Vault CLI keeps its current token in this file as plain text. The token's validity, lifetime and policies were not checked." = "La CLI de Vault guarda su token actual en este archivo como texto sin cifrar. No se comprobaron la validez, la duración ni las políticas del token.";
+"A Vault token can read whatever secrets its policies allow until it expires or is revoked." = "Un token de Vault puede leer cualquier secreto que permitan sus políticas hasta que expire o se revoque.";
+"Revoke the token when you are done with Vault. Deleting the file does not revoke it." = "Revoca el token cuando termines de usar Vault. Eliminar el archivo no lo revoca.";
+"Revoke the stored token: vault token revoke -self" = "Revoca el token guardado: vault token revoke -self";
+"Delete ~/.vault-token." = "Elimina ~/.vault-token.";
+"Ask your Vault administrator for short token lifetimes, so a copied token stops working soon." = "Pide a tu administrador de Vault que los tokens duren poco, para que un token copiado deje de funcionar pronto.";
+
+/* rule dev.pypi.inline-credentials */
+"PyPI password or token stored in a file" = "Contraseña o token de PyPI guardado en un archivo";
+"A password or API token is stored in the Python package upload config. Its validity and permissions were not checked." = "La configuración para subir paquetes de Python contiene una contraseña o un token de API. No se comprobaron su validez ni sus permisos.";
+"A PyPI token can publish packages under your name. Supply-chain malware collects this file for that reason." = "Un token de PyPI puede publicar paquetes en tu nombre. Por ese motivo, el malware que ataca la cadena de suministro recopila este archivo.";
+"Revoke the token and keep the replacement in the Keychain. Removing the line does not revoke it." = "Revoca el token y guarda el nuevo en el llavero. Quitar la línea no lo revoca.";
+"In your PyPI account settings, delete the API token that was stored here." = "En la configuración de tu cuenta de PyPI, elimina el token de API que estaba guardado aquí.";
+"Create a replacement scoped to one project, and store it in the Keychain: keyring set https://upload.pypi.org/legacy/ __token__" = "Crea un token nuevo limitado a un solo proyecto y guárdalo en el llavero: keyring set https://upload.pypi.org/legacy/ __token__";
+"Remove the password line from ~/.pypirc. twine reads the Keychain entry automatically." = "Quita la línea de la contraseña de ~/.pypirc. twine lee automáticamente la entrada del llavero.";
+"For projects built in CI, use PyPI trusted publishing, which needs no stored token." = "En los proyectos que se compilan en CI, usa la publicación de confianza (trusted publishing) de PyPI, que no necesita ningún token guardado.";
+
+/* rule dev.cargo.inline-token */
+"crates.io token stored in a file" = "Token de crates.io guardado en un archivo";
+"A registry token is stored in Cargo's credentials file as plain text. Its validity and permissions were not checked." = "El archivo de credenciales de Cargo contiene un token de registro como texto sin cifrar. No se comprobaron su validez ni sus permisos.";
+"A crates.io token can publish crates under your name." = "Un token de crates.io puede publicar crates en tu nombre.";
+"Revoke the token and let Cargo keep the replacement in the Keychain. Removing the line does not revoke it." = "Revoca el token y deja que Cargo guarde el nuevo en el llavero. Quitar la línea no lo revoca.";
+"Remove the stored token: cargo logout" = "Quita el token guardado: cargo logout";
+"On crates.io, open Account Settings > API Tokens and revoke the token." = "En crates.io, abre Account Settings > API Tokens y revoca el token.";
+"Tell Cargo to use the Keychain by adding to ~/.cargo/config.toml: [registry] global-credential-providers = [\"cargo:macos-keychain\"]" = "Indica a Cargo que use el llavero añadiendo a ~/.cargo/config.toml: [registry] global-credential-providers = [\"cargo:macos-keychain\"]";
+"When you next publish, 'cargo login' stores the new token in the Keychain. Give the token an expiry date and only the scopes you need." = "La próxima vez que publiques, 'cargo login' guarda el token nuevo en el llavero. Dale al token una fecha de expiración y solo los ámbitos que necesites.";
+
+/* rule dev.rubygems.inline-key */
+"RubyGems API key stored in a file" = "Clave de API de RubyGems guardada en un archivo";
+"An API key is stored in the RubyGems credentials file as plain text. Its validity and permissions were not checked." = "El archivo de credenciales de RubyGems contiene una clave de API como texto sin cifrar. No se comprobaron su validez ni sus permisos.";
+"A RubyGems API key can publish gems under your name." = "Una clave de API de RubyGems puede publicar gemas en tu nombre.";
+"Revoke the key in your RubyGems account. Removing the line does not revoke it." = "Revoca la clave en tu cuenta de RubyGems. Quitar la línea no la revoca.";
+"Remove the stored key: gem signout" = "Quita la clave guardada: gem signout";
+"On rubygems.org, open Settings > API keys and delete the key." = "En rubygems.org, abre Settings > API keys y elimina la clave.";
+"If you still publish, create a new key with only the scopes you need and turn on MFA for it." = "Si sigues publicando, crea una clave nueva solo con los ámbitos que necesites y con la MFA activada.";
+
+/* rule dev.azure.service-principal */
+"Azure service principal secret stored in a file" = "Secreto de entidad de servicio de Azure guardado en un archivo";
+"The Azure CLI keeps the secret of a service principal it signed in with in this file as plain text. Validity and permissions were not checked." = "La CLI de Azure guarda en este archivo, como texto sin cifrar, el secreto de una entidad de servicio con la que inició sesión. No se comprobaron la validez ni los permisos.";
+"A service principal secret works from any computer until it expires or is rotated, and often has broad access to a subscription." = "El secreto de una entidad de servicio funciona desde cualquier dispositivo hasta que expire o se rote, y a menudo tiene acceso amplio a una suscripción.";
+"Sign out, and rotate the secret in Microsoft Entra. Deleting the file does not revoke it." = "Cierra sesión y rota el secreto en Microsoft Entra. Eliminar el archivo no lo revoca.";
+"Sign out and clear the stored entries: az logout, then az account clear" = "Cierra sesión y borra las entradas guardadas: az logout y, después, az account clear";
+"In Microsoft Entra, open App registrations, choose the app, and under Certificates & secrets delete this client secret and create a new one if still needed." = "En Microsoft Entra, abre Registros de aplicaciones, elige la aplicación y, en Certificados y secretos, elimina este secreto de cliente y crea uno nuevo si todavía lo necesitas.";
+"For automation, prefer workload identity federation or a managed identity, which need no stored secret." = "Para la automatización, es preferible la federación de identidades de carga de trabajo o una identidad administrada, que no necesitan ningún secreto guardado.";
+
+/* rule dev.composer.auth */
+"Tokens stored in Composer's auth file" = "Tokens guardados en el archivo de autenticación de Composer";
+"Composer keeps tokens and passwords for code hosts and package repositories in this file as plain text. Validity and permissions were not checked." = "Composer guarda en este archivo, como texto sin cifrar, tokens y contraseñas de servicios de alojamiento de código y repositorios de paquetes. No se comprobaron la validez ni los permisos.";
+"These are usually personal access tokens for GitHub or GitLab, which work from any computer until revoked." = "Suelen ser tokens de acceso personal de GitHub o GitLab, que funcionan desde cualquier dispositivo hasta que se revoquen.";
+"Revoke the tokens at each host and replace them with narrower ones. Removing an entry does not revoke it." = "Revoca los tokens en cada host y sustitúyelos por otros más limitados. Quitar una entrada no revoca su token.";
+"At the host named here, revoke the token (GitHub: Settings > Developer settings > Personal access tokens)." = "En el host que aparece aquí, revoca el token (GitHub: Settings > Developer settings > Personal access tokens).";
+"If Composer still needs access, create a fine-grained, read-only token with an expiry date." = "Si Composer todavía necesita acceso, crea un token detallado (fine-grained) de solo lectura y con fecha de expiración.";
+"Remove entries for hosts you no longer use: composer config --global --unset github-oauth.<host>" = "Quita las entradas de los hosts que ya no uses: composer config --global --unset github-oauth.<host>";
+
+/* rule dev.maven.settings-password */
+"Password stored in Maven settings" = "Contraseña guardada en la configuración de Maven";
+"A repository password or token is written in Maven's settings file as plain text. Validity and permissions were not checked." = "El archivo de configuración de Maven contiene, como texto sin cifrar, una contraseña o un token de repositorio. No se comprobaron la validez ni los permisos.";
+"Repository credentials can publish packages that other people's builds download." = "Las credenciales de repositorio pueden publicar paquetes que descargan las compilaciones de otras personas.";
+"Change the password or revoke the token at the repository, and store the replacement encrypted or outside the file." = "Cambia la contraseña o revoca el token en el repositorio, y guarda la nueva credencial cifrada o fuera del archivo.";
+"At the repository manager, change this password or revoke this token." = "En el gestor de repositorios, cambia esta contraseña o revoca este token.";
+"Reference an environment variable instead of the value: <password>${env.REPO_TOKEN}</password>, supplied when you build." = "Haz referencia a una variable de entorno en lugar del valor: <password>${env.REPO_TOKEN}</password>, que se proporciona al compilar.";
+"Or use Maven's password encryption (mvn --encrypt-password), keeping the master password off this Mac's disk if you can." = "O usa el cifrado de contraseñas de Maven (mvn --encrypt-password) y, si puedes, no guardes la contraseña maestra en el disco de tu Mac.";
+
+/* rule dev.bundler.inline-credentials */
+"Gem server credentials stored by Bundler" = "Credenciales de servidor de gemas guardadas por Bundler";
+"Bundler keeps a user name and password or token for a gem server in this file as plain text. Validity and permissions were not checked." = "Bundler guarda en este archivo, como texto sin cifrar, un nombre de usuario y una contraseña o un token de un servidor de gemas. No se comprobaron la validez ni los permisos.";
+"These credentials let anything running as you download, and often publish, private gems." = "Estas credenciales permiten que cualquier cosa que se ejecute con tu cuenta descargue, y a menudo publique, gemas privadas.";
+"Change the password or revoke the token at the gem server, then supply the replacement from the environment." = "Cambia la contraseña o revoca el token en el servidor de gemas y, después, proporciona la nueva credencial desde el entorno.";
+"At the gem server named here, change the password or revoke the token." = "En el servidor de gemas que aparece aquí, cambia la contraseña o revoca el token.";
+"Remove the stored entry: bundle config unset --global <host>" = "Quita la entrada guardada: bundle config unset --global <host>";
+"Supply the credential when needed through the matching BUNDLE_ environment variable, set from a password manager." = "Cuando haga falta, proporciona la credencial mediante la variable de entorno BUNDLE_ correspondiente, con su valor tomado de un gestor de contraseñas.";
+
+/* rule dev.url.inline-password */
+"Password written inside a URL in a config file" = "Contraseña escrita dentro de una URL en un archivo de configuración";
+"A URL in this config file carries a user name and password or token in the form https://user:password@host. Validity and permissions were not checked." = "Una URL de este archivo de configuración incluye un nombre de usuario y una contraseña o un token con el formato https://user:password@host. No se comprobaron la validez ni los permisos.";
+"The credential is plain text, and tools print these URLs in logs and error messages." = "La credencial está en texto sin cifrar, y las herramientas escriben estas URL en los registros y en los mensajes de error.";
+"Change the password or revoke the token at the host named here, and take it out of the URL." = "Cambia la contraseña o revoca el token en el host que aparece aquí, y quita la credencial de la URL.";
+"At the host named here, change the password or revoke the token." = "En el host que aparece aquí, cambia la contraseña o revoca el token.";
+"Remove the user and password from the URL in this file." = "Quita el usuario y la contraseña de la URL de este archivo.";
+"Let the tool fetch the credential instead: Git with 'git config --global credential.helper osxkeychain', pip with the 'keyring' package." = "En su lugar, deja que la herramienta obtenga la credencial: Git con 'git config --global credential.helper osxkeychain' y pip con el paquete 'keyring'.";
+
+/* rule dev.cli.stored-login */
+"Command-line tool sign-in stored in a file" = "Inicio de sesión de una herramienta de línea de comandos guardado en un archivo";
+"A command-line tool keeps its sign-in token in this file as plain text. This is how the tool stores it; validity and permissions were not checked." = "Una herramienta de línea de comandos guarda su token de inicio de sesión en este archivo como texto sin cifrar. Así es como lo guarda la herramienta; no se comprobaron la validez ni los permisos.";
+"Sign out of tools you no longer use, which removes the stored token." = "Cierra sesión en las herramientas que ya no uses: así se quita el token guardado.";
+"For a tool you still use, leave this in place. If the tool can keep its token in the macOS Keychain instead, turn that on." = "Si todavía usas la herramienta, deja esto como está. Si la herramienta puede guardar su token en el llavero de macOS en lugar de aquí, activa esa opción.";
+"For a tool you no longer use, run its sign-out command (most have 'logout'), then delete this file." = "Si ya no usas la herramienta, ejecuta su comando para cerrar sesión (la mayoría tienen 'logout') y, después, elimina este archivo.";
+"If the token was created by hand in the service's settings, revoke it there too: signing out locally does not always do that." = "Si el token se creó a mano en la configuración del servicio, revócalo también allí: cerrar sesión localmente no siempre lo revoca.";
+
+/* rule dev.aws.session-cache */
+"AWS sign-in session stored by the AWS CLI" = "Sesión de AWS guardada por la AWS CLI";
+"The AWS CLI keeps single sign-on and temporary role credentials in this folder. They expire on their own, usually within hours; a refresh token here can last longer." = "La AWS CLI guarda en esta carpeta credenciales de inicio de sesión único y credenciales temporales de rol. Expiran por sí solas, normalmente en unas horas; un token de actualización guardado aquí puede durar más.";
+"Sign out when you finish working with AWS, which removes the cached sessions." = "Cierra sesión cuando termines de trabajar con AWS: así se eliminan las sesiones en caché.";
+"Sign out and clear the cache when you are done: aws sso logout" = "Cuando termines, cierra sesión y borra la caché: aws sso logout";
+"Ask for short session lengths in IAM Identity Center, so a copied session stops working soon." = "Pide una duración de sesión corta en IAM Identity Center, para que una sesión copiada deje de funcionar pronto.";
+
+/* rule key.gpg.private */
+"GnuPG private key with no passphrase" = "Clave privada de GnuPG sin contraseña";
+"This GnuPG private key is stored without a passphrase. It was not tested or used." = "Esta clave privada de GnuPG está guardada sin contraseña. No se probó ni se usó.";
+"A copy of this file can sign and decrypt as you. Keys used to sign commits or releases are a target of supply-chain malware." = "Una copia de este archivo permite firmar y descifrar en tu nombre. Las claves que se usan para firmar commits o versiones son un objetivo del malware que ataca la cadena de suministro.";
+"Add a passphrase. If the key may have been copied, revoke it and publish the revocation." = "Añade una contraseña a la clave. Si es posible que la clave se haya copiado, revócala y publica la revocación.";
+"Find the key: gpg --list-secret-keys --keyid-format long" = "Busca la clave: gpg --list-secret-keys --keyid-format long";
+"Add a passphrase: gpg --edit-key <key id>, then 'passwd', then 'save'." = "Añade una contraseña a la clave: gpg --edit-key <id de clave>, luego 'passwd' y luego 'save'.";
+"If the key may have been copied, generate a revocation certificate (gpg --gen-revoke <key id>), import it, publish it to the keyservers and to GitHub or GitLab, then create a new key." = "Si es posible que la clave se haya copiado, genera un certificado de revocación (gpg --gen-revoke <id de clave>), impórtalo, publícalo en los servidores de claves y en GitHub o GitLab, y después crea una clave nueva.";
+"GnuPG private key" = "Clave privada de GnuPG";
+"A GnuPG private key protected by a passphrase. It was not tested or used." = "Una clave privada de GnuPG protegida con contraseña. No se probó ni se usó.";
+
+/* rule app.dbeaver.saved-passwords */
+"Database passwords saved by DBeaver" = "Contraseñas de bases de datos guardadas por DBeaver";
+"This is a known location for DBeaver saved credentials. The file was not read, so its contents and encryption settings were not checked." = "Esta es una ubicación conocida donde DBeaver guarda credenciales. El archivo no se leyó, así que no se comprobaron su contenido ni su configuración de cifrado.";
+"Copied credential files may expose database access. Protection depends on the DBeaver version and security settings." = "Los archivos de credenciales copiados pueden exponer el acceso a las bases de datos. La protección depende de la versión de DBeaver y de la configuración de seguridad.";
+"Change the saved database passwords, and set a master password in DBeaver or stop saving them." = "Cambia las contraseñas guardadas de las bases de datos y, en DBeaver, establece una contraseña maestra o deja de guardarlas.";
+"For shared or production databases saved here, change the password on the server." = "Para las bases de datos compartidas o de producción guardadas aquí, cambia la contraseña en el servidor.";
+"Check the credential-storage protections available in your DBeaver version, or stop saving passwords on each connection." = "Comprueba qué protecciones para guardar credenciales ofrece tu versión de DBeaver, o deja de guardar contraseñas en cada conexión.";
+"Remove connections you no longer use." = "Elimina las conexiones que ya no uses.";
+
+/* rule dev.netrc.inline-password */
+"Password stored in .netrc" = "Contraseña guardada en .netrc";
+"A password or token for a network host is stored in ~/.netrc as plain text. Its validity was not checked." = "Hay una contraseña o un token de un host de red guardados en ~/.netrc como texto sin cifrar. No se comprobó su validez.";
+"Tools such as curl, git and package managers read this file, and so can any other program running as you." = "Herramientas como curl, git y los gestores de paquetes leen este archivo, y también puede leerlo cualquier otro programa que se ejecute con tu cuenta.";
+"Change the password or revoke the token at the host named here, then keep the replacement in the Keychain." = "Cambia la contraseña o revoca el token en el host que aparece aquí y después guarda la nueva credencial en el llavero.";
+"If Git used this entry, switch it to the Keychain: git config --global credential.helper osxkeychain" = "Si Git usaba esta entrada, haz que use el llavero: git config --global credential.helper osxkeychain";
+"Remove the machine entry from ~/.netrc, or delete the file if nothing else is in it." = "Quita la entrada machine de ~/.netrc, o elimina el archivo si no contiene nada más.";
+
+/* rule dev.postgres.pgpass */
+"Database password stored in .pgpass" = "Contraseña de base de datos guardada en .pgpass";
+"A PostgreSQL password is stored in ~/.pgpass as plain text, which is how psql reads it. Whether it is a local test database or a production one was not checked." = "Hay una contraseña de PostgreSQL guardada en ~/.pgpass como texto sin cifrar, que es como la lee psql. No se comprobó si es una base de datos local de prueba o una de producción.";
+"Any program running as you can read this file and connect to the databases it lists." = "Cualquier programa que se ejecute con tu cuenta puede leer este archivo y conectarse a las bases de datos que aparecen en él.";
+"For anything but a local test database, change the password and stop storing it in this file." = "Salvo que sea una base de datos local de prueba, cambia la contraseña y deja de guardarla en este archivo.";
+"Check which database the entry is for. A local development database needs nothing more." = "Comprueba a qué base de datos corresponde la entrada. Una base de datos local de desarrollo no necesita nada más.";
+"For a shared or production database, change the password on the server." = "Si es una base de datos compartida o de producción, cambia la contraseña en el servidor.";
+"Remove the entry and let psql prompt, or use a method with no stored password: short-lived tokens (for example cloud IAM database sign-in) or a client certificate." = "Elimina la entrada y deja que psql te pida la contraseña, o usa un método sin contraseña guardada: tokens de corta duración (por ejemplo, el inicio de sesión en bases de datos mediante IAM en la nube) o un certificado de cliente.";
+
+/* rule dev.mysql.mycnf */
+"Database password stored in .my.cnf" = "Contraseña de base de datos guardada en .my.cnf";
+"A MySQL password is stored in ~/.my.cnf as plain text. Whether it is a local test database or a production one was not checked." = "Hay una contraseña de MySQL guardada en ~/.my.cnf como texto sin cifrar. No se comprobó si es una base de datos local de prueba o una de producción.";
+"Store the login with 'mysql_config_editor set', or remove the password line and let the client prompt." = "Guarda los datos de inicio de sesión con 'mysql_config_editor set', o elimina la línea de la contraseña y deja que el cliente te la pida.";
+
+/* rule dev.warehouse.inline-password */
+"Data warehouse password stored in a client config" = "Contraseña de un almacén de datos guardada en una configuración de cliente";
+"A password or token for a data warehouse is written in this dbt or Snowflake client config as plain text. Whether it still works was not checked." = "Esta configuración de cliente de dbt o Snowflake contiene, como texto sin cifrar, una contraseña o un token de un almacén de datos. No se comprobó si todavía funciona.";
+"Check which warehouse the entry is for, and change the password or revoke the token there." = "Comprueba a qué almacén de datos corresponde la entrada y cambia allí la contraseña o revoca el token.";
+"In dbt, read it from the environment instead: password: \"{{ env_var('DBT_PASSWORD') }}\"" = "En su lugar, haz que dbt lea la contraseña del entorno: password: \"{{ env_var('DBT_PASSWORD') }}\"";
+"Prefer browser sign-in or key-pair sign-in with a passphrase where the warehouse offers it." = "Es mejor usar el inicio de sesión a través del navegador o con un par de claves protegido con contraseña, si el almacén de datos lo ofrece.";
+
+/* rule dev.mcp.inline-secret */
+"Secret written into an MCP server config" = "Secreto escrito en la configuración de un servidor MCP";
+"An MCP server entry passes a literal key, token or password in its environment, headers or arguments. Its validity and permissions were not checked." = "Una entrada de servidor MCP pasa una clave, un token o una contraseña literales en su entorno, sus encabezados o sus argumentos. No se comprobaron su validez ni sus permisos.";
+"Programs with access to this configuration can copy its stored credentials. Copies of the configuration may also retain them." = "Los programas con acceso a esta configuración pueden copiar las credenciales que guarda. Las copias de la configuración también pueden conservarlas.";
+"Revoke the key at its service and stop storing it in the config. Removing the entry does not revoke it." = "Revoca la clave en su servicio y deja de guardarla en la configuración. Quitar la entrada no la revoca.";
+"Revoke or roll the key at the service this MCP server connects to." = "Revoca o rota la clave en el servicio al que se conecta este servidor MCP.";
+"If the server supports sign-in (OAuth), use that instead of a key: remove the key and let the tool prompt you." = "Si el servidor admite el inicio de sesión (OAuth), úsalo en lugar de una clave: elimina la clave y deja que la herramienta te pida iniciar sesión.";
+"Otherwise pass the key by reference, not by value. Start the server through a wrapper that reads it from the Keychain, for example: security find-generic-password -s <name> -w" = "Si no, pasa la clave por referencia, no por valor. Inicia el servidor mediante un script que la lea del llavero, por ejemplo: security find-generic-password -s <nombre> -w";
+"Remove the literal value from this file, and check that the file was never committed or synced." = "Quita el valor literal de este archivo y comprueba que el archivo nunca se incluyó en un commit ni se sincronizó.";
+
+/* rule dev.ai.stored-login */
+"AI coding tool sign-in stored in a file" = "Inicio de sesión de una herramienta de programación con IA guardado en un archivo";
+"An AI coding tool keeps its sign-in token or API key in this file as plain text. This is how the tool stores it; validity and permissions were not checked." = "Una herramienta de programación con IA guarda en este archivo su token de inicio de sesión o su clave de API como texto sin cifrar. Así es como lo guarda la herramienta; no se comprobaron la validez ni los permisos.";
+"For a tool you still use, leave this in place. Prefer signing in with your account over pasting an API key, so the stored token can be revoked by signing out." = "Si todavía usas la herramienta, deja esto como está. Es mejor iniciar sesión con tu cuenta que pegar una clave de API, porque así el token guardado se puede revocar cerrando sesión.";
+"For a tool you no longer use, sign out in the tool (for example 'codex logout' or 'gh auth logout'), then delete this file." = "Si ya no usas la herramienta, cierra sesión en ella (por ejemplo, 'codex logout' o 'gh auth logout') y después elimina este archivo.";
+"If the file holds an API key, revoke that key at the provider when you stop using the tool." = "Si el archivo contiene una clave de API, revócala en el proveedor cuando dejes de usar la herramienta.";
+
+/* rule dev.oauth.token-file */
+"OAuth sign-in tokens stored in a file" = "Tokens de inicio de sesión de OAuth guardados en un archivo";
+"This file holds an OAuth access or refresh token as plain text, the way mcp-remote keeps the sign-in to each remote MCP server in ~/.mcp-auth. This is how such tools store a sign-in; validity and permissions were not checked." = "Este archivo contiene un token de acceso o de actualización de OAuth como texto sin cifrar, igual que mcp-remote guarda el inicio de sesión de cada servidor MCP remoto en ~/.mcp-auth. Así es como estas herramientas guardan un inicio de sesión; no se comprobaron la validez ni los permisos.";
+"Remove connections you no longer use, which removes the stored token." = "Elimina las conexiones que ya no uses: así se elimina el token guardado.";
+"For a connection you still use, leave this in place." = "Si todavía usas la conexión, deja esto como está.";
+"For one you no longer use, remove it in the tool that made it, then delete this file." = "Si ya no la usas, elimínala en la herramienta que la creó y después elimina este archivo.";
+"At the service, open your account's connected or authorized apps and revoke the ones you no longer use: deleting the file does not do that." = "En el servicio, abre las apps conectadas o autorizadas de tu cuenta y revoca las que ya no uses: eliminar el archivo no las revoca.";
+
+/* rule browser.chromium.saved-logins */
+"Passwords saved in a browser" = "Contraseñas guardadas en un navegador";
+"This browser profile has saved passwords. They are encrypted with a key in your login keychain, so reading them needs your Mac password. Only the number of saved logins was read." = "Este perfil del navegador tiene contraseñas guardadas. Están cifradas con una clave de tu llavero de inicio de sesión, así que para leerlas hace falta la contraseña de tu Mac. Solo se leyó cuántos inicios de sesión hay guardados.";
+"Infostealers such as Atomic (AMOS) show a fake system prompt to get the Mac password, then decrypt every password saved in the browser at once." = "Los programas ladrones de información (infostealers), como Atomic (AMOS), muestran un cuadro de diálogo falso del sistema para conseguir la contraseña de tu Mac y después descifran de una vez todas las contraseñas guardadas en el navegador.";
+"Move saved passwords to a password manager and clear them from the browser. Deleting them here does not change the passwords themselves." = "Mueve las contraseñas guardadas a un gestor de contraseñas y bórralas del navegador. Eliminarlas aquí no cambia las contraseñas en sí.";
+"Choose where passwords will live instead: the Passwords app built into macOS, or a password manager such as 1Password or Bitwarden. Both keep items locked until you unlock them." = "Elige otro lugar donde guardar las contraseñas: la app Contraseñas integrada en macOS o un gestor de contraseñas como 1Password o Bitwarden. Ambas opciones mantienen los elementos bloqueados hasta que los desbloquees.";
+"In the browser, open the password settings (chrome://password-manager/settings in Chrome, Brave, Edge and Arc) and export your passwords." = "En el navegador, abre la configuración de contraseñas (chrome://password-manager/settings en Chrome, Brave, Edge y Arc) y exporta tus contraseñas.";
+"Import the exported file into the password manager, check that the logins arrived, then delete the exported file and empty the Trash." = "Importa el archivo exportado en el gestor de contraseñas, comprueba que se importaron los inicios de sesión y, después, elimina el archivo exportado y vacía la papelera.";
+"Back in the browser's password settings, delete all saved passwords and turn off 'Offer to save passwords'." = "De nuevo en la configuración de contraseñas del navegador, elimina todas las contraseñas guardadas y desactiva “Preguntar si quiero guardar contraseñas” (u “Ofrecer guardar contraseñas”).";
+"Stealers copy signed-in sessions too, which skip passwords and two-step codes. Sign out of bank and email sites when you finish, and after any infection use each site's 'sign out everywhere'." = "Los ladrones de información también copian las sesiones iniciadas, que se saltan las contraseñas y los códigos de verificación en dos pasos. Cierra sesión en los sitios web de tu banco y de tu correo electrónico cuando termines y, tras cualquier infección, usa en cada sitio la opción “cerrar sesión en todas partes”.";
+"Never type your Mac password into a prompt that appears right after you open a download or paste a command into Terminal." = "Nunca escribas la contraseña de tu Mac en un cuadro de diálogo que aparezca justo después de abrir una descarga o de pegar un comando en la app Terminal.";
+
+/* rule browser.chromium.saved-cards */
+"Payment cards saved in a browser" = "Tarjetas de pago guardadas en un navegador";
+"This browser profile has saved payment cards. The card numbers are encrypted with a key in your login keychain, so reading them needs your Mac password. Only the number of saved cards was read." = "Este perfil del navegador tiene tarjetas de pago guardadas. Los números de tarjeta están cifrados con una clave de tu llavero de inicio de sesión, así que para leerlos hace falta la contraseña de tu Mac. Solo se leyó cuántas tarjetas hay guardadas.";
+"Infostealers get the Mac password with a fake system prompt, then decrypt every card saved in the browser." = "Los programas ladrones de información consiguen la contraseña de tu Mac con un cuadro de diálogo falso del sistema y después descifran todas las tarjetas guardadas en el navegador.";
+"Remove saved cards from the browser and pay with Apple Pay or a password manager instead." = "Elimina las tarjetas guardadas del navegador y, en su lugar, paga con Apple Pay o con un gestor de contraseñas.";
+"In the browser, open the payment settings (chrome://settings/payments in Chrome, Brave, Edge and Arc) and remove each saved card." = "En el navegador, abre la configuración de pagos (chrome://settings/payments en Chrome, Brave, Edge y Arc) y elimina cada tarjeta guardada.";
+"Turn off 'Save and fill payment methods'." = "Desactiva “Guardar y autocompletar métodos de pago” (o “Guardar y completar formas de pago”).";
+"Pay with Apple Pay where you can, or keep cards in a password manager, which stays locked until you unlock it." = "Paga con Apple Pay siempre que puedas, o guarda las tarjetas en un gestor de contraseñas, que permanece bloqueado hasta que lo desbloquees.";
+
+/* rule browser.firefox.saved-logins */
+"This Firefox profile has saved passwords. Unless a primary password is set, the key that decrypts them is stored next to them in the same folder. Only the number of saved logins was read." = "Este perfil de Firefox tiene contraseñas guardadas. Si no hay una contraseña maestra establecida, la clave que las descifra está guardada junto a ellas, en la misma carpeta. Solo se leyó cuántos inicios de sesión hay guardados.";
+"Without a primary password, any program able to read the profile folder can decrypt every saved password. Infostealers collect this folder." = "Sin una contraseña maestra, cualquier programa que pueda leer la carpeta del perfil puede descifrar todas las contraseñas guardadas. Los programas ladrones de información recopilan esta carpeta.";
+"Choose where passwords will live instead: the Passwords app built into macOS, or a password manager such as 1Password or Bitwarden." = "Elige otro lugar donde guardar las contraseñas: la app Contraseñas integrada en macOS o un gestor de contraseñas como 1Password o Bitwarden.";
+"In Firefox, open about:logins, choose the menu (three dots) > Export Passwords, and import the file into the password manager." = "En Firefox, abre about:logins, selecciona el menú (tres puntos) > Exportar contraseñas e importa el archivo en el gestor de contraseñas.";
+"Check that the logins arrived, then delete the exported file and empty the Trash." = "Comprueba que se importaron los inicios de sesión y, después, elimina el archivo exportado y vacía la papelera.";
+"In about:logins, choose the menu > Remove All Passwords, and in Settings > Privacy & Security turn off 'Ask to save passwords'." = "En about:logins, selecciona el menú > Eliminar todas las contraseñas, y en Ajustes > Privacidad y seguridad desactiva “Preguntar para guardar contraseñas”.";
+"If you keep passwords in Firefox, set a primary password in Settings > Privacy & Security so they cannot be decrypted without it." = "Si guardas contraseñas en Firefox, establece una contraseña maestra en Ajustes > Privacidad y seguridad para que no se puedan descifrar sin ella.";
+
+/* rule wallet.recovery-phrase */
+"Possible wallet recovery phrase in a file" = "Posible frase de recuperación de una billetera en un archivo";
+"This file starts with a run of 12 or more words from the standard list wallets use for recovery phrases. Whether they form a valid phrase, or a wallet with funds, was not checked." = "Este archivo empieza con una secuencia de 12 o más palabras de la lista estándar que usan las billeteras para las frases de recuperación. No se comprobó si forman una frase válida ni si corresponden a una billetera con fondos.";
+"A valid recovery phrase can restore a wallet and authorize spending. Some wallets also require a separate recovery passphrase; the scanner does not check for one." = "Una frase de recuperación válida puede restaurar una billetera y autorizar el gasto de sus fondos. Algunas billeteras también exigen una contraseña de recuperación aparte; el análisis no comprueba si hay una.";
+"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now." = "Considera que la frase está expuesta si tu Mac pudo haber tenido malware. Si no, sácala de tu Mac ahora.";
+"Write the phrase on paper, or stamp it in metal, and store it somewhere safe away from the computer." = "Escribe la frase en papel, o grábala en metal, y guárdala en un lugar seguro lejos de tu Mac.";
+"Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots." = "Elimina este archivo y vacía la papelera. Revisa Notas, Fotos y las carpetas en la nube por si hay otras copias, incluidas capturas de pantalla.";
+"If this Mac may have been infected, or the file was in a synced or shared folder, create a new wallet with a new phrase and move the funds to it. Deleting the file does not help once it has been copied." = "Si tu Mac puede haberse infectado, o el archivo estaba en una carpeta sincronizada o compartida, crea una billetera nueva con una frase nueva y transfiere a ella los fondos. Eliminar el archivo no sirve de nada si ya se copió.";
+
+/* rule wallet.extension.vault */
+"Crypto wallet extension in a browser" = "Extensión de billetera de criptomonedas en un navegador";
+"A crypto wallet extension keeps its encrypted vault in this browser profile. Nothing in it was read; the folder being there is the finding." = "Una extensión de billetera de criptomonedas guarda su bóveda cifrada en este perfil del navegador. No se leyó nada de su contenido; el hallazgo es que la carpeta existe.";
+"Malware can copy wallet extension data and try to guess its password offline, or use a fake prompt to steal the password." = "El malware puede copiar los datos de la extensión de billetera e intentar adivinar su contraseña sin conexión, o usar una solicitud falsa para robar la contraseña.";
+"Keep only small amounts in a browser wallet, and never keep its recovery phrase on this Mac." = "Guarda solo cantidades pequeñas en una billetera de navegador y nunca guardes su frase de recuperación en tu Mac.";
+"For funds you keep offline, generate a new wallet on a hardware device and transfer the funds to it. Importing an exposed recovery phrase does not protect it." = "Para los fondos que guardas sin conexión, genera una billetera nueva en un dispositivo de hardware y transfiere a ella los fondos. Importar una frase de recuperación expuesta no la protege.";
+"Give the extension a long password used nowhere else. The stolen vault is only as strong as that password." = "Ponle a la extensión una contraseña larga que no uses en ningún otro lugar. La protección de la bóveda robada depende solo de esa contraseña.";
+"Check that the recovery phrase is not saved in a note, a text file or a screenshot on this Mac." = "Comprueba que la frase de recuperación no esté guardada en una nota, un archivo de texto o una captura de pantalla en tu Mac.";
+"If you no longer use this wallet, remove the extension after confirming you hold the recovery phrase offline." = "Si ya no usas esta billetera, elimina la extensión después de confirmar que tienes la frase de recuperación guardada sin conexión.";
+"Do not enter a recovery phrase in an unexpected prompt. For a recovery you initiated, follow the wallet vendor's instructions on a trusted device." = "No escribas una frase de recuperación cuando te la pidan de forma inesperada. Para una recuperación que hayas iniciado tú, sigue las instrucciones del proveedor de la billetera en un dispositivo de confianza.";
+
+/* rule wallet.desktop.data */
+"Desktop crypto wallet data" = "Datos de una billetera de criptomonedas de escritorio";
+"A desktop crypto wallet keeps its data here. Nothing in it was read; the folder or file being there is the finding." = "Una billetera de criptomonedas de escritorio guarda aquí sus datos. No se leyó nada de su contenido; el hallazgo es que la carpeta o el archivo existe.";
+"Infostealers copy desktop wallet folders and guess the password offline. Some also replace the wallet app with a fake that asks for the recovery phrase." = "Los programas ladrones de información (infostealers) copian las carpetas de las billeteras de escritorio y adivinan la contraseña sin conexión. Algunos también sustituyen la app de la billetera por una falsa que pide la frase de recuperación.";
+"Use a hardware wallet for funds you cannot afford to lose, and never type a recovery phrase into an app on this Mac." = "Usa una billetera de hardware para los fondos que no puedes permitirte perder, y nunca escribas una frase de recuperación en una app de tu Mac.";
+"Move funds you cannot afford to lose to a hardware wallet." = "Transfiere a una billetera de hardware los fondos que no puedes permitirte perder.";
+"Give this wallet a long password used nowhere else, and make sure its recovery phrase is not stored on this Mac." = "Ponle a esta billetera una contraseña larga que no uses en ningún otro lugar, y asegúrate de que su frase de recuperación no esté guardada en tu Mac.";
+"Install and update the wallet app only from its official site or the App Store. Stop at an unexpected recovery-phrase prompt and verify why it appeared." = "Instala y actualiza la app de la billetera solo desde su sitio oficial o desde App Store. Si aparece una solicitud inesperada de la frase de recuperación, detente y comprueba por qué apareció.";
+"If you no longer use this wallet, move any funds out, then delete the app and this data." = "Si ya no usas esta billetera, retira los fondos que tenga y después elimina la app y estos datos.";
+
+/* rule app.telegram.session */
+"Telegram session stored on this Mac" = "Sesión de Telegram guardada en tu Mac";
+"Telegram Desktop keeps its signed-in session in this folder. Nothing in it was read; the folder being there is the finding." = "Telegram Desktop guarda en esta carpeta su sesión iniciada. No se leyó nada de su contenido; el hallazgo es que la carpeta existe.";
+"A copied session may let someone access the account without signing in again. The scanner does not check whether a local passcode protects it." = "Una sesión copiada puede permitir a alguien acceder a la cuenta sin volver a iniciar sesión. El análisis no comprueba si un código de bloqueo local la protege.";
+"Set a local passcode in Telegram, and check which devices are signed in." = "Configura un código de bloqueo local en Telegram y revisa qué dispositivos tienen la sesión iniciada.";
+"In Telegram, open Settings > Privacy and Security > Local Passcode and set one. The stored session is then encrypted with it." = "En Telegram, abre Ajustes > Privacidad y seguridad > Código de bloqueo y crea uno. La sesión guardada queda entonces cifrada con él.";
+"In Settings > Devices (Active Sessions), end any session you do not recognize." = "En Ajustes > Dispositivos (Sesiones activas), cierra cualquier sesión que no reconozcas.";
+"Turn on Two-Step Verification to protect new sign-ins. If this session may have been copied, terminate it from a trusted device; enabling Two-Step Verification does not terminate existing sessions." = "Activa la verificación en dos pasos para proteger los nuevos inicios de sesión. Si esta sesión puede haberse copiado, ciérrala desde un dispositivo de confianza; activar la verificación en dos pasos no cierra las sesiones existentes.";
+
+/* rule app.filezilla.saved-password */
+"Server password saved by FileZilla" = "Contraseña de servidor guardada por FileZilla";
+"A saved password field was found in a FileZilla configuration. Base64 encoding does not protect a password. The value was checked for presence, not decoded or tested against a server." = "Se encontró un campo de contraseña guardada en una configuración de FileZilla. La codificación Base64 no protege una contraseña. Solo se comprobó que el valor está presente; no se decodificó ni se probó en un servidor.";
+"A program able to read this file may be able to reuse the saved credentials. Their validity was not checked." = "Un programa que pueda leer este archivo podría reutilizar las credenciales guardadas. No se comprobó su validez.";
+"Change the saved passwords at each server, then protect or stop saving them in FileZilla." = "Cambia en cada servidor las contraseñas guardadas y después protégelas en FileZilla o deja de guardarlas allí.";
+"At each server named here, change the password, or switch the account to SSH key sign-in." = "En cada servidor que aparece aquí, cambia la contraseña o configura la cuenta para iniciar sesión con una clave SSH.";
+"In FileZilla, open Settings > Interface > Passwords and choose 'Protect passwords with a master password', or 'Do not save passwords'." = "En FileZilla, abre Opciones > Interfaz > Contraseñas y elige “Guardar contraseñas protegidas por una contraseña maestra” o “No guardar contraseñas”.";
+"Remove sites you no longer use from the Site Manager." = "Elimina del Gestor de Sitios los sitios que ya no uses.";
+
+/* rule app.rclone.stored-secret */
+"Storage password or key saved by rclone" = "Contraseña o clave de almacenamiento guardada por rclone";
+"A password or key field was found in an rclone configuration. Obscured passwords can be recovered by rclone. The scanner checked for stored values but did not test access to a remote." = "Se encontró un campo de contraseña o de clave en una configuración de rclone. Las contraseñas ofuscadas se pueden recuperar con rclone. El análisis comprobó si hay valores guardados, pero no probó el acceso a ningún remoto.";
+"A copied configuration may allow access to its remotes while the stored credentials remain valid." = "Una configuración copiada puede dar acceso a sus remotos mientras las credenciales guardadas sigan siendo válidas.";
+"Set a password on the rclone config, and change what was stored here if the file may have been copied." = "Pon una contraseña a la configuración de rclone y cambia lo que estaba guardado aquí si el archivo puede haberse copiado.";
+"Encrypt the config: run 'rclone config', choose 's' (Set configuration password)." = "Cifra la configuración: ejecuta 'rclone config' y elige 's' (Set configuration password).";
+"If the file may have been copied, change the password or rotate the key of each remote named here at its service." = "Si el archivo puede haberse copiado, cambia la contraseña o rota la clave de cada remoto que aparece aquí, en el servicio correspondiente.";
+"Remove remotes you no longer use: rclone config delete <name>" = "Elimina los remotos que ya no uses: rclone config delete <nombre>";
+
+/* rule app.rclone.stored-login */
+"Cloud storage sign-in stored by rclone" = "Inicio de sesión guardado por rclone para un almacenamiento en la nube";
+"rclone keeps the sign-in token of a cloud storage remote in this file as plain text. This is how the tool stores it; validity and permissions were not checked." = "rclone guarda en este archivo, como texto sin cifrar, el token de inicio de sesión de un remoto de almacenamiento en la nube. Así es como lo guarda la herramienta; no se comprobaron la validez ni los permisos.";
+"Set a password on the rclone config to encrypt these tokens." = "Pon una contraseña a la configuración de rclone para cifrar estos tokens.";
+
+/* rule app.openvpn.embedded-key */
+"VPN profile with its private key inside" = "Perfil de VPN con su clave privada dentro";
+"This OpenVPN profile contains a private-key block. Whether the key is valid, encrypted or sufficient to connect to the VPN was not checked." = "Este perfil de OpenVPN contiene un bloque de clave privada. No se comprobó si la clave es válida, si está cifrada ni si basta para conectarse a la VPN.";
+"Stealers collect .ovpn files. A copied profile with an embedded key gives access to the network behind the VPN unless a separate password or code is also required." = "Los programas ladrones de información (infostealers) recopilan archivos .ovpn. Un perfil copiado con una clave incluida da acceso a la red que hay detrás de la VPN, salvo que también se exija una contraseña o un código aparte.";
+"Ask whoever runs the VPN to revoke this profile's certificate and issue a new one, and keep the new profile out of Downloads." = "Pide a quien administre la VPN que revoque el certificado de este perfil y emita uno nuevo, y mantén el nuevo perfil fuera de la carpeta Descargas.";
+"If this is a work VPN, tell IT the profile was stored unprotected and ask for it to be reissued." = "Si es una VPN del trabajo, dile al departamento de TI que el perfil estaba guardado sin protección y pide que lo vuelvan a emitir.";
+"Import the new profile into the VPN app, then delete the .ovpn file and empty the Trash. The app keeps what it needs." = "Importa el nuevo perfil en la app de VPN y después elimina el archivo .ovpn y vacía la papelera. La app guarda lo que necesita.";
+"Ask for the VPN to require a second factor, so a copied profile is not enough on its own." = "Pide que la VPN exija un segundo factor, para que un perfil copiado no baste por sí solo.";
+
+/* rule export.password-note */
+"Possible passwords in a text note" = "Posibles contraseñas en una nota de texto";
+"This text file has lines that look like saved passwords, such as 'password: ...'. The values were not read beyond ruling out placeholders, and they may be notes about something else." = "Este archivo de texto tiene líneas que parecen contraseñas guardadas, como 'password: ...'. Los valores no se leyeron más allá de descartar marcadores de posición, y pueden ser notas sobre otra cosa.";
+"Infostealers collect small text files from Desktop, Documents and Downloads because people keep passwords in them." = "Los programas ladrones de información (infostealers) recopilan archivos de texto pequeños de las carpetas Escritorio, Documentos y Descargas porque la gente guarda contraseñas en ellos.";
+"Move these passwords into a password manager and delete the note." = "Pasa estas contraseñas a un gestor de contraseñas y elimina la nota.";
+"Open the file and check whether it holds passwords you still use." = "Abre el archivo y comprueba si contiene contraseñas que todavía usas.";
+"Add each one to the Passwords app built into macOS, or to a password manager such as 1Password or Bitwarden." = "Guarda cada una en la app Contraseñas integrada en macOS o en un gestor de contraseñas como 1Password o Bitwarden.";
+"Delete the file and empty the Trash. Look for other copies in iCloud Drive and other synced folders." = "Elimina el archivo y vacía la papelera. Busca otras copias en iCloud Drive y en otras carpetas sincronizadas.";
+"If this Mac may have had malware, change the passwords for your email and bank accounts first." = "Si tu Mac pudo haber tenido malware, cambia primero las contraseñas de tu correo electrónico y de tus cuentas bancarias.";
+
+/* rule export.keepass-database */
+"KeePass password database" = "Base de datos de contraseñas de KeePass";
+"The file header matches a KeePass password database. Its contents were not decrypted, and its password or key-file protection was not checked." = "El encabezado del archivo coincide con el de una base de datos de contraseñas de KeePass. Su contenido no se descifró, y no se comprobó su protección con contraseña o con archivo de clave.";
+"Check that the master password is long and used nowhere else. Stealers copy these files and guess weak master passwords offline." = "Comprueba que la contraseña maestra sea larga y no se use en ningún otro lugar. Los programas ladrones de información copian estos archivos y adivinan sin conexión las contraseñas maestras débiles.";
+"Use a master password of several random words, used nowhere else." = "Elige una contraseña maestra formada por varias palabras al azar y no la uses en ningún otro lugar.";
+"Add a key file kept on a separate device, so the database alone is not enough." = "Protege también la base de datos con un archivo de clave guardado en otro dispositivo, para que la base de datos por sí sola no baste.";
+"Delete old copies and backups of the database you no longer need." = "Elimina las copias antiguas y las copias de seguridad de la base de datos que ya no necesites.";
+
+/* rule secret.agent-record */
+"Service token in an AI agent's records" = "Token de servicio en los registros de un agente de IA";
+"An AI coding agent's session record, log or saved copy contains text in the format of a service's access token. Agents record the commands they run and what those print, so a token used in a session stays on disk afterwards. Validity was not checked." = "Un registro de sesión, un archivo de registro o una copia guardada de un agente de programación con IA contiene texto con el formato del token de acceso de un servicio. Los agentes registran los comandos que ejecutan y lo que estos muestran, así que un token usado en una sesión queda después en el disco. No se comprobó su validez.";
+"These records are plain files that any program running as you can read, and they are kept long after the session ends." = "Estos registros son archivos normales que cualquier programa que se ejecute con tu cuenta puede leer, y se conservan mucho tiempo después de que termine la sesión.";
+"Revoke the token, then delete the session record that holds it. Deleting the record does not revoke the token." = "Revoca el token y después elimina el registro de sesión que lo contiene. Eliminar el registro no revoca el token.";
+"Revoke or roll the token where it was issued. Do this first: it keeps working until then." = "Revoca o rota el token en el servicio que lo emitió. Hazlo primero: hasta entonces, sigue funcionando.";
+"Delete this file if it is an unneeded session record. Review its contents first, use the tool's deletion controls when supported, and check for remaining copies and backups." = "Elimina este archivo si es un registro de sesión que no necesitas. Revisa antes su contenido, usa las opciones de eliminación de la herramienta cuando las tenga, y busca otras copias y copias de seguridad que queden.";
+"Keep credentials in the Keychain or a password manager and retrieve them at run time. Avoid putting values in prompts or command arguments, and check that commands and debug logs do not print them." = "Guarda las credenciales en el llavero o en un gestor de contraseñas y recupéralas en tiempo de ejecución. Evita poner valores en las instrucciones (prompts) o en los argumentos de los comandos, y comprueba que los comandos y los registros de depuración no los muestren.";
+"Shorten how long the tool keeps session records, if it has a setting for that." = "Reduce el tiempo que la herramienta conserva los registros de sesión, si tiene un ajuste para ello.";
+
+/* token provider: a token finding's subject */
+"AWS access key" = "clave de acceso de AWS";
+"AWS temporary access key" = "clave de acceso temporal de AWS";
+"GitHub personal access token" = "token de acceso personal de GitHub";
+"GitHub OAuth token" = "token OAuth de GitHub";
+"GitHub app token" = "token de app de GitHub";
+"GitHub refresh token" = "token de actualización de GitHub";
+"GitHub fine-grained token" = "token detallado (fine-grained) de GitHub";
+"GitLab personal access token" = "token de acceso personal de GitLab";
+"GitLab pipeline trigger token" = "token de activación de pipelines de GitLab";
+"GitLab deploy token" = "token de despliegue de GitLab";
+"GitLab runner token" = "token de runner de GitLab";
+"GitLab feed token" = "token de feed de GitLab";
+"GitLab SCIM token" = "token SCIM de GitLab";
+"GitLab OAuth app secret" = "secreto de app OAuth de GitLab";
+"GitLab agent token" = "token de agente de GitLab";
+"Google OAuth client secret" = "secreto de cliente OAuth de Google";
+"Anthropic API key" = "clave de API de Anthropic";
+"OpenAI API key" = "clave de API de OpenAI";
+"OpenAI admin key" = "clave de administrador de OpenAI";
+"OpenRouter API key" = "clave de API de OpenRouter";
+"Stripe live secret key" = "clave secreta en modo activo de Stripe";
+"Stripe live restricted key" = "clave restringida en modo activo de Stripe";
+"Stripe test secret key" = "clave secreta en modo de prueba de Stripe";
+"Stripe test restricted key" = "clave restringida en modo de prueba de Stripe";
+"Slack token" = "token de Slack";
+"Slack app token" = "token de app de Slack";
+"npm access token" = "token de acceso de npm";
+"PyPI API token" = "token de API de PyPI";
+"Test PyPI API token" = "token de API de Test PyPI";
+"Hugging Face token" = "token de Hugging Face";
+"DigitalOcean token" = "token de DigitalOcean";
+"DigitalOcean OAuth token" = "token OAuth de DigitalOcean";
+"DigitalOcean refresh token" = "token de actualización de DigitalOcean";
+"SendGrid API key" = "clave de API de SendGrid";
+"Shopify access token" = "token de acceso de Shopify";
+"Shopify custom app token" = "token de app personalizada de Shopify";
+"Shopify private app token" = "token de app privada de Shopify";
+"Shopify shared secret" = "secreto compartido de Shopify";
+"Square access token" = "token de acceso de Square";
+"Square app secret" = "secreto de app de Square";
+"Supabase access token" = "token de acceso de Supabase";
+"Supabase secret key" = "clave secreta de Supabase";
+"Fly.io token" = "token de Fly.io";
+"Doppler personal token" = "token personal de Doppler";
+"Doppler CLI token" = "token de CLI de Doppler";
+"Doppler service account token" = "token de cuenta de servicio de Doppler";
+"Linear API key" = "clave de API de Linear";
+"Notion integration token" = "token de integración de Notion";
+"Atlassian API token" = "token de API de Atlassian";
+"Sentry user token" = "token de usuario de Sentry";
+"Sentry org token" = "token de organización de Sentry";
+"Vault service token" = "token de servicio de Vault";
+"Vault batch token" = "token de tipo batch de Vault";
+"Pulumi access token" = "token de acceso de Pulumi";
+"Docker Hub access token" = "token de acceso de Docker Hub";
+"Docker Hub org token" = "token de organización de Docker Hub";
+"RubyGems API key" = "clave de API de RubyGems";
+"Grafana service account token" = "token de cuenta de servicio de Grafana";
+"Grafana Cloud token" = "token de Grafana Cloud";
+"Databricks token" = "token de Databricks";
+"PlanetScale token" = "token de PlanetScale";
+"PlanetScale password" = "contraseña de PlanetScale";
+"PlanetScale OAuth token" = "token OAuth de PlanetScale";
+"Postman API key" = "clave de API de Postman";
+"Tailscale auth key" = "clave de autenticación de Tailscale";
+"Tailscale API key" = "clave de API de Tailscale";
+"Tailscale OAuth client secret" = "secreto de cliente OAuth de Tailscale";
+"Buildkite API token" = "token de API de Buildkite";
+"Groq API key" = "clave de API de Groq";
+"Replicate API token" = "token de API de Replicate";
+"xAI API key" = "clave de API de xAI";
+"age secret key" = "clave secreta de age";
+"Vercel token" = "token de Vercel";
+"Cloudflare user API token" = "token de API de usuario de Cloudflare";
+"Cloudflare account API token" = "token de API de cuenta de Cloudflare";
+"Cloudflare global API key" = "clave de API global de Cloudflare";
+"1Password service account token" = "token de cuenta de servicio de 1Password";
+"Heroku API key" = "clave de API de Heroku";
+"Perplexity API key" = "clave de API de Perplexity";
+"Neon API key" = "clave de API de Neon";
+"Render API key" = "clave de API de Render";
+"Together AI API key" = "clave de API de Together AI";
+
+/* src/rules/browser.rs */
+"1 saved login" = "1 inicio de sesión guardado";
+"%lld saved logins" = "%lld inicios de sesión guardados";
+"many saved logins" = "muchos inicios de sesión guardados";
+"1 saved card" = "1 tarjeta guardada";
+"%lld saved cards" = "%lld tarjetas guardadas";
+"many saved cards" = "muchas tarjetas guardadas";
+
+/* src/rules/aws.rs */
+"profile %@" = "perfil %@";
+
+/* src/rules/ai.rs */
+"server %@" = "servidor %@";
+
+/* src/scan.rs */
+"Group/other read mode bits are set; effective access is unknown because parent directories and ACLs were not assessed." = "Los bits de modo de lectura para grupo/otros están activados; se desconoce el acceso efectivo porque no se evaluaron las carpetas superiores ni las ACL.";
+"%@ Group/other read mode bits are set; effective access is unknown because parent directories and ACLs were not assessed." = "%@ Los bits de modo de lectura para grupo/otros están activados; se desconoce el acceso efectivo porque no se evaluaron las carpetas superiores ni las ACL.";
+
+/* not_checked reason permission-denied: label, then help */
+"Blocked by system permissions" = "Bloqueado por permisos del sistema";
+"macOS protects these folders, so the app could not look inside them. The results do not cover them." = "macOS protege estas carpetas, así que la app no pudo ver su contenido. Los resultados no las incluyen.";
+
+/* not_checked reason cloud-only-file: label, then help */
+"Stored only in the cloud" = "Guardado solo en la nube";
+"These files are not on this computer. The app does not download them." = "Estos archivos no están en tu Mac. La app no los descarga.";
+
+/* not_checked reason too-large: label, then help */
+"Too large to check" = "Demasiado grande para comprobar";
+"Config and JSON files over 1 MiB are not read." = "No se leen los archivos de configuración y JSON de más de 1 MiB.";
+
+/* not_checked reason unreadable: label, then help */
+"Could not be read" = "No se pudo leer";
+"The system returned an error for these." = "El sistema devolvió un error al leerlos.";
+
+/* not_checked reason symlink: label, then help */
+"Link not followed" = "Enlace no seguido";
+"A known sign-in location is a link that leads outside your home folder, so the app did not read it. Links that stay inside the home folder are followed." = "Una ubicación conocida de datos de inicio de sesión es un enlace que lleva fuera de tu carpeta de inicio, así que la app no la leyó. La app sí sigue los enlaces que no salen de la carpeta de inicio.";
+
+/* gui/src/lib.rs:216 */
+"The review list is full, so some findings were left out. Fix some items, then scan again." = "La lista de revisión está llena, así que algunos hallazgos quedaron fuera. Corrige algunos elementos y luego vuelve a analizar.";
+
+/* gui/src/lib.rs:263 */
+"Monitoring cannot start while private state is unavailable." = "La supervisión no puede iniciarse mientras el estado privado no esté disponible.";
+
+/* gui/src/lib.rs:266 */
+"Automatic monitoring is not available as root." = "La supervisión automática no está disponible como root.";
+
+/* gui/src/lib.rs:283 */
+"macOS could not restart the background helper. If Settings says it is not running, use Restart Helper there." = "macOS no pudo reiniciar el proceso auxiliar. Si Ajustes indica que no está en ejecución, usa allí Reiniciar proceso auxiliar.";
+
+/* gui/src/lib.rs:295 */
+"macOS could not start the background helper. Use Restart Helper in Settings, or check System Settings > General > Login Items." = "macOS no pudo iniciar el proceso auxiliar. Usa Reiniciar proceso auxiliar en Ajustes o comprueba Ajustes del Sistema > General > Ítems de inicio.";
+
+/* gui/src/lib.rs:297 */
+"macOS could not stop the background helper. Check System Settings > General > Login Items." = "macOS no pudo detener el proceso auxiliar. Comprueba Ajustes del Sistema > General > Ítems de inicio.";
+
+/* gui/src/lib.rs:319 */
+"macOS could not change Loose Keys in Login Items. Check System Settings > General > Login Items." = "macOS no pudo cambiar Loose Keys en Ítems de inicio. Comprueba Ajustes del Sistema > General > Ítems de inicio.";
+
+/* gui/src/lib.rs:340 */
+"The menu bar setting cannot be saved while private state is unavailable." = "La opción de la barra de menús no se puede guardar mientras el estado privado no esté disponible.";
+
+/* gui/src/lib.rs:356 */
+"Consent to home monitoring before enabling login startup." = "Da tu consentimiento para supervisar la carpeta de inicio antes de activar el arranque al iniciar sesión.";
+
+/* gui/src/lib.rs:593 */
+"Private state is unavailable." = "El estado privado no está disponible.";
+
+/* gui/src/lib.rs:616 */
+"That review item is no longer available." = "Ese elemento de revisión ya no está disponible.";
+
+/* gui/src/lib.rs:617 */
+"The home folder cannot be skipped." = "No se puede excluir la carpeta de inicio.";
+
+/* gui/src/lib.rs:618 */
+"That folder's name cannot be used." = "No se puede usar el nombre de esa carpeta.";
+
+/* gui/src/lib.rs:619 */
+"Cannot skip: %@." = "No se puede excluir: %@.";
+
+/* gui/src/lib.rs:621 */
+"Too many folders are skipped. Remove one first." = "Hay demasiadas carpetas excluidas. Quita una primero.";
+
+/* gui/src/lib.rs:760 */
+"The request has no usable \"%@\"." = "La solicitud no tiene un argumento “%@” utilizable.";
+
+/* gui/src/lib.rs:816 */
+"Unknown command: %@." = "Comando desconocido: %@.";
+
+/* gui/src/lib.rs:831 */
+"The app has not started." = "La app no está iniciada.";
+
+/* gui/src/lib.rs:837 */
+"The request's arguments are not a JSON object." = "Los argumentos de la solicitud no son un objeto JSON.";
+
+/* gui/src/lib.rs:847 */
+"The scan stopped unexpectedly." = "El análisis se detuvo de forma inesperada.";
+
+/* gui/src/lib.rs:848 */
+"That action stopped unexpectedly." = "Esa acción se detuvo de forma inesperada.";
+
+/* gui/src/lib.rs:885 */
+"The request is not valid text." = "La solicitud no es texto válido.";
+
+/* gui/src/lib.rs:923 */
+"That folder access request is not valid." = "Esa solicitud de acceso a la carpeta no es válida.";
+
+/* gui/src/lib.rs:927 */
+"Cannot scan: %@." = "No se puede analizar: %@.";
+
+/* gui/src/lib.rs:958 */
+"Wait for the scan to finish." = "Espera a que termine el análisis.";
+
+/* gui/src/lib.rs:961 */
+"Cannot add that folder: %@." = "No se puede añadir esa carpeta: %@.";
+
+/* gui/src/lib.rs:966 */
+"Use at most eight additional folders with paths within 4096 bytes." = "Usa como máximo ocho carpetas adicionales cuyas rutas no superen los 4096 bytes.";
+
+/* gui/src/lib.rs:1130 */
+"This app is quitting, so the scan was not started. Open it again to scan." = "La app se está cerrando, así que no se inició el análisis. Vuelve a abrirla para analizar.";
+
+/* gui/src/lib.rs:1136 */
+"Private state is unavailable; another instance may be running. Scanning is disabled." = "El estado privado no está disponible; puede que se esté ejecutando otra copia de la app. El análisis está desactivado.";
+
+/* gui/src/lib.rs:1141 */
+"A scan is already running." = "Ya hay un análisis en curso.";
+
+/* gui/src/lib.rs:1223 */
+"Run a scan first." = "Haz un análisis primero.";
+
+/* gui/src/lib.rs:1232 */
+"That location is not a local folder." = "Esa ubicación no es una carpeta local.";
+
+/* gui/src/lib.rs:1237 */
+"That file already exists. This app never replaces files. Choose a new name." = "Ese archivo ya existe. Esta app nunca reemplaza archivos. Elige un nombre nuevo.";
+
+/* gui/src/lib.rs:1239 */
+"Could not save: %@." = "No se pudo guardar: %@.";
+
+/* gui/src/lib.rs:1260 */
+"This review item has no usable local path." = "Este elemento de revisión no tiene una ruta local utilizable.";
+
+/* gui/src/lib.rs:1266 */
+"That result is no longer shown." = "Ese resultado ya no se muestra.";
+
+/* gui/src/lib.rs:1268 */
+"This name has unusual characters, so the app does not act on it." = "Este nombre tiene caracteres poco comunes, así que la app no actúa sobre él.";
+
+/* gui/src/lib.rs:1276 */
+"Not available when running as root." = "No disponible al ejecutarse como root.";
+
+/* gui/src/lib.rs:1280 */
+"Could not open the folder (%@)." = "No se pudo abrir la carpeta (%@).";
+
+/* gui/src/lib.rs:1294 */
+"That link is not one this app opens." = "Ese enlace no es de los que abre esta app.";
+
+/* gui/src/review.rs:148 */
+"That review item has changed since it was shown. Nothing was done; look at it again." = "Ese elemento de revisión cambió desde que se mostró. No se hizo nada; vuelve a mirarlo.";
+
+/* gui/src/review.rs:353 */
+"Too many findings are set aside. Move some back to Worth Reviewing." = "Hay demasiados hallazgos dejados a un lado. Devuelve algunos a Para revisar.";
+
+/* gui/src/review.rs:739 */
+"Cannot create local review storage." = "No se puede crear el almacenamiento local de revisión.";
+
+/* gui/src/review.rs:754 */
+"Cannot open local review storage." = "No se puede abrir el almacenamiento local de revisión.";
+
+/* gui/src/review.rs:802 */
+"Cannot lock local review storage." = "No se puede bloquear el almacenamiento local de revisión.";
+
+/* gui/src/review.rs:857 */
+"Local review storage must be private and owned by this user." = "El almacenamiento local de revisión debe ser privado y pertenecer a este usuario.";
+
+/* gui/src/review.rs:903 */
+"Cannot move local review storage to its new folder." = "No se puede mover el almacenamiento local de revisión a su nueva carpeta.";
+
+/* gui/src/review.rs:924 */
+"Cannot read local review storage." = "No se puede leer el almacenamiento local de revisión.";
+
+/* gui/src/review.rs:936 */
+"Local review storage is not a private regular file within the size limit." = "El almacenamiento local de revisión no es un archivo normal y privado dentro del límite de tamaño.";
+
+/* gui/src/review.rs:944 */
+"Local review storage could not be decoded." = "No se pudo decodificar el almacenamiento local de revisión.";
+
+/* gui/src/review.rs:950 */
+"Local review storage exceeds monitoring bounds." = "El almacenamiento local de revisión supera los límites de la supervisión.";
+
+/* gui/src/review.rs:957 */
+"Local review storage reached its item limit." = "El almacenamiento local de revisión alcanzó su límite de elementos.";
+
+/* gui/src/review.rs:961 */
+"Local review storage reached its size limit." = "El almacenamiento local de revisión alcanzó su límite de tamaño.";
+
+/* gui/src/review.rs:978 */
+"Cannot inspect interrupted review storage." = "No se puede inspeccionar el almacenamiento de revisión interrumpido.";
+
+/* gui/src/review.rs:984 */
+"Interrupted review storage is not a private regular file." = "El almacenamiento de revisión interrumpido no es un archivo normal y privado.";
+
+/* gui/src/review.rs:987 */
+"Cannot recover interrupted review storage." = "No se puede recuperar el almacenamiento de revisión interrumpido.";
+
+/* gui/src/review.rs:1001 */
+"Cannot save local review storage." = "No se puede guardar el almacenamiento local de revisión.";
+
+/* gui/src/agent.rs:773 */
+"Could not watch the home folder for changes." = "No se pudo vigilar la carpeta de inicio para detectar cambios.";
+
+/* src/scan.rs: a whole error from skip_folder and the review store, the folder list's home error, and inside "Cannot scan: %@." */
+"HOME is not set to an absolute path" = "HOME no tiene asignada una ruta absoluta";
+
+/* src/scan.rs: inside "Cannot add that folder: %@." and "Cannot skip: %@." */
+"could not resolve selected path" = "no se pudo resolver la ruta seleccionada";
+"selected paths must not contain '..'" = "las rutas seleccionadas no deben contener '..'";
+
+/* src/scan.rs: inside "Cannot skip: %@." */
+"the home folder, or a folder above it, cannot be skipped" = "la carpeta de inicio, o una carpeta superior, no se puede excluir";
+
+/* src/fsutil.rs: inside "Could not save: %@." */
+"export needs a filename" = "la exportación necesita un nombre de archivo";
+
+/* src/fsutil.rs: inside "Could not save: %@.", around a gap id */
+"export directory: %@" = "carpeta de exportación: %@";
+
+/* src/fsutil.rs: inside "Could not save: %@." */
+"invalid export filename" = "nombre de archivo de exportación no válido";
+"as root, the export directory must be root-owned and not writable by others" = "como root, la carpeta de exportación debe pertenecer a root y otros usuarios no deben poder escribir en ella";
+
+/* src/fsutil.rs: a gap id from fsutil::open_directory: the whole error when the review store cannot open the home folder, and inside "export directory: %@" and "Could not open the folder (%@)." */
+"unreadable" = "no se puede leer";
+"permission-denied" = "permiso denegado";
+"cloud-only-file" = "archivo solo en la nube";
+
+/* gui/src/lib.rs: item_path's whole error for a path with no folder above it */
+"no folder" = "no hay carpeta";
+
+/* not_checked reason scan-limit: label, then any help */
+"Only partly checked" = "Comprobado solo en parte";
+
+/* gui/src/lib.rs:1206 */
+"Local review storage is unavailable." = "El almacenamiento local de revisión no está disponible.";

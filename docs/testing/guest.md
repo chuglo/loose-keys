@@ -40,7 +40,9 @@ LOOSE_KEYS_APP_CHECK=synthetic-home sh gui/tests/check-app.sh "$HOME/app-check-1
 The negative control adds `LOOSE_KEYS_APP_CHECK_OMIT_AWS=1`, with another new
 work folder. It must fail with `timeout: specific fixture findings in window`.
 
-The check does not cover appearance or the helper.
+The check does not cover appearance or the helper. The guest's language
+must be English: the driver finds controls, macOS's save panel included,
+by their English names.
 
 These clones boot with SIP off, which the
 [native helper checks](native-helper-tests.md) need on.

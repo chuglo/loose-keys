@@ -12,6 +12,11 @@ if [ ! -f gui/tests/refresh-order.swift ]; then
 fi
 OUT=${1:-target/model-check}
 mkdir -p "$OUT"
+# The bundle's English plural forms, and no other language, next to the
+# executable, so the check reads English whatever the Mac's language.
+rm -rf "$OUT"/*.lproj
+mkdir "$OUT/en.lproj"
+cp gui/macos/en.lproj/Localizable.stringsdict "$OUT/en.lproj/Localizable.stringsdict"
 MINIMUM=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - gui/macos/Info.plist)
 swiftc -parse-as-library -D PREVIEW -target "$(uname -m)-apple-macosx$MINIMUM" \
     gui/app/AppModel.swift gui/app/Models.swift gui/app/Engine.swift \

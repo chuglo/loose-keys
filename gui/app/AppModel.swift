@@ -24,6 +24,43 @@ struct StoredRow: Identifiable {
     /// Where the engine listed it among the sign-ins: a rule at a time.
     let place: Int
     var id: Int { file.index }
+    /// The title as the window shows it, which the Sign-in heading sorts by.
+    var shownTitle: String { EngineText.shown(group.title) }
+}
+
+/// What automatic scanning is doing, as Overview, Settings and the menu bar
+/// say it. Logic and tests compare the case, never its words.
+enum BackgroundState {
+    case unavailable, off, needsApproval, helperNotRunning, waitingForHelper, paused, needsAttention, active
+
+    var text: String {
+        switch self {
+        case .unavailable:
+            return String(localized: "background.unavailable", defaultValue: "Unavailable",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: the window could not get its status.")
+        case .off:
+            return String(localized: "background.off", defaultValue: "Off",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: turned off.")
+        case .needsApproval:
+            return String(localized: "Needs macOS Approval",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: its helper waits for the person to approve it in System Settings.")
+        case .helperNotRunning:
+            return String(localized: "Helper Not Running",
+                          comment: "The state of automatic scanning, in Overview, Settings and the menu bar: the helper program that runs it is not running.")
+        case .waitingForHelper:
+            return String(localized: "Waiting for Helper Status",
+                          comment: "The state of automatic scanning, in Overview, Settings and the menu bar: the helper is registered, and has not yet said whether it runs.")
+        case .paused:
+            return String(localized: "background.paused", defaultValue: "Paused",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: the person paused it.")
+        case .needsAttention:
+            return String(localized: "Needs Attention",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: the helper reported a problem, shown below it.")
+        case .active:
+            return String(localized: "background.active", defaultValue: "Active",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: on and running.")
+        }
+    }
 }
 
 /// The order in which the window asked for the folders it shows. Engine calls
@@ -208,12 +245,22 @@ final class AppModel: ObservableObject {
         (review?.items ?? []).filter { ($0.status == "set-aside") == (pane == .setAside) }
     }
 
+    /// Whether the Filter field's text is in these texts, taken together:
+    /// what a row shows, then the engine's English. Case and accents are
+    /// ignored, because a word is often typed without its accents.
+    private func leaves(_ wanted: String, _ texts: [String?]) -> Bool {
+        wanted.isEmpty || texts.compactMap { $0 }.joined(separator: " ")
+            .range(of: wanted, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
     /// The findings the filter leaves, not yet in order. Enough to find one
     /// of them, which the filter does for each character typed.
     private var reviewShown: [ReviewItem] {
-        let wanted = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return reviewPaneItems
-            .filter { wanted.isEmpty || "\($0.title) \($0.path) \($0.subject ?? "") \($0.detail ?? "")".lowercased().contains(wanted) }
+        let wanted = search.trimmingCharacters(in: .whitespaces)
+        return reviewPaneItems.filter {
+            leaves(wanted, [$0.shownTitle, $0.path, $0.subject.map(EngineText.about), $0.detail.map(EngineText.about),
+                            $0.title, $0.subject, $0.detail])
+        }
     }
 
     var reviewRows: [ReviewItem] {
@@ -223,13 +270,13 @@ final class AppModel: ObservableObject {
     /// The stored sign-ins the filter leaves, as the engine listed them.
     /// Enough to find one of them or to count them.
     var storedShown: [StoredRow] {
-        let wanted = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let wanted = search.trimmingCharacters(in: .whitespaces)
         return (results?.groups ?? [])
             .filter { $0.kind == "inventory" }
             .flatMap { group in group.items.map { (file: $0, group: group) } }
             .enumerated()
             .map { StoredRow(file: $0.element.file, group: $0.element.group, place: $0.offset) }
-            .filter { wanted.isEmpty || "\($0.group.title) \($0.file.path) \($0.file.subject ?? "")".lowercased().contains(wanted) }
+            .filter { leaves(wanted, [$0.shownTitle, $0.file.path, $0.file.subject.map(EngineText.about), $0.group.title, $0.file.subject]) }
     }
 
     var storedRows: [StoredRow] {
@@ -251,9 +298,10 @@ final class AppModel: ObservableObject {
 
     /// Why Worth Reviewing cannot show what was found, when it cannot: the
     /// engine could not read or save the list, or this window could not get
-    /// it. Whatever list the window holds is then not shown or counted.
+    /// it. Whatever list the window holds is then not shown or counted. The
+    /// reason is in the window's language.
     var reviewProblem: String? {
-        reviewUnread ?? review?.error
+        reviewUnread ?? review?.error.map(EngineText.shown)
     }
 
     /// The number beside Worth Reviewing. When the list cannot be used it is
@@ -273,12 +321,12 @@ final class AppModel: ObservableObject {
         guard let found = results?.review, let review, reviewProblem == nil else { return nil }
         let listed = review.items.filter { $0.status != "fixed" }.count
         guard found > listed else { return nil }
-        let counts = "The saved report and the copied summary count \(plural(found, "finding", "findings")). The list has \(plural(listed, "item", "items"))"
-        let grouping = "a credential found by more than one rule, or in more than one file, is one item"
         if review.full == true {
-            return "\(counts) and is full, so findings it has no room for are left out: save the report to see them all. Also, \(grouping)."
+            return String(localized: "The saved report and the copied summary count \(found) findings. The list has \(listed) items and is full, so findings it has no room for are left out: save the report to see them all. Also, a credential found by more than one rule, or in more than one file, is one item.",
+                          comment: "Overview, under the last scan's counts, when the Worth Reviewing list is full. The first number counts findings, the second the list's items.")
         }
-        return "\(counts), because \(grouping)."
+        return String(localized: "The saved report and the copied summary count \(found) findings. The list has \(listed) items, because a credential found by more than one rule, or in more than one file, is one item.",
+                      comment: "Overview, under the last scan's counts. The first number counts findings, the second the Worth Reviewing list's items.")
     }
 
     var currentReview: ReviewItem? {
@@ -321,25 +369,45 @@ final class AppModel: ObservableObject {
     /// The menu's first line: fixed words and a count, never a path or a name.
     var menuBarLine: String {
         switch menuBarMark {
-        case .open, .plain: return "\(plural(openCount, "loose key", "loose keys")) to review"
-        case .full: return "\(plural(openCount, "loose key", "loose keys")) to review, list full"
-        case .problem: return "Worth Reviewing could not be read"
-        case .unknown: return "Reading Worth Reviewing…"
+        case .open, .plain:
+            return String(localized: "\(openCount) loose keys to review",
+                          comment: "The menu bar menu's first line: how many findings in Worth Reviewing need the person's attention. A loose key is a credential left in a plain file.")
+        case .full:
+            return String(localized: "\(openCount) loose keys to review, list full",
+                          comment: "The menu bar menu's first line: how many findings need attention, when the list is full and left some out.")
+        case .problem:
+            return String(localized: "Worth Reviewing could not be read",
+                          comment: "The menu bar menu's first line when the list could not be read. Worth Reviewing is the list's name in the sidebar.")
+        case .unknown:
+            return String(localized: "Reading Worth Reviewing…",
+                          comment: "The menu bar menu's first line while the list is being read. Worth Reviewing is the list's name in the sidebar.")
         }
     }
 
     /// Unless automatic scanning is known to be running, the state Settings shows for it.
     var menuBarCheckLine: String? {
-        backgroundState == "Active" ? nil : "Automatic scanning: \(backgroundState)"
+        backgroundState == .active ? nil
+            : String(localized: "Automatic scanning: \(backgroundState.text)",
+                     comment: "The menu bar menu's second line: the state of automatic scanning, as Settings shows it.")
     }
 
     /// Nothing looks cleaner than it is: everything set aside or skipped is counted.
     var reviewSummary: String {
         guard reviewProblem == nil, let counts = review?.counts else { return "" }
-        var parts = ["\(counts.open) to review"]
-        if counts.setAside > 0 { parts.append("\(counts.setAside) set aside") }
-        if counts.fixed > 0 { parts.append("\(counts.fixed) fixed") }
-        if review?.full == true { parts.append("list full, so some findings were left out") }
+        var parts = [String(localized: "\(counts.open) to review",
+                            comment: "Part of the Worth Reviewing subtitle, joined to the others by commas: how many findings still need the person's attention.")]
+        if counts.setAside > 0 {
+            parts.append(String(localized: "\(counts.setAside) set aside",
+                                comment: "Part of the Worth Reviewing subtitle, joined to the others by commas: how many findings the person set aside."))
+        }
+        if counts.fixed > 0 {
+            parts.append(String(localized: "\(counts.fixed) fixed",
+                                comment: "Part of the Worth Reviewing subtitle, joined to the others by commas: how many findings are no longer in their files."))
+        }
+        if review?.full == true {
+            parts.append(String(localized: "list full, so some findings were left out",
+                                comment: "Last part of the Worth Reviewing subtitle, after the counts and a comma: the list had no room for some findings."))
+        }
         return parts.joined(separator: ", ")
     }
 
@@ -572,7 +640,8 @@ final class AppModel: ObservableObject {
                 await refreshReview()
                 phase = .done
                 if let error = reviewProblem {
-                    failure = "The scan finished, but its findings could not be listed. \(error) Save the report to see them."
+                    failure = String(localized: "The scan finished, but its findings could not be listed. \(error) Save the report to see them.",
+                                     comment: "In an alert after a scan. %@ is the reason, one or more sentences from the engine or macOS.")
                 }
             } catch {
                 phase = results == nil ? .ready : .done
@@ -596,12 +665,13 @@ final class AppModel: ObservableObject {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.prompt = "Add"
-        panel.message = "Choose a folder or drive to include in scans."
+        panel.prompt = String(localized: "Add", comment: "The button of the panel that chooses a folder or drive to include in scans.")
+        panel.message = String(localized: "Choose a folder or drive to include in scans.",
+                               comment: "At the top of the panel that chooses a folder or drive to include in scans.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         attempt {
             let places = try await self.changePlaces("type_place", ["text": url.path])
-            self.failure = places.error
+            self.failure = places.error.map(EngineText.shown)
         }
     }
 
@@ -612,12 +682,13 @@ final class AppModel: ObservableObject {
                 // The panel offers only folders. A drop can carry a file or a web link.
                 guard folder.isFileURL,
                       (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
-                    self.failure = "Only folders and drives can be added."
+                    self.failure = String(localized: "Only folders and drives can be added.",
+                                          comment: "In an alert: something other than a folder or drive was dropped on the window.")
                     break
                 }
                 let places = try await self.changePlaces("type_place", ["text": folder.path])
                 if let error = places.error {
-                    self.failure = error
+                    self.failure = EngineText.shown(error)
                     break
                 }
             }
@@ -651,7 +722,8 @@ final class AppModel: ObservableObject {
         // A stored sign-in is named by its place in the last results, and a
         // scan replaces those before this window has them.
         if !review, phase == .scanning {
-            throw EngineError(message: "Wait for the scan to finish, then try again.")
+            throw EngineError(message: String(localized: "Wait for the scan to finish, then try again.",
+                                              comment: "In an alert: Show in Finder or Copy Path was chosen for a stored sign-in during a scan."))
         }
         return try await engine.request("item_path", ["index": index, "review": review])
     }
@@ -683,7 +755,10 @@ final class AppModel: ObservableObject {
             let path = try await self.path(index, review: review)
             let text = self.quotedIfNeeded(path)
             self.copy(text)
-            self.confirm(text == path ? "Path copied" : "Path copied, in quotes for Terminal")
+            self.confirm(text == path
+                         ? String(localized: "Path copied", comment: "Shown for a moment under the window title after Copy Path.")
+                         : String(localized: "Path copied, in quotes for Terminal",
+                                  comment: "Shown for a moment under the window title after Copy Path, when the path was put in quotes so that it can be pasted after a command in the Terminal app."))
         }
     }
 
@@ -742,12 +817,15 @@ final class AppModel: ObservableObject {
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = feedback ? "loose-keys-counts.json" : "loose-keys-report.json"
         panel.message = feedback
-            ? "Counts only. No paths or file names."
-            : "Every finding and file path. Review before sharing."
+            ? String(localized: "Counts only. No paths or file names.",
+                     comment: "At the top of the save panel for Save Counts Only…: what the saved file holds.")
+            : String(localized: "Every finding and file path. Review before sharing.",
+                     comment: "At the top of the save panel for Save Report…: what the saved file holds.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         attempt {
             try await self.write(feedback: feedback, to: url)
-            self.confirm("Saved \(url.lastPathComponent)")
+            self.confirm(String(localized: "Saved \(url.lastPathComponent)",
+                                comment: "Shown for a moment under the window title after a save. %@ is the name of the file the person chose."))
         }
     }
 
@@ -767,7 +845,8 @@ final class AppModel: ObservableObject {
             try files.trashItem(at: url, resultingItemURL: nil)
             try files.moveItem(at: fresh, to: url)
         } catch {
-            throw EngineError(message: "The new report is saved as \(fresh.lastPathComponent), beside the one you chose to replace. \(error.localizedDescription)")
+            throw EngineError(message: String(localized: "The new report is saved as \(fresh.lastPathComponent), beside the one you chose to replace. \(error.localizedDescription)",
+                                              comment: "In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave."))
         }
     }
 
@@ -775,7 +854,7 @@ final class AppModel: ObservableObject {
         attempt {
             let text: String = try await self.engine.request("summary_text")
             self.copy(text)
-            self.confirm("Summary copied")
+            self.confirm(String(localized: "Summary copied", comment: "Shown for a moment under the window title after Copy Summary."))
         }
     }
 
@@ -788,15 +867,15 @@ final class AppModel: ObservableObject {
 
     // MARK: Background checks
 
-    var backgroundState: String {
-        guard let monitor, monitorFailure == nil else { return "Unavailable" }
-        if !monitor.enabled { return "Off" }
-        if monitor.login == 3 { return "Needs macOS Approval" }
-        if monitor.login != 2 || monitor.health.running == false { return "Helper Not Running" }
-        guard monitor.health.running == true else { return "Waiting for Helper Status" }
-        if monitor.paused { return "Paused" }
-        if monitor.health.error != nil { return "Needs Attention" }
-        return "Active"
+    var backgroundState: BackgroundState {
+        guard let monitor, monitorFailure == nil else { return .unavailable }
+        if !monitor.enabled { return .off }
+        if monitor.login == 3 { return .needsApproval }
+        if monitor.login != 2 || monitor.health.running == false { return .helperNotRunning }
+        guard monitor.health.running == true else { return .waitingForHelper }
+        if monitor.paused { return .paused }
+        if monitor.health.error != nil { return .needsAttention }
+        return .active
     }
 
     /// The first page asks one question: check in the background, or scan
@@ -859,7 +938,8 @@ final class AppModel: ObservableObject {
             await self.refreshMonitor()
             await self.refreshMonitorSoon()
             if result == 4 {
-                self.failure = "macOS could not restart the background helper. Check System Settings > General > Login Items."
+                self.failure = String(localized: "macOS could not restart the background helper. Check System Settings > General > Login Items.",
+                                      comment: "In an alert after Restart Helper. Use the names macOS gives System Settings and its Login Items pane.")
             }
         }
     }
@@ -885,7 +965,8 @@ final class AppModel: ObservableObject {
                 try await engine.send("enable_notifications")
             } catch {
                 awaitingPermission = false
-                failure = "Could not request notification permission: \(error.localizedDescription)"
+                failure = String(localized: "Could not request notification permission: \(error.localizedDescription)",
+                                 comment: "In an alert after Allow Notifications…. %@ is the reason the engine or macOS gave.")
             }
         }
     }

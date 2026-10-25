@@ -29,7 +29,7 @@ private struct ReviewInspector: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(item.title).font(.headline)
+                    Text(item.shownTitle).font(.headline)
                     HStack(spacing: 10) {
                         RiskLabel(severity: item.severity)
                         if item.status != "set-aside" {
@@ -39,7 +39,7 @@ private struct ReviewInspector: View {
                     .font(.subheadline)
                     // What it concerns, or failing that a count the rule gives, as
                     // for a browser's saved logins.
-                    if let about = item.subject ?? item.detail {
+                    if let about = item.shownAbout {
                         Text(about).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
@@ -51,7 +51,8 @@ private struct ReviewInspector: View {
 
             if item.status == "set-aside" {
                 Section {
-                    Text(reason?.summary ?? "Set aside by you")
+                    Text(reason?.summary ?? String(localized: "Set aside by you",
+                                                   comment: "Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know."))
                     Button("Move to Worth Reviewing") { model.decide(item, reason: nil) }
                 } header: {
                     Text("Set Aside")
@@ -60,7 +61,7 @@ private struct ReviewInspector: View {
 
             Section("Where") {
                 if item.actionable == false {
-                    Text(item.path + (item.line.map { ", line \($0)" } ?? ""))
+                    Text(pathAndLine(item.path, item.line))
                         .font(.callout.monospaced())
                         .textSelection(.enabled)
                     Text(unusualName).foregroundStyle(.secondary)
@@ -68,9 +69,17 @@ private struct ReviewInspector: View {
                     FileRow(path: item.path, line: item.line, index: item.id, review: true)
                 }
                 if let places = item.places, places.count > 1 {
-                    DisclosureGroup("The same credential is in \(plural(places.count, "place", "places"))") {
+                    DisclosureGroup(String(localized: "The same credential is in \(places.count) places",
+                                           comment: "Inspector, the heading over the list of files one credential was found in.")) {
                         ForEach(places) { place in
-                            Text(place.path + (place.fixed ? " (fixed here)" : place.setAside == true ? " (set aside here)" : ""))
+                            // A path is whatever the file's maker chose, so it is shown as plain text.
+                            Text(place.fixed
+                                 ? String(localized: "\(place.path) (fixed here)",
+                                          comment: "Inspector, one of the files the same credential is in: this file no longer has it. %@ is the file's path, shown as it is.")
+                                 : place.setAside == true
+                                 ? String(localized: "\(place.path) (set aside here)",
+                                          comment: "Inspector, one of the files the same credential is in: the person set the credential aside in this file. %@ is the file's path, shown as it is.")
+                                 : place.path)
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
                         }
@@ -80,7 +89,9 @@ private struct ReviewInspector: View {
 
             if item.status != "set-aside" {
                 Section {
-                    Text(item.nextStep ?? "Confirm why this file is stored here before you change it.")
+                    Text(item.nextStep.map(EngineText.shown)
+                         ?? String(localized: "Confirm why this file is stored here before you change it.",
+                                   comment: "Inspector, under What to Do, for a finding whose rule gives no next step."))
                     StepList(steps: item.steps ?? [])
                     if let link = item.link {
                         Button("Open the Page to Revoke It") { model.openLink(link) }
@@ -100,13 +111,15 @@ private struct ReviewInspector: View {
                     Section("Folder") {
                         if folderSkipped(folder) {
                             // A folder's name is whatever its maker chose, so it is shown as plain text.
-                            Text(verbatim: "\(folder) is no longer checked. Not Checked lists it, and can include it again.")
+                            Text(verbatim: String(localized: "\(folder) is no longer checked. Not Checked lists it, and can include it again.",
+                                                  comment: "Inspector, Folder section. %@ is a folder's path, shown as it is. Not Checked is the page's name."))
                                 .foregroundStyle(.secondary)
                         } else {
                             Button {
                                 model.stopCheckingFolder(item)
                             } label: {
-                                Text(verbatim: "Stop Checking \(folder)")
+                                Text(verbatim: String(localized: "Stop Checking \(folder)",
+                                                      comment: "Inspector, Folder section: a button that leaves a folder out of scans. %@ is the folder's path, shown as it is."))
                             }
                         }
                     }
@@ -119,8 +132,8 @@ private struct ReviewInspector: View {
                     model.inspectorWhy.toggle()
                 }
                 if model.inspectorWhy {
-                    Text(item.explanation)
-                    if let reason = item.reason { Text(reason) }
+                    Text(EngineText.shown(item.explanation))
+                    if let reason = item.reason { Text(EngineText.shown(reason)) }
                 }
                 Button(model.inspectorDetails ? "Hide Details" : "Show Details") {
                     model.inspectorDetails.toggle()
@@ -131,7 +144,11 @@ private struct ReviewInspector: View {
                     }
                     LabeledContent("Rule", value: item.rule)
                     if let seen = item.firstSeen { LabeledContent("First Seen", value: localTime(seen)) }
-                    if let fixed = item.resolvedAt { LabeledContent("Fixed", value: localTime(fixed)) }
+                    if let fixed = item.resolvedAt {
+                        LabeledContent(String(localized: "date.fixed", defaultValue: "Fixed",
+                                              comment: "Inspector, under Show Details: the label beside the date and time the finding was found to be fixed."),
+                                       value: localTime(fixed))
+                    }
                 }
             }
         }
@@ -177,9 +194,9 @@ private struct StoredInspector: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(row.group.title).font(.headline)
+                    Text(row.shownTitle).font(.headline)
                     if let subject = row.file.subject {
-                        Text(subject).font(.subheadline).foregroundStyle(.secondary)
+                        Text(EngineText.about(subject)).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -192,12 +209,12 @@ private struct StoredInspector: View {
                 }
             }
             Section("What It Is") {
-                Text(row.group.explanation)
-                if let reason = row.group.reason { Text(reason) }
+                Text(EngineText.shown(row.group.explanation))
+                if let reason = row.group.reason { Text(EngineText.shown(reason)) }
             }
             if row.group.nextStep != nil || !row.group.steps.isEmpty {
                 Section("What You Can Do") {
-                    if let next = row.group.nextStep { Text(next) }
+                    if let next = row.group.nextStep { Text(EngineText.shown(next)) }
                     StepList(steps: row.group.steps)
                     if let link = row.group.link {
                         Button("Open the Page to Manage It") { model.openLink(link) }
@@ -211,7 +228,15 @@ private struct StoredInspector: View {
 
 /// A file's path, with the two things a person does with it.
 /// Said in place of Show in Finder and Copy Path, which the engine would refuse.
-private let unusualName = "This name has unusual characters, so the app does not act on it."
+private let unusualName = String(localized: "This name has unusual characters, so the app does not act on it.",
+                                 comment: "Inspector, under a file's path, in place of Show in Finder and Copy Path.")
+
+/// A file's path, and the line in it when the rule gives one. The path is
+/// whatever the file's maker chose: it is shown as it is, as plain text.
+private func pathAndLine(_ path: String, _ line: Int?) -> String {
+    guard let line else { return path }
+    return String(localized: "\(path), line \(line)", comment: "Inspector: a file's path and a line number in it. %@ is the path, shown as it is.")
+}
 
 private struct FileRow: View {
     @EnvironmentObject private var model: AppModel
@@ -221,7 +246,7 @@ private struct FileRow: View {
     let review: Bool
 
     var body: some View {
-        Text(path + (line.map { ", line \($0)" } ?? ""))
+        Text(pathAndLine(path, line))
             .font(.callout.monospaced())
             .textSelection(.enabled)
         HStack {
@@ -237,8 +262,8 @@ private struct StepList: View {
     var body: some View {
         ForEach(Array(steps.enumerated()), id: \.offset) { number, step in
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(number + 1).").foregroundStyle(.secondary).monospacedDigit()
-                Text(step)
+                Text(verbatim: "\(number + 1).").foregroundStyle(.secondary).monospacedDigit()
+                Text(EngineText.shown(step))
             }
         }
     }

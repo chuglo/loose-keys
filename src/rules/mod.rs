@@ -355,6 +355,16 @@ pub fn known_link(url: &str) -> bool {
         .any(|link| link == url)
 }
 
+/// The token providers' names, which token findings give as their subject.
+pub fn token_names() -> impl Iterator<Item = &'static str> {
+    token::names()
+}
+
+/// The steps a token finding's advice gives, whichever provider issued it.
+pub fn token_steps() -> &'static [&'static str] {
+    token::STEPS
+}
+
 fn any(_: &[u8]) -> bool {
     true
 }

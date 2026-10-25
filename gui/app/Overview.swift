@@ -88,7 +88,7 @@ struct OverviewView: View {
                     .frame(maxWidth: 460)
                     .padding(.top, 12)
                 if let places = model.places, places.home == nil {
-                    Label("Cannot scan: \(places.homeError ?? "the home folder was not found").", systemImage: "exclamationmark.triangle")
+                    Label(cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 12)
                 }
@@ -126,11 +126,29 @@ struct OverviewView: View {
         }
     }
 
+    /// Why there is no home folder to scan. The engine's reason, when it
+    /// gives one, is shown in the window's language.
+    private func cannotScan(_ reason: String?) -> String {
+        guard let reason else {
+            return String(localized: "Cannot scan: the home folder was not found.", comment: "Overview, when there is no home folder to scan.")
+        }
+        return String(localized: "Cannot scan: \(EngineText.shown(reason)).",
+                      comment: "Overview, when there is no home folder to scan. %@ is the engine's reason, such as that HOME is not set to an absolute path.")
+    }
+
+    /// Two sentences: what the scan is doing, then how far it has got.
     private var progressText: String {
-        guard let progress = model.progress else { return "Starting…" }
-        let phase = progress.phase == "targeted-checks" ? "Checking known sign-in locations"
-            : progress.phase == "finished" ? "Preparing results" : "Looking through folders"
-        return "\(phase). \(plural(progress.entries, "item", "items")) looked at, \(progress.findings) found."
+        guard let progress = model.progress else {
+            return String(localized: "Starting…", comment: "Overview, while a scan starts and before it says how far it has got.")
+        }
+        let phase = progress.phase == "targeted-checks"
+            ? String(localized: "Checking known sign-in locations.", comment: "Overview, while a scan reads the places where apps are known to keep sign-ins. A sentence of progress follows.")
+            : progress.phase == "finished"
+            ? String(localized: "Preparing results.", comment: "Overview, while a scan that has read everything prepares its results. A sentence of progress follows.")
+            : String(localized: "Looking through folders.", comment: "Overview, while a scan looks through folders. A sentence of progress follows.")
+        let counts = String(localized: "\(progress.entries) items looked at, \(progress.findings) found.",
+                            comment: "Overview, while a scan runs: how many files and folders it has looked at, and how many findings it has found.")
+        return phase + " " + counts
     }
 
     @ViewBuilder private func summary(_ results: ScanResults) -> some View {
@@ -147,10 +165,12 @@ struct OverviewView: View {
                      ? "Scanned \(localTime(results.generatedAt))."
                      : "Scanned \(localTime(results.generatedAt)). Some places could not be checked; see Not Checked.")
                 // What the counts cover, which Places to Check may no longer be.
-                Text(verbatim: "Included: \(results.roots.joined(separator: ", ")).")
+                Text(verbatim: String(localized: "Included: \(results.roots.joined(separator: ", ")).",
+                                      comment: "Overview, under the last scan's counts. %@ is the list of folders the scan covered, separated by commas, shown as they are."))
                 let skipped = model.review?.skipped?.count ?? 0
                 if skipped > 0 {
-                    Text("\(plural(skipped, "folder is", "folders are")) left out at your request; see Not Checked.")
+                    Text(String(localized: "\(skipped) folders are left out at your request; see Not Checked.",
+                                comment: "Overview, under the last scan's counts: how many folders the person chose to stop checking. Not Checked is the page's name."))
                 }
                 if model.reviewProblem != nil {
                     Text("The review list could not be read or saved, so Worth Reviewing shows the scan's own count.")
@@ -162,21 +182,21 @@ struct OverviewView: View {
         }
     }
 
-    private func countRow(_ title: String, _ count: Int, _ symbol: String, _ pane: Pane) -> some View {
+    private func countRow(_ title: LocalizedStringKey, _ count: Int, _ symbol: String, _ pane: Pane) -> some View {
         Button {
             model.pane = pane
         } label: {
             HStack {
                 Label(title, systemImage: symbol)
                 Spacer()
-                Text("\(count)").monospacedDigit().foregroundStyle(.secondary)
+                Text(verbatim: "\(count)").monospacedDigit().foregroundStyle(.secondary)
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityValue("\(count)")
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: "\(count)"))
     }
 
     @ViewBuilder private var folders: some View {
@@ -189,7 +209,7 @@ struct OverviewView: View {
                         Label(home, systemImage: "house")
                     }
                 } else {
-                    Label("Cannot scan: \(places.homeError ?? "the home folder was not found").", systemImage: "exclamationmark.triangle")
+                    Label(cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
                 }
                 ForEach(Array(places.extra.enumerated()), id: \.offset) { index, folder in
                     LabeledContent {
@@ -235,13 +255,14 @@ struct OverviewView: View {
                     }
                 } label: {
                     Text("Automatic Scanning")
-                    Text(model.backgroundState)
+                    Text(model.backgroundState.text)
                     if let monitor = model.monitor {
-                        if model.backgroundState == "Active", monitor.health.fullPass == nil {
+                        if model.backgroundState == .active, monitor.health.fullPass == nil {
                             Text("Checking existing files…")
                         }
                         if let unread = monitor.health.unread, unread > 0 {
-                            Text("\(plural(unread, "place", "places")) could not be read. Run a scan to see which.")
+                            Text(String(localized: "\(unread) places could not be read. Run a scan to see which.",
+                                        comment: "Overview and Settings, under the state of automatic scanning: how many places the helper's last full pass could not read."))
                         }
                         if monitor.login == 3 {
                             Text("Approve the helper in System Settings > General > Login Items.")
@@ -277,10 +298,12 @@ struct OverviewView: View {
                 }
             }
             if let error = model.monitor.flatMap({ $0.error ?? $0.health.error }) {
-                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                Label(EngineText.shown(error), systemImage: "exclamationmark.triangle").foregroundStyle(.red)
             }
             if let problem = model.reviewProblem {
-                Label("Review List Unavailable: \(problem)", systemImage: "exclamationmark.triangle")
+                Label(String(localized: "Review List Unavailable: \(problem)",
+                             comment: "Overview, when the list of findings could not be read or saved. %@ is the reason, one or more sentences from the engine or macOS."),
+                      systemImage: "exclamationmark.triangle")
             } else if model.review != nil, model.results == nil || model.phase == .scanning {
                 // After a scan, the scan's own section has this row.
                 countRow("Worth Reviewing", model.reviewCount, "exclamationmark.triangle", .review)

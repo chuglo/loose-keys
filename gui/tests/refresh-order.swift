@@ -4,7 +4,9 @@
 // nothing in a home folder is read. The stand-in answers each command when
 // the test says, so answers can be made to arrive in any order. It also
 // counts how many calls of one command it held at once: the review list and
-// the status of background checks are each read one call at a time.
+// the status of background checks are each read one call at a time. The last
+// cases look the engine's text up in made-up tables, two of them written to a
+// folder under TMPDIR and removed after.
 import Foundation
 
 /// One command the model sent, held until the test answers it.
@@ -743,22 +745,171 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 
 @MainActor func backgroundStatusIsHonest() async {
     let model = AppModel(engine: HeldEngine())
-    check(model.backgroundState == "Unavailable", "missing status is unavailable")
+    check(model.backgroundState == .unavailable, "missing status is unavailable")
     for (enabled, paused, login, running, expected) in [
-        (false, false, 1, false, "Off"),
-        (true, false, 3, false, "Needs macOS Approval"),
-        (true, false, 2, false, "Helper Not Running"),
-        (true, true, 2, false, "Helper Not Running"),
-        (true, true, 2, true, "Paused"),
-        (true, false, 2, true, "Active"),
+        (false, false, 1, false, BackgroundState.off),
+        (true, false, 3, false, .needsApproval),
+        (true, false, 2, false, .helperNotRunning),
+        (true, true, 2, false, .helperNotRunning),
+        (true, true, 2, true, .paused),
+        (true, false, 2, true, .active),
     ] {
         let value = json(["enabled": enabled, "paused": paused, "scanning": false, "login": login,
                           "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
         model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(value.utf8))
-        check(model.backgroundState == expected, "background status: \(expected)")
+        check(model.backgroundState == expected, "background status: \(expected.text)")
     }
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true).utf8))
-    check(model.backgroundState == "Waiting for Helper Status", "registration alone is not a running helper")
+    check(model.backgroundState == .waitingForHelper, "registration alone is not a running helper")
+    // The words each state shows. This check runs in English, so they are the source text.
+    for (state, word) in [(BackgroundState.unavailable, "Unavailable"), (.off, "Off"), (.needsApproval, "Needs macOS Approval"),
+                          (.helperNotRunning, "Helper Not Running"), (.waitingForHelper, "Waiting for Helper Status"),
+                          (.paused, "Paused"), (.needsAttention, "Needs Attention"), (.active, "Active")] {
+        check(state.text == word, "background status words: \(word), not \(state.text)")
+    }
+}
+
+// MARK: Engine text
+//
+// The check runs in English, where the window shows the engine's text as it
+// came. These cases look it up in a made-up table instead, so that what they
+// check does not depend on the shipped translation.
+
+let madeUpEngineText: [String: String] = [
+    "Saved password": "Contraseña guardada",
+    "Cloud key": "Llave de la nube",
+    "could not resolve selected path": "no se pudo resolver la ruta elegida",
+    "7": "siete",
+    "profile default": "perfil predeterminado",
+    "profile %@": "perfil %@",
+    "%lld saved logins": "%lld inicios guardados",
+    "Could not read %@": "No se pudo leer %@",
+    "Could not read %@ (shared file)": "No se pudo leer %@ (archivo compartido)",
+    "Cannot add the folder: %@": "No se puede añadir la carpeta: %@",
+    "on %@ on": "en %@ en",
+    "%@ and %@": "%@ y %@",
+    "%@ folders": "carpetas",
+]
+
+func expect(_ shown: String, _ wanted: String, _ what: String) {
+    check(shown == wanted, "engine text: \(what): showed \"\(shown)\", not \"\(wanted)\"")
+}
+
+func engineTextMatches() {
+    let table = EngineText.Table(madeUpEngineText)
+    expect(table.shown("Saved password"), "Contraseña guardada", "an exact key")
+    expect(table.shown("Something else"), "Something else", "a string the table lacks is shown as it came")
+    expect(table.about("profile default"), "perfil predeterminado", "an exact key comes before a template")
+    expect(table.about("profile work"), "perfil work", "a %@ template")
+    expect(table.about("profile "), "profile ", "a %@ never stands for nothing")
+    expect(table.about("12 saved logins"), "12 inicios guardados", "a %lld template")
+    expect(table.about("twelve saved logins"), "twelve saved logins", "a %lld stands for digits only")
+    expect(table.about("\u{0661}\u{0662} saved logins"), "\u{0661}\u{0662} saved logins", "a %lld stands for ASCII digits only")
+    expect(table.about(" saved logins"), " saved logins", "a %lld never stands for nothing")
+    expect(table.shown("on x on"), "en x en", "fixed text on both sides of a %@")
+    expect(table.shown("on on"), "on on", "the text in a %@ never overlaps the fixed text")
+    expect(table.shown("Could not read x (shared file)"), "No se pudo leer x (archivo compartido)",
+           "the template with the longest fixed text")
+    let nested = "Cannot add the folder: could not resolve selected path"
+    expect(table.shown(nested), "No se puede añadir la carpeta: no se pudo resolver la ruta elegida",
+           "shown looks up the text in a %@")
+    expect(table.about(nested), "No se puede añadir la carpeta: could not resolve selected path",
+           "about keeps the text in a %@")
+    expect(table.shown("profile Saved password"), "perfil Contraseña guardada", "shown looks up a %@'s text exactly")
+    expect(table.about("profile Saved password"), "perfil Saved password", "about keeps a name a file gave")
+    // The engine nests its text two deep, as in "Could not save: export
+    // directory: permission-denied.", so shown looks two levels down, no more.
+    expect(table.shown("Cannot add the folder: Could not read could not resolve selected path"),
+           "No se puede añadir la carpeta: No se pudo leer no se pudo resolver la ruta elegida",
+           "shown looks up the text in a %@ two levels deep")
+    expect(table.shown("Cannot add the folder: Could not read Could not read could not resolve selected path"),
+           "No se puede añadir la carpeta: No se pudo leer No se pudo leer could not resolve selected path",
+           "shown looks up the text in a %@ two levels deep only")
+    expect(table.shown("7 saved logins"), "7 inicios guardados", "the digits in a %lld are kept")
+    expect(table.about("profile %@ %lld"), "perfil %@ %lld", "the text in a %@ is put in as it is, never as a format")
+    expect(table.shown("a and b"), "a and b", "a key with two placeholders is left out")
+    expect(table.shown("3 folders"), "3 folders", "a translation without its key's placeholder is left out")
+}
+
+/// Which localization's table the window uses, from tables written to a
+/// folder under TMPDIR named for this process and removed after.
+func engineTextTableChoice() {
+    let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("model-check-\(getpid())-engine-text")
+    try? FileManager.default.removeItem(at: folder)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    func write(_ entries: [String: String], _ bundle: String, _ language: String) -> Bool {
+        let lproj = folder.appendingPathComponent(bundle).appendingPathComponent("\(language).lproj")
+        guard (try? FileManager.default.createDirectory(at: lproj, withIntermediateDirectories: true)) != nil,
+              let data = try? PropertyListSerialization.data(fromPropertyList: entries, format: .binary, options: 0)
+        else { return false }
+        return (try? data.write(to: lproj.appendingPathComponent("Engine.strings"), options: .withoutOverwriting)) != nil
+    }
+    guard write(["Saved password": "Contraseña guardada"], "both", "es"),
+          write(["Saved password": "Clave guardada"], "both", "es-419"),
+          write(["Saved password": "Contraseña guardada"], "spain", "es"),
+          let both = Bundle(url: folder.appendingPathComponent("both")),
+          let spain = Bundle(url: folder.appendingPathComponent("spain"))
+    else { return check(false, "engine text: the made-up tables are written under TMPDIR") }
+    func shown(_ bundle: Bundle, _ languages: [String]) -> String {
+        EngineText.Table.load(from: bundle, languages: languages).shown("Saved password")
+    }
+    expect(shown(both, ["es-419", "es"]), "Clave guardada", "the first language's table")
+    expect(shown(both, ["es"]), "Contraseña guardada", "the one language's table")
+    expect(shown(spain, ["es-419", "es"]), "Contraseña guardada", "a language with no table gives way to the next")
+    expect(shown(both, ["en", "es"]), "Saved password", "English first uses no table")
+    expect(shown(both, ["en-GB", "es"]), "Saved password", "a regional English first uses no table")
+    expect(shown(both, []), "Saved password", "no language uses no table")
+}
+
+/// The Filter field matches what a row shows, without regard to case or
+/// accents, and the engine's English; a title heading sorts by the title shown.
+@MainActor func engineTextFilterAndSort() async {
+    let english = EngineText.table
+    EngineText.table = EngineText.Table(madeUpEngineText)
+    defer { EngineText.table = english }
+    let model = AppModel(engine: HeldEngine())
+    let items: [[String: Any]] = [
+        ["id": 1, "rule": "fixture-rule", "path": "~/fixture-1.txt", "title": "Saved password",
+         "explanation": "Review fixture", "severity": "high", "deferred": false, "state": "open", "subject": "profile work"],
+        ["id": 2, "rule": "fixture-rule", "path": "~/fixture-2.txt", "title": "Cloud key",
+         "explanation": "Review fixture", "severity": "high", "deferred": false, "state": "open"],
+    ]
+    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": items]).utf8))
+    for (typed, wanted, what) in [
+        ("contrasena", [1], "a shown title typed without its accents"),
+        ("CONTRASEÑA GUARDADA", [1], "a shown title in other case"),
+        ("saved password", [1], "the engine's English title"),
+        ("perfil work", [1], "what the row is about, as shown"),
+        ("profile work", [1], "what the row is about, as the engine gave it"),
+        ("fixture-2", [2], "the path"),
+    ] {
+        model.search = typed
+        let ids = model.reviewRows.map(\.id)
+        check(ids == wanted, "filter: \(what) leaves findings \(wanted), not \(ids)")
+    }
+    model.search = ""
+    model.reviewSort = [KeyPathComparator(\ReviewItem.shownTitle)]
+    check(model.reviewRows.map(\.id) == [1, 2], "sort: the Finding heading sorts by the title shown")
+    model.reviewSort = [KeyPathComparator(\ReviewItem.shownTitle, order: .reverse)]
+    check(model.reviewRows.map(\.id) == [2, 1], "sort: the Finding heading sorts by the title shown, in reverse")
+    let group: [String: Any] = ["kind": "inventory", "severity": "low", "title": "Saved password",
+                                "explanation": "Inventory fixture", "steps": [String](),
+                                "items": [["index": 0, "path": "~/fixture-3.txt", "subject": "profile work", "actionable": true]]]
+    let results = json(["status": "partial", "tool_version": "0.0.0-test", "generated_at": "2026-10-13T00:00:00Z",
+                        "review": 0, "stored": 1, "not_checked": 0, "groups": [group], "gaps": [Any](),
+                        "roots": ["~"], "excluded": [String](), "limitations": ""])
+    model.results = try? decodeEngine(ScanResults.self, from: Data(results.utf8))
+    for (typed, wanted, what) in [
+        ("contrasena", 1, "a shown title typed without its accents"),
+        ("saved password", 1, "the engine's English title"),
+        ("perfil work", 1, "what the row is about, as shown"),
+        ("profile work", 1, "what the row is about, as the engine gave it"),
+        ("llave", 0, "another title"),
+    ] {
+        model.search = typed
+        check(model.storedRows.count == wanted, "filter: \(what) leaves \(wanted) stored sign-ins, not \(model.storedRows.count)")
+    }
+    model.search = ""
 }
 
 func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
@@ -991,6 +1142,9 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("menu bar: a refused switch or failed read keeps the icon", menuBarSettingFailures),
             ("menu bar: quitting stops its reads", quittingStopsMenuBarReads),
             ("menu bar: says only what the list says", menuBarSaysOnlyWhatTheListSays),
+            ("engine text: exact keys and templates", engineTextMatches),
+            ("engine text: the table for the window's language", engineTextTableChoice),
+            ("engine text: filter and sort by what is shown", engineTextFilterAndSort),
         ]
         for (name, run) in cases {
             let before = failures

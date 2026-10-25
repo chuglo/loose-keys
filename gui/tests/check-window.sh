@@ -14,6 +14,11 @@ fi
 OUT=${1:-target/window-check}
 mkdir -p "$OUT"
 rm -f "$OUT/report.txt" "$OUT/report.txt.log"
+# The bundle's English plural forms, and no other language, next to the
+# executable, so the check reads English whatever the Mac's language.
+rm -rf "$OUT"/*.lproj
+mkdir "$OUT/en.lproj"
+cp gui/macos/en.lproj/Localizable.stringsdict "$OUT/en.lproj/Localizable.stringsdict"
 MINIMUM=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - gui/macos/Info.plist)
 swiftc -parse-as-library -D PREVIEW -target "$(uname -m)-apple-macosx$MINIMUM" \
     gui/app/*.swift -framework AppKit -framework ApplicationServices -o "$OUT/window-check"

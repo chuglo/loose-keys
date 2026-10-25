@@ -15,10 +15,11 @@ struct ReviewTable: View {
                 // window's that failed clears with the next one that works,
                 // and the advice still holds. Only a window that has a scan's
                 // results has a report to save.
-                Text(verbatim: "\(error) "
-                     + (model.results == nil
-                        ? "Quit and reopen the app to try again."
-                        : "Save the report to see the last scan's findings, and quit and reopen the app to try again."))
+                Text(verbatim: model.results == nil
+                     ? String(localized: "\(error) Quit and reopen the app to try again.",
+                              comment: "Worth Reviewing, when the list of findings could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS.")
+                     : String(localized: "\(error) Save the report to see the last scan's findings, and quit and reopen the app to try again.",
+                              comment: "Worth Reviewing, when the list of findings could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS."))
             }
         } else if model.review == nil {
             // The first answer has not come. The engine waits for the list
@@ -37,17 +38,17 @@ struct ReviewTable: View {
             }
         } else {
             Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
-                TableColumn("Finding", value: \.title) { (item: ReviewItem) in
+                TableColumn("Finding", value: \.shownTitle) { (item: ReviewItem) in
                     // Most rows are open, and Set Aside lists only set-aside
                     // ones, so only a fixed row says what it is.
                     if item.status == "fixed" {
                         HStack(spacing: 8) {
-                            Text(item.title).lineLimit(1)
+                            Text(item.shownTitle).lineLimit(1)
                             Text(item.statusText).fixedSize()
                         }
                         .foregroundStyle(.secondary)
                     } else {
-                        Text(item.title).lineLimit(1)
+                        Text(item.shownTitle).lineLimit(1)
                     }
                 }
                 .width(min: 180, ideal: 320)
@@ -81,56 +82,72 @@ extension ReviewTable {
     /// a scan that read every place it was asked to and found nothing.
     fileprivate var empty: (title: String, symbol: String, text: String) {
         if model.pane == .setAside {
-            return ("No Items Set Aside", "archivebox",
-                    "Findings you set aside appear here, with your reason and an option to return them to review.")
+            return (String(localized: "No Items Set Aside", comment: "The Set Aside page's heading when it lists nothing."), "archivebox",
+                    String(localized: "Findings you set aside appear here, with your reason and an option to return them to review.",
+                           comment: "The Set Aside page, empty."))
         }
         if model.setAsideCount > 0 {
             // Not Checked lists only a scan's gaps, so without one this says
             // what background checks have read instead.
             let rest: String
             if model.results != nil {
-                rest = "Not Checked lists any places the scan could not read."
+                rest = String(localized: "Not Checked lists any places the scan could not read.",
+                              comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Not Checked is the page's name.")
             } else if let monitor = model.monitor, monitor.enabled, monitor.health.fullPass == nil {
-                rest = "New findings show up here as Loose Keys checks your files."
+                rest = String(localized: "New findings show up here as Loose Keys checks your files.",
+                              comment: "Worth Reviewing, empty because every finding is set aside, while automatic scanning has not yet read every file once.")
             } else if let monitor = model.monitor, monitor.enabled, let unread = monitor.health.unread, unread > 0 {
-                rest = "\(plural(unread, "place", "places")) could not be read. Scan this Mac to see which."
+                rest = String(localized: "\(unread) places could not be read. Scan this Mac to see which.",
+                              comment: "Worth Reviewing, empty because every finding is set aside, after automatic scanning could not read some places.")
             } else {
-                rest = "Scan this Mac to check it now."
+                rest = String(localized: "Scan this Mac to check it now.",
+                              comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so.")
             }
-            return ("No Items Waiting for Review", "tray",
-                    "Your set-aside findings are in Set Aside and are still counted. " + rest)
+            // Two whole sentences, the second chosen above.
+            return (String(localized: "No Items Waiting for Review", comment: "Worth Reviewing's heading when every finding is set aside."), "tray",
+                    String(localized: "Your set-aside findings are in Set Aside and are still counted.",
+                           comment: "Worth Reviewing, empty because every finding is set aside. Set Aside is the page's name. Another sentence follows.")
+                        + " " + rest)
         }
         guard let results = model.results else {
             // This window has not scanned. The helper may have, and it fills the list too.
             if let monitor = model.monitor, monitor.enabled {
                 guard monitor.health.fullPass != nil else {
-                    return ("No Findings Yet", "tray",
-                            "Findings show up here as Loose Keys checks your files.")
+                    return (String(localized: "No Findings Yet", comment: "Worth Reviewing, empty while automatic scanning has not yet read every file once."), "tray",
+                            String(localized: "Findings show up here as Loose Keys checks your files.",
+                                   comment: "Worth Reviewing, empty while automatic scanning has not yet read every file once."))
                 }
                 if let unread = monitor.health.unread, unread > 0 {
-                    return ("No Findings", "tray",
-                            "Nothing to review, but \(plural(unread, "place", "places")) could not be read.")
+                    return (String(localized: "No Findings", comment: "Worth Reviewing, empty after automatic scanning read the files: it found nothing to review."), "tray",
+                            String(localized: "Nothing to review, but \(unread) places could not be read.",
+                                   comment: "Worth Reviewing, empty after automatic scanning could not read some places."))
                 }
-                return ("No Findings", "tray",
-                        "Loose Keys checked your files and found nothing to review.")
+                return (String(localized: "No Findings", comment: "Worth Reviewing, empty after automatic scanning read the files: it found nothing to review."), "tray",
+                        String(localized: "Loose Keys checked your files and found nothing to review.",
+                               comment: "Worth Reviewing, empty after automatic scanning read every file."))
             }
             return model.monitor?.health.lastScan == nil
-                ? ("No Scan Yet", "exclamationmark.triangle",
-                   "Scan this Mac to look for saved passwords, keys and tokens.")
-                : ("Nothing to Review", "tray",
-                   "Earlier automatic scans found nothing that needs your attention. Scan this Mac to check it now.")
+                ? (String(localized: "No Scan Yet", comment: "A list's heading when it is empty because nothing has been scanned yet."), "exclamationmark.triangle",
+                   String(localized: "Scan this Mac to look for saved passwords, keys and tokens.",
+                          comment: "Worth Reviewing, empty because nothing has been scanned yet."))
+                : (String(localized: "Nothing to Review", comment: "Worth Reviewing, empty: no finding needs the person's attention. Never a claim that the Mac is safe."), "tray",
+                   String(localized: "Earlier automatic scans found nothing that needs your attention. Scan this Mac to check it now.",
+                          comment: "Worth Reviewing, empty while automatic scanning is off, after it once ran."))
         }
         if results.review > 0 {
-            return ("Findings Not Listed", "exclamationmark.triangle",
-                    "The last scan found \(plural(results.review, "finding", "findings")), but they are not in this list. Scan again, or save the report to see them.")
+            return (String(localized: "Findings Not Listed", comment: "Worth Reviewing, empty although the last scan found something."), "exclamationmark.triangle",
+                    String(localized: "The last scan found \(results.review) findings, but they are not in this list. Scan again, or save the report to see them.",
+                           comment: "Worth Reviewing, empty although the last scan counted this many findings."))
         }
         // A scan is "partial" whenever it could not read something, which
         // includes the folders macOS protects, so most scans are.
         return results.status == "complete"
-            ? ("Nothing to Review", "checkmark.circle",
-               "The last scan found nothing that needs your attention. That is not proof this Mac is safe.")
-            : ("Nothing Found in What Was Checked", "eye.slash",
-               "The last scan could not check everything, and found nothing that needs your attention in what it read. Not Checked lists what it missed.")
+            ? (String(localized: "Nothing to Review", comment: "Worth Reviewing, empty: no finding needs the person's attention. Never a claim that the Mac is safe."), "checkmark.circle",
+               String(localized: "The last scan found nothing that needs your attention. That is not proof this Mac is safe.",
+                      comment: "Worth Reviewing, empty after a scan that read every place it was asked to."))
+            : (String(localized: "Nothing Found in What Was Checked", comment: "Worth Reviewing, empty after a scan that could not read some places."), "eye.slash",
+               String(localized: "The last scan could not check everything, and found nothing that needs your attention in what it read. Not Checked lists what it missed.",
+                      comment: "Worth Reviewing, empty after a scan that could not read some places. Not Checked is the page's name."))
     }
 }
 
@@ -146,8 +163,8 @@ struct StoredTable: View {
             }
         } else {
             Table(model.storedRows, selection: $model.selectedStored, sortOrder: $model.storedSort) {
-                TableColumn("Sign-in", value: \.group.title) { (row: StoredRow) in
-                    Text(row.group.title).lineLimit(1)
+                TableColumn("Sign-in", value: \.shownTitle) { (row: StoredRow) in
+                    Text(row.shownTitle).lineLimit(1)
                 }
                 .width(min: 180, ideal: 300)
                 TableColumn("Where", value: \.file.path) { (row: StoredRow) in
@@ -203,14 +220,15 @@ struct GapsView: View {
                             Text(path).font(.callout.monospaced()).textSelection(.enabled)
                         }
                         if gap.more > 0 {
-                            Text("and \(gap.more) more. Save the report for the full list.")
+                            Text(String(localized: "and \(gap.more) more. Save the report for the full list.",
+                                        comment: "Not Checked, below the places listed under one heading: how many more there are."))
                                 .foregroundStyle(.secondary)
                         }
                     } header: {
-                        Text("\(gap.label) (\(gap.count))")
+                        Text(verbatim: "\(EngineText.shown(gap.label)) (\(gap.count))")
                     } footer: {
                         if !gap.help.isEmpty {
-                            Text(gap.help)
+                            Text(EngineText.shown(gap.help))
                         }
                     }
                 }

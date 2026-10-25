@@ -16,6 +16,11 @@ what to do. **Export** saves the full report or a counts-only file, and copies
 the text summary. Opening the app turns on neither automatic scanning nor
 notifications.
 
+The app follows the language macOS uses for it: English or Spanish, with
+the words Latin American macOS uses, such as Configuración del Sistema, in
+Latin American Spanish. Saved reports, the copied summary and the
+`loose-keys` command are always in English.
+
 Before a scan or turning on automatic scanning, the app asks macOS for
 Desktop, Documents and Downloads, one at a time. A folder you deny is listed
 under **Not Checked**; the rest are still checked. **Cancel Preparation**

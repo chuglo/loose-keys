@@ -245,3 +245,13 @@ otherwise list them under "Not verified".
 - Never say "nothing found" for a list that could not be read, saved or
   filled. A count beside a heading comes from what the scan found when the
   list cannot be used.
+- The window is in English and Spanish. A String it shows comes from
+  `String(localized:)`, with a comment when its meaning or gender is not
+  obvious; engine text goes through `EngineText` when shown. A path, name
+  or error enters a sentence only as an interpolated value and reaches
+  `Text` as a String, never inside a literal. A count is a plural rule in
+  `Localizable.stringsdict` of both `en.lproj` and `es.lproj`. New text
+  needs its Spanish in `gui/macos/es.lproj`, and in `es-419.lproj` where
+  Latin American macOS words it differently (System Settings, Login Items,
+  the Trash, OK, the Add button); the bundle contract test and `cargo test`
+  fail on a missing or stale entry.

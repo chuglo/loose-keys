@@ -13,6 +13,8 @@ mod background_tests;
 #[path = "../../tests/support/detection.rs"]
 mod detection_corpus;
 #[cfg(test)]
+mod engine_text_tests;
+#[cfg(test)]
 #[path = "../../tests/support/fixture_body.rs"]
 mod fixture_body;
 mod monitor;

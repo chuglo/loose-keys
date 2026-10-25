@@ -61,6 +61,11 @@ sh gui/build-macos.sh
 node --test gui/tests/bundle-contract.test.js
 ```
 
+The contract test also fails when a key the window looks up has no Spanish,
+or a Spanish entry has no key, and lists them ready to paste. `cargo test`
+does the same for the engine's text in `gui/macos/es.lproj/Engine.strings`.
+Neither shows the Spanish on screen.
+
 ## The window
 
 The window check runs the sample-data build, with no engine and no home

@@ -28,6 +28,10 @@ cargo build --workspace --target-dir target --locked --release
 # Start from an empty bundle, so nothing left by an earlier build is signed into it.
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
+# The keys the window looks up, so the bundle contract test can check each has its Spanish.
+STRINGS=target/release/strings
+rm -rf "$STRINGS"
+mkdir -p "$STRINGS"
 # The window, linked with the engine into one executable. Run with --agent it
 # is the background agent and starts no app.
 swiftc -parse-as-library -O -target "$(uname -m)-apple-macosx$MINIMUM" \
@@ -35,6 +39,7 @@ swiftc -parse-as-library -O -target "$(uname -m)-apple-macosx$MINIMUM" \
     target/release/libloose_keys_gui.a \
     -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices \
     -Xlinker -dead_strip \
+    -emit-localized-strings -emit-localized-strings-path "$STRINGS" \
     -o "$APP/Contents/MacOS/loose-keys-gui"
 cp gui/macos/Info.plist "$APP/Contents/Info.plist"
 # The command line: the same scanner, run once from a terminal.
@@ -55,6 +60,28 @@ for size in 16 32 128 256; do
     icon "$((size * 2))" "icon_${size}x${size}@2x.png"
 done
 /usr/bin/iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+# The window's English plural forms and its Spanish, as binary property lists.
+# Each table is named, so nothing else in those folders, such as a .DS_Store,
+# reaches the bundle, and a table with a syntax error fails the build.
+RESOURCES="$APP/Contents/Resources"
+mkdir -p "$RESOURCES/en.lproj" "$RESOURCES/es.lproj" "$RESOURCES/es-419.lproj"
+table() {
+    /usr/bin/plutil -convert binary1 -o "$RESOURCES/$2" "$1"
+}
+table gui/macos/en.lproj/Localizable.stringsdict en.lproj/Localizable.stringsdict
+for name in Engine.strings InfoPlist.strings Localizable.strings Localizable.stringsdict; do
+    table "gui/macos/es.lproj/$name" "es.lproj/$name"
+done
+# macOS shows English for a key es-419.lproj lacks, without looking in
+# es.lproj, so Latin American Spanish is the Spanish of Spain with its own
+# entries after it. Of two entries with one key, the later is kept.
+for name in Engine.strings Localizable.strings; do
+    cat "gui/macos/es.lproj/$name" "gui/macos/es-419.lproj/$name" > target/release/es-419.strings
+    table target/release/es-419.strings "es-419.lproj/$name"
+done
+for name in InfoPlist.strings Localizable.stringsdict; do
+    table "gui/macos/es.lproj/$name" "es-419.lproj/$name"
+done
 # The background agent's launchd job, which the app registers with macOS.
 mkdir -p "$APP/Contents/Library/LaunchAgents"
 cp gui/macos/dev.loosekeys.agent.plist "$APP/Contents/Library/LaunchAgents/dev.loosekeys.agent.plist"

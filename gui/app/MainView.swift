@@ -35,7 +35,7 @@ struct MainView: View {
         #if (PREVIEW || SNAPSHOTS) && compiler(>=6.0)
         .modifier(SettingsOpener())
         #endif
-        .alert("Loose Keys", isPresented: failureShown, presenting: model.failure) { _ in
+        .alert(Text(verbatim: "Loose Keys"), isPresented: failureShown, presenting: model.failure) { _ in
             Button("OK") { model.failure = nil }
         } message: { text in
             Text(text)
@@ -93,34 +93,46 @@ struct MainView: View {
 
     private var title: String {
         switch model.pane ?? .overview {
+        // The app's name is never translated.
         case .overview: return "Loose Keys"
-        case .review: return "Worth Reviewing"
-        case .setAside: return "Set Aside"
-        case .stored: return "Stored Sign-ins"
-        case .gaps: return "Not Checked"
+        case .review: return String(localized: "Worth Reviewing", comment: "The name of the list of findings, in the sidebar and as its page's title.")
+        case .setAside: return String(localized: "Set Aside", comment: "The name of the list of findings the person set aside, in the sidebar and as its page's title.")
+        case .stored: return String(localized: "Stored Sign-ins", comment: "The name of the list of stored sign-ins, in the sidebar and as its page's title.")
+        case .gaps: return String(localized: "Not Checked", comment: "The name of the page that lists what a scan could not check, in the sidebar and as its title.")
         }
     }
 
     private var subtitle: String {
-        if model.preparingAccess { return "Preparing folder access…" }
-        if model.phase == .scanning { return "Scanning…" }
+        if model.preparingAccess {
+            return String(localized: "Preparing folder access…", comment: "Window subtitle while the app asks macOS for access to protected folders.")
+        }
+        if model.phase == .scanning { return String(localized: "Scanning…", comment: "Window subtitle while a scan runs.") }
         switch model.pane ?? .overview {
         case .review:
             return model.reviewSummary
         case .setAside:
             return model.reviewProblem == nil && model.review != nil
-                ? "\(plural(model.setAsideCount, "item", "items")) · Still included in scan results" : ""
+                ? String(localized: "\(model.setAsideCount) items · Still included in scan results",
+                         comment: "Subtitle of the Set Aside page: how many findings it lists, and that they still count in scan results.")
+                : ""
         case .stored:
-            return model.results == nil ? "" : plural(model.storedShown.count, "item", "items")
+            return model.results == nil ? ""
+                : String(localized: "\(model.storedShown.count) items", comment: "Subtitle of Stored Sign-ins: how many sign-ins the list shows.")
         case .gaps:
-            let places = model.results.map { plural($0.notChecked, "place", "places") }
+            let places = model.results.map {
+                String(localized: "\($0.notChecked) places", comment: "Subtitle of Not Checked: how many places the last scan could not check. A comma may follow.")
+            }
             let skipped = model.reviewProblem == nil ? model.review?.skipped?.count ?? 0 : 0
-            let left = skipped > 0 ? "\(plural(skipped, "folder", "folders")) left out" : nil
+            let left = skipped > 0
+                ? String(localized: "\(skipped) folders left out", comment: "Part of the subtitle of Not Checked, after a comma: how many folders the person chose to stop checking.")
+                : nil
             return [places, left].compactMap { $0 }.joined(separator: ", ")
         default:
             guard let results = model.results else { return "" }
-            let state = results.status == "complete" ? "Scan complete" : "Scan incomplete"
-            return "\(state), \(localTime(results.generatedAt))"
+            let time = localTime(results.generatedAt)
+            return results.status == "complete"
+                ? String(localized: "Scan complete, \(time)", comment: "Overview subtitle: the last scan read every place it was asked to. %@ is when it ran, a date and time.")
+                : String(localized: "Scan incomplete, \(time)", comment: "Overview subtitle: the last scan could not read some places. %@ is when it ran, a date and time.")
         }
     }
 
@@ -150,7 +162,8 @@ struct MainView: View {
                 Label {
                     Text("Export")
                 } icon: {
-                    Image(nsImage: NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export") ?? NSImage())
+                    Image(nsImage: NSImage(systemSymbolName: "square.and.arrow.up",
+                                           accessibilityDescription: String(localized: "Export", comment: "The toolbar menu that saves or copies the results.")) ?? NSImage())
                 }
             }
             .help("Save or copy the results")

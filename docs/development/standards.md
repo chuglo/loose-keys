@@ -466,6 +466,56 @@ vendors change their settings.
   to camel case. `Preview.swift` holds sample JSON for the sample-data build,
   which has to change with them. Text from a scan is shown as text, never as
   markup. Development-only code sits inside `#if PREVIEW || SNAPSHOTS`.
+- The window, its alerts, the menu bar menu, the folder-access prompts and
+  the notification are in English and Spanish; the saved reports, the copied
+  summary and the command line stay English. The tables are in
+  `gui/macos/<lang>.lproj`, keyed by the English, and the build writes them
+  into the bundle as binary property lists, which also fails it on a syntax
+  error. A literal in a SwiftUI control is looked up already;
+  `Text(verbatim:)` and `Text(someString)` are not, so other text comes from
+  `String(localized:)`.
+  A path, name or error is only ever an interpolated value, never part of a
+  key or a format, and reaches `Text` as a String, never inside a literal,
+  so Markdown in it is not read. Words for states the logic compares, such
+  as the state of automatic scanning, are enum cases with a text, not the
+  text itself.
+- Engine text is translated when the window shows it, through `EngineText`
+  in `Models.swift` and `Engine.strings`. The engine and the review list keep
+  English: the helper writes the list too, `report::escape` turns accented
+  letters into `\u{..}`, and `rules::label` drops a subject or detail that
+  has one. A key is the exact English, or has one `%@` (any text) or `%lld`
+  (digits) for the part that varies, which is never used as a format. A
+  subject or detail keeps that part as it came; in prose and errors it is
+  looked up in turn, two levels deep, because the engine nests its own words,
+  as in "Could not save: export directory: permission-denied.". An item saved
+  before a rewording keeps the old English, shown untranslated, until a scan
+  finds it again; a fixed item that is not found again keeps it. The Filter
+  ignores case and accents and matches both the shown and the English text.
+- Latin American macOS words some names and buttons differently
+  (Configuración del Sistema, Elementos de inicio, basurero, Agregar, OK).
+  macOS gives a key missing from
+  `es-419.lproj` in English rather than looking in `es.lproj`, so
+  `es-419.lproj` holds only what differs and the build lays it over
+  `es.lproj`. Mexico, the US and the rest of Latin America resolve to
+  `es-419`; Spain to `es`. Both were checked on macOS 27 with a sample
+  executable, not with the bundle. Unverified: whether the folder-access
+  prompt and the notification follow a per-app language choice, and the
+  notification's language after a change, since the helper keeps the
+  language it started with.
+- `gui/tests/bundle-contract.test.js` checks that the window's keys, as the
+  compiler lists them in `target/release/strings`, and the notification's
+  match the Spanish tables exactly, with the same placeholders and no
+  Markdown, and that every count has plural rules in both
+  `Localizable.stringsdict` files. `engine_text_tests` in `gui/src` checks
+  `Engine.strings` the same way, Markdown aside (engine text is shown as
+  it is), against the fixed text the engine and scanner give the window,
+  read from the rules and the engine's source. An error worded by macOS,
+  such as a failed save or an unreadable review store, has no key: it shows
+  in English, alone or inside a translated sentence. The model check looks
+  engine text up in a made-up table: exact keys, templates, the lookup's
+  depth, the order of languages, and the Filter and sort. The host window
+  and model checks copy only `en.lproj` beside their executables, so they
+  run in English whatever the Mac's language.
 - The controls are the system's: `NavigationSplitView`, `Table`, `List`, the
   toolbar, `.inspector`, `Form` in a `Settings` scene, `MenuBarExtra`,
   `NSOpenPanel` and `NSSavePanel`. Add a feature with one of these before
@@ -547,6 +597,11 @@ mkdir -p "$TMPDIR/pictures"
 SNAPSHOT_DIR="$TMPDIR/pictures" "$TMPDIR/window-preview"
 HOME="$TMPDIR/synth/home" SNAPSHOT_DIR="$TMPDIR/pictures" "$TMPDIR/window-snapshots"
 ```
+
+For the window in Spanish, copy the built bundle's
+`Contents/Resources/*.lproj` beside `window-preview` and add
+`-AppleLanguages '(es)'` to its command, or `'(es-MX)'` for Latin American
+Spanish. Sample text that no rule has stays English.
 
 `SNAPSHOT_LOOK=light` or `dark` picks the appearance. `SNAPSHOT_ACTIONS=1`
 also sends the decision and export commands through the engine. With

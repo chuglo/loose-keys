@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>%lld fixed</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@fixed@</string>
+		<key>fixed</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld fixed</string>
+			<key>other</key>
+			<string>%lld fixed</string>
+		</dict>
+	</dict>
+	<key>%lld folders are left out at your request; see Not Checked.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@folders@ left out at your request; see Not Checked.</string>
+		<key>folders</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld folder is</string>
+			<key>other</key>
+			<string>%lld folders are</string>
+		</dict>
+	</dict>
+	<key>%lld folders left out</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@folders@ left out</string>
+		<key>folders</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld folder</string>
+			<key>other</key>
+			<string>%lld folders</string>
+		</dict>
+	</dict>
+	<key>%lld items</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@items@</string>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld item</string>
+			<key>other</key>
+			<string>%lld items</string>
+		</dict>
+	</dict>
+	<key>%lld items looked at, %lld found.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@items@ looked at, %2$#@found@.</string>
+		<key>found</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%2$lld found</string>
+			<key>other</key>
+			<string>%2$lld found</string>
+		</dict>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%1$lld item</string>
+			<key>other</key>
+			<string>%1$lld items</string>
+		</dict>
+	</dict>
+	<key>%lld items · Still included in scan results</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@items@ · Still included in scan results</string>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld item</string>
+			<key>other</key>
+			<string>%lld items</string>
+		</dict>
+	</dict>
+	<key>%lld loose keys to review</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@keys@ to review</string>
+		<key>keys</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld loose key</string>
+			<key>other</key>
+			<string>%lld loose keys</string>
+		</dict>
+	</dict>
+	<key>%lld loose keys to review, list full</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@keys@ to review, list full</string>
+		<key>keys</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld loose key</string>
+			<key>other</key>
+			<string>%lld loose keys</string>
+		</dict>
+	</dict>
+	<key>%lld places</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@places@</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld place</string>
+			<key>other</key>
+			<string>%lld places</string>
+		</dict>
+	</dict>
+	<key>%lld places could not be read. Run a scan to see which.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@places@ could not be read. Run a scan to see which.</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld place</string>
+			<key>other</key>
+			<string>%lld places</string>
+		</dict>
+	</dict>
+	<key>%lld places could not be read. Scan this Mac to see which.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@places@ could not be read. Scan this Mac to see which.</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld place</string>
+			<key>other</key>
+			<string>%lld places</string>
+		</dict>
+	</dict>
+	<key>%lld set aside</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@setAside@</string>
+		<key>setAside</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld set aside</string>
+			<key>other</key>
+			<string>%lld set aside</string>
+		</dict>
+	</dict>
+	<key>%lld to review</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@open@</string>
+		<key>open</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld to review</string>
+			<key>other</key>
+			<string>%lld to review</string>
+		</dict>
+	</dict>
+	<key>At least %lld folders left in the current full scan.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>At least %#@folders@ left in the current full scan.</string>
+		<key>folders</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld folder</string>
+			<key>other</key>
+			<string>%lld folders</string>
+		</dict>
+	</dict>
+	<key>Nothing to review, but %lld places could not be read.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Nothing to review, but %#@places@ could not be read.</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld place</string>
+			<key>other</key>
+			<string>%lld places</string>
+		</dict>
+	</dict>
+	<key>The last scan found %lld findings, but they are not in this list. Scan again, or save the report to see them.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>The last scan found %#@findings@</string>
+		<key>findings</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld finding, but it is not in this list. Scan again, or save the report to see it.</string>
+			<key>other</key>
+			<string>%lld findings, but they are not in this list. Scan again, or save the report to see them.</string>
+		</dict>
+	</dict>
+	<key>The same credential is in %lld places</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>The same credential is in %#@places@</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld place</string>
+			<key>other</key>
+			<string>%lld places</string>
+		</dict>
+	</dict>
+	<key>The saved report and the copied summary count %lld findings. The list has %lld items and is full, so findings it has no room for are left out: save the report to see them all. Also, a credential found by more than one rule, or in more than one file, is one item.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>The saved report and the copied summary count %1$#@findings@. The list has %2$#@items@ and is full, so findings it has no room for are left out: save the report to see them all. Also, a credential found by more than one rule, or in more than one file, is one item.</string>
+		<key>findings</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%1$lld finding</string>
+			<key>other</key>
+			<string>%1$lld findings</string>
+		</dict>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%2$lld item</string>
+			<key>other</key>
+			<string>%2$lld items</string>
+		</dict>
+	</dict>
+	<key>The saved report and the copied summary count %lld findings. The list has %lld items, because a credential found by more than one rule, or in more than one file, is one item.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>The saved report and the copied summary count %1$#@findings@. The list has %2$#@items@, because a credential found by more than one rule, or in more than one file, is one item.</string>
+		<key>findings</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%1$lld finding</string>
+			<key>other</key>
+			<string>%1$lld findings</string>
+		</dict>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%2$lld item</string>
+			<key>other</key>
+			<string>%2$lld items</string>
+		</dict>
+	</dict>
+	<key>and %lld more. Save the report for the full list.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>and %#@more@ more. Save the report for the full list.</string>
+		<key>more</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld</string>
+			<key>other</key>
+			<string>%lld</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

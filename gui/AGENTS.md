@@ -30,6 +30,9 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   Swift build uses. `../.cargo/config.toml` sets the same for every Rust
   build, and the bundle contract test fails when they differ. After changing
   it, run `cargo clean --release` once: Cargo does not rebuild for that alone.
+- `macos/*.lproj`: the window's text tables, keyed by the English.
+  `en.lproj` has only plural forms. `es-419.lproj` has only what differs
+  from `es.lproj`; `build-macos.sh` lays it over `es.lproj` in the bundle.
 - `tests/`: the window, model, bundle, notification and power checks, and the
   guest-only drivers `app-check.swift` and `helper-control.swift`.
 

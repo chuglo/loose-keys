@@ -5,11 +5,20 @@ import SwiftUI
 enum MenuBarIcon {
     static func label(_ mark: MenuBarMark) -> String {
         switch mark {
-        case .open: return "Loose Keys, items to review"
-        case .full: return "Loose Keys, review list full"
-        case .problem: return "Loose Keys, review list could not be read"
-        case .unknown: return "Loose Keys, reading review list"
-        case .plain: return "Loose Keys"
+        case .open:
+            return String(localized: "Loose Keys, items to review",
+                          comment: "What VoiceOver says for the menu bar icon when findings need the person's attention. Loose Keys is the app's name.")
+        case .full:
+            return String(localized: "Loose Keys, review list full",
+                          comment: "What VoiceOver says for the menu bar icon when the list of findings is full and left some out. Loose Keys is the app's name.")
+        case .problem:
+            return String(localized: "Loose Keys, review list could not be read",
+                          comment: "What VoiceOver says for the menu bar icon when the list of findings could not be read. Loose Keys is the app's name.")
+        case .unknown:
+            return String(localized: "Loose Keys, reading review list",
+                          comment: "What VoiceOver says for the menu bar icon while the list of findings is being read. Loose Keys is the app's name.")
+        case .plain:
+            return "Loose Keys"
         }
     }
 

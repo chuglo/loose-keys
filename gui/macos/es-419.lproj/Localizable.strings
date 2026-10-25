@@ -1,0 +1,30 @@
+/* Latin American Spanish where it differs from es.lproj, mostly the names
+   macOS uses. The build adds these over es.lproj/Localizable.strings. */
+
+"Add" = "Agregar";
+
+"OK" = "OK";
+
+"Add Folder or Drive…" = "Agregar carpeta o disco…";
+
+"Approve the helper in System Settings > General > Login Items." = "Aprueba el proceso auxiliar en Configuración del Sistema > General > Elementos de inicio.";
+
+"Open System Settings" = "Abrir Configuración del Sistema";
+
+"Off for Loose Keys. Turn them on in System Settings to hear about new findings when the app is closed." = "Desactivadas para Loose Keys. Actívalas en Configuración del Sistema para enterarte de los nuevos hallazgos cuando la app esté cerrada.";
+
+"Settings…" = "Configuración…";
+
+"Needs approval in System Settings > General > Login Items" = "Necesita aprobación en Configuración del Sistema > General > Elementos de inicio";
+
+"Off in System Settings" = "Desactivadas en Configuración del Sistema";
+
+"macOS could not restart the background helper. Check System Settings > General > Login Items." = "macOS no pudo reiniciar el proceso auxiliar. Comprueba Configuración del Sistema > General > Elementos de inicio.";
+
+"Automatic scanning does not include added folders and drives. Use Scan Now to check them." = "El análisis automático no incluye las carpetas ni los discos agregados. Usa Analizar ahora para comprobarlos.";
+
+"Open Settings to restart the helper." = "Abre Configuración para reiniciar el proceso auxiliar.";
+
+"Allow Loose Keys in Login Items to show it at login." = "Permite Loose Keys en Elementos de inicio para que aparezca al iniciar sesión.";
+
+"Not in Login Items: shown only while the app is open." = "No está en Elementos de inicio: solo aparece mientras la app está abierta.";

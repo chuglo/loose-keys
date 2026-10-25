@@ -138,7 +138,8 @@ struct LooseKeysApp: App {
     }
 
     var body: some Scene {
-        Window("Loose Keys", id: "main") {
+        // The app's name is never translated.
+        Window(Text(verbatim: "Loose Keys"), id: "main") {
             MainView()
                 .environmentObject(model)
                 .frame(minWidth: 760, minHeight: 480)

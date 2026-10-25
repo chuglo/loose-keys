@@ -1,0 +1,28 @@
+/* Latin American Spanish where it differs from es.lproj, mostly the names
+   macOS uses. The build adds these over es.lproj/Engine.strings. */
+
+"Delete exports you no longer need, including Trash and synced copies. Deleting a file does not revoke credentials; change exposed passwords separately." = "Elimina las exportaciones que ya no necesites, incluidas las copias en el basurero y las sincronizadas. Eliminar un archivo no revoca las credenciales; cambia por separado las contraseñas expuestas.";
+
+"Delete the file, then empty the Trash. Look for other copies in Downloads, Desktop and iCloud Drive." = "Elimina el archivo y luego vacía el basurero. Busca otras copias en Descargas, Escritorio y iCloud Drive.";
+
+"Delete this file and empty the Trash. Look for other copies in Downloads and project folders." = "Elimina este archivo y vacía el basurero. Busca otras copias en Descargas y en las carpetas de proyectos.";
+
+"Import the exported file into the password manager, check that the logins arrived, then delete the exported file and empty the Trash." = "Importa el archivo exportado en el gestor de contraseñas, comprueba que se importaron los inicios de sesión y, después, elimina el archivo exportado y vacía el basurero.";
+
+"Check that the logins arrived, then delete the exported file and empty the Trash." = "Comprueba que se importaron los inicios de sesión y, después, elimina el archivo exportado y vacía el basurero.";
+
+"Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots." = "Elimina este archivo y vacía el basurero. Revisa Notas, Fotos y las carpetas en la nube por si hay otras copias, incluidas capturas de pantalla.";
+
+"Import the new profile into the VPN app, then delete the .ovpn file and empty the Trash. The app keeps what it needs." = "Importa el nuevo perfil en la app de VPN y después elimina el archivo .ovpn y vacía el basurero. La app guarda lo que necesita.";
+
+"Delete the file and empty the Trash. Look for other copies in iCloud Drive and other synced folders." = "Elimina el archivo y vacía el basurero. Busca otras copias en iCloud Drive y en otras carpetas sincronizadas.";
+
+"Cannot add that folder: %@." = "No se puede agregar esa carpeta: %@.";
+
+"macOS could not restart the background helper. If Settings says it is not running, use Restart Helper there." = "macOS no pudo reiniciar el proceso auxiliar. Si Configuración indica que no está en ejecución, usa allí Reiniciar proceso auxiliar.";
+
+"macOS could not start the background helper. Use Restart Helper in Settings, or check System Settings > General > Login Items." = "macOS no pudo iniciar el proceso auxiliar. Usa Reiniciar proceso auxiliar en Configuración o comprueba Configuración del Sistema > General > Elementos de inicio.";
+
+"macOS could not stop the background helper. Check System Settings > General > Login Items." = "macOS no pudo detener el proceso auxiliar. Comprueba Configuración del Sistema > General > Elementos de inicio.";
+
+"macOS could not change Loose Keys in Login Items. Check System Settings > General > Login Items." = "macOS no pudo cambiar Loose Keys en Elementos de inicio. Comprueba Configuración del Sistema > General > Elementos de inicio.";

@@ -161,7 +161,7 @@ const fn advice(link: Option<&'static str>) -> Advice {
     Advice { steps: STEPS, link }
 }
 
-const STEPS: &[&str] = &[
+pub const STEPS: &[&str] = &[
     "Revoke or roll the token where it was issued. Do this first: the old value keeps working until then, wherever it has been copied.",
     "If something still needs access, issue a replacement with the smallest permissions and the shortest expiry that work.",
     "Keep the replacement out of plain files. Store it in the macOS Keychain or a password manager and load it when needed.",
@@ -367,6 +367,10 @@ const STARTS: [bool; 256] = {
 
 pub fn links() -> impl Iterator<Item = &'static str> {
     PROVIDERS.iter().filter_map(|p| p.advice.link)
+}
+
+pub fn names() -> impl Iterator<Item = &'static str> {
+    PROVIDERS.iter().map(|p| p.name)
 }
 
 /// The token starting at `rest`, as (provider, length).

@@ -4,7 +4,8 @@ Loose Keys is a Mac app that watches your home folder, and any other folders
 or drives you add, for credentials left in plain files: password exports,
 private keys, API tokens, saved sign-ins, and secrets your AI agents leave
 around. For each one it tells you what it found and how to take care of it.
-It never connects to the network or changes the files it reads.
+It never connects to the network or changes the files it reads. It is in
+English and Spanish.
 
 Version 0.2.0, MIT licensed.
 

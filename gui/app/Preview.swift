@@ -670,8 +670,8 @@ enum Checks {
                "cancelling preparation returns to the start choices")
         expect(!SampleEngine.monitoring && model.results == nil,
                "cancelled preparation neither enables the helper nor scans")
-        await press(button("Turn On"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains("Active") })
-        expect(await eventually { SampleEngine.monitoring && written().contains("Active") },
+        await press(button("Turn On"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains(BackgroundState.active.text) })
+        expect(await eventually { SampleEngine.monitoring && written().contains(BackgroundState.active.text) },
                "background setup starts the helper without a one-time scan")
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
                "background consent neither runs a manual scan nor asks for notification permission")
@@ -684,7 +684,7 @@ enum Checks {
         expect(await eventually { !written().contains("Last Recorded Check") }, "Overview check details collapse")
         SampleEngine.completedPass = true
         await model.refreshMonitor()
-        expect(await eventually { written().contains("Active") && !written().contains("Checking existing files…") },
+        expect(await eventually { written().contains(BackgroundState.active.text) && !written().contains("Checking existing files…") },
                "completed initial checking leaves a simple active status")
         SampleEngine.permission = "not requested"
         await model.refreshReview()
@@ -701,9 +701,9 @@ enum Checks {
                    && button("Allow Notifications…") == nil,
                "with notifications off, Overview offers System Settings, not a request macOS would ignore")
         await press(button("Pause"), "pausing background checks from Overview")
-        expect(await eventually { SampleEngine.paused && written().contains("Paused") }, "Overview pauses background checks")
+        expect(await eventually { SampleEngine.paused && written().contains(BackgroundState.paused.text) }, "Overview pauses background checks")
         await press(button("Resume"), "resuming background checks from Overview")
-        expect(await eventually { !SampleEngine.paused && written().contains("Active") }, "Overview resumes background checks")
+        expect(await eventually { !SampleEngine.paused && written().contains(BackgroundState.active.text) }, "Overview resumes background checks")
         await press(button("Worth Reviewing"), "opening background findings before a manual scan")
         expect(model.pane == .review && model.results == nil, "background findings can be reviewed without a manual scan")
         SampleEngine.monitoring = false
@@ -794,7 +794,7 @@ enum Checks {
             // The control for the Set Aside check below: the heading is visible here.
             expect((written() + everything().flatMap(names)).contains { $0.contains("What to Do") },
                    "an open finding's inspector shows What to Do")
-            let why = model.reviewRows[1].explanation
+            let why = EngineText.shown(model.reviewRows[1].explanation)
             expect(!written().contains(why), "why a finding is here starts folded, below what to do")
             await press(button("Show Why It Is Here"), "unfolding why the finding is here")
             expect(await eventually { written().contains(why) }, "the inspector unfolds why the finding is here")
@@ -806,7 +806,7 @@ enum Checks {
                    "the finding's details start folded and unfold")
             await press(button("Hide Details"), "folding the finding's details")
             expect(await eventually { !written().contains("Rule") }, "the inspector folds the finding's details again")
-            let keys: [PartialKeyPath<ReviewItem>] = [\.title, \.path, \.riskLevel]
+            let keys: [PartialKeyPath<ReviewItem>] = [\.shownTitle, \.path, \.riskLevel]
             await headings(list, keys, sort: { model.reviewSort }, rows: { model.reviewRows })
             expect(model.selectedReview == chosen, "sorting keeps the chosen finding selected")
             model.search = "no finding has this text"
@@ -983,7 +983,7 @@ enum Checks {
             let chosen = model.storedRows[1].id
             await choose(rows(list)[1], "choosing a stored sign-in")
             expect(model.selectedStored == chosen, "choosing a stored sign-in selects it")
-            let keys: [PartialKeyPath<StoredRow>] = [\.group.title, \.file.path]
+            let keys: [PartialKeyPath<StoredRow>] = [\.shownTitle, \.file.path]
             await headings(list, keys, sort: { model.storedSort }, rows: { model.storedRows })
             model.search = "no sign-in has this text"
             await settle(after: "filtering out the selected sign-in")
@@ -1170,7 +1170,7 @@ enum Checks {
         await model.refreshMonitor()
         await open(.overview)
         let state = written()
-        expect(state.contains("Active") && !state.contains("Unavailable"),
+        expect(state.contains(BackgroundState.active.text) && !state.contains(BackgroundState.unavailable.text),
                "with the review list full, the Overview says background checks are on, not unavailable")
         let before = windows()
         await press(button("Settings…"), "pressing Settings…")
@@ -1298,7 +1298,7 @@ enum Checks {
         SampleEngine.allSetAside = false
         await model.refreshReview()
         let openMarked = await marked(.open)
-        expect(model.openCount > 0 && model.menuBarMark == .open && model.menuBarLine == plural(model.openCount, "loose key", "loose keys") + " to review" && openMarked,
+        expect(model.openCount > 0 && model.menuBarMark == .open && model.menuBarLine == "\(model.openCount) loose \(model.openCount == 1 ? "key" : "keys") to review" && openMarked,
                "with items open, the menu bar is marked and the menu counts them")
         // A minimized window is one to come back to: with it, turning the
         // menu bar off or closing another window neither quits nor hides the app.
