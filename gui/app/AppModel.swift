@@ -123,7 +123,6 @@ final class AppModel: ObservableObject {
     @Published var reviewUnread: String?
     @Published var monitor: MonitorStatus?
     @Published var overviewCheckDetails = false
-    @Published var settingsCheckDetails = false
     @Published var inspectorWhy = false
     @Published var inspectorDetails = false
     /// The sidebar as the person left it. The first page hides it until there
@@ -329,9 +328,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Unless the checks are known to be running, what Settings calls them.
+    /// Unless automatic scanning is known to be running, the state Settings shows for it.
     var menuBarCheckLine: String? {
-        backgroundState == "Active" ? nil : "Background checks: \(backgroundState)"
+        backgroundState == "Active" ? nil : "Automatic scanning: \(backgroundState)"
     }
 
     /// Nothing looks cleaner than it is: everything set aside or skipped is counted.
@@ -844,13 +843,23 @@ final class AppModel: ObservableObject {
         await refreshMonitor()
     }
 
-    func setHelper(running: Bool) {
+    /// A registered helper that is not running is stopped, then started:
+    /// macOS starts it again only for a new registration. One that is not
+    /// registered is only started. Stopping waits until macOS has finished.
+    func restartHelper() {
+        let registered = monitor?.login == 2
         attempt {
-            let result: Int = try await self.engine.request("set_login_startup", ["enabled": running])
+            var result = 1
+            if registered {
+                result = try await self.engine.request("set_login_startup", ["enabled": false])
+            }
+            if result != 4 {
+                result = try await self.engine.request("set_login_startup", ["enabled": true])
+            }
             await self.refreshMonitor()
             await self.refreshMonitorSoon()
             if result == 4 {
-                self.failure = "macOS could not start or stop the background helper. Check System Settings > General > Login Items."
+                self.failure = "macOS could not restart the background helper. Check System Settings > General > Login Items."
             }
         }
     }

@@ -56,8 +56,10 @@ clone.
 ## Limits
 
 The suite covers the helper's start and stop, file creation, rotation and
-deletion, and replay after a restart. It does not test whole-home coverage,
-folder permissions, failed-save recovery, linked targets, browser sidecars,
-notifications, login or reboot, sleep and wake, Low Power Mode, foreground
-refresh or every consent path. Its leak checks look for full fixture values
-and their first and last ten characters, not every fragment or system log.
+deletion, and replay after a restart: the runner unloads the helper with
+`launchctl bootout`, then presses Restart Helper in Settings. It does not
+test whole-home coverage, folder permissions, failed-save recovery, linked
+targets, browser sidecars, notifications, login or reboot, sleep and wake,
+Low Power Mode, foreground refresh or every consent path. Its leak checks
+look for full fixture values and their first and last ten characters, not
+every fragment or system log.

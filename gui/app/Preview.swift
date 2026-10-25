@@ -39,6 +39,12 @@ final class SampleEngine: Engine {
     /// given. set_monitoring changes it, and the checks put it back.
     static var monitoring = false
     static var paused = false
+    /// Set by the checks: the helper is registered but not running. As with
+    /// macOS, only a start after a stop runs it again.
+    static var helperStopped = false
+    static var helperUnregistered = false
+    /// What the window asked of the helper's registration, in order.
+    static var loginRequests: [Bool] = []
     /// Show in Menu Bar. set_menu_bar changes it, and the checks put it back.
     static var menuBar = true
     /// The app's own Login Items status, when the checks set one.
@@ -103,6 +109,12 @@ final class SampleEngine: Engine {
             Self.monitoring = args["enabled"] as? Bool ?? false
             Self.paused = args["paused"] as? Bool ?? false
             return Data("null".utf8)
+        case "set_login_startup":
+            let on = args["enabled"] as? Bool ?? false
+            Self.loginRequests.append(on)
+            if on, Self.helperUnregistered { Self.helperStopped = false }
+            Self.helperUnregistered = !on
+            return Data((on ? "2" : "1").utf8)
         case "enable_notifications":
             Self.notificationRequests += 1
             // As if the person chose Allow. Once blocked, macOS answers without asking.
@@ -205,9 +217,9 @@ final class SampleEngine: Engine {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
         let helperFailed = helperError ? #""Could not watch the home folder for changes.""# : "null"
         return """
-        {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring ? 2 : 1),
+        {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring && !helperUnregistered ? 2 : 1),
          "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
-         "health":{"running":\(monitoring),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"changes":0,"error":\(helperFailed)},
+         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"changes":0,"error":\(helperFailed)},
          "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
         """
     }
@@ -557,11 +569,11 @@ enum Checks {
                "before the first full pass, an empty review list says background checks are still reading")
         SampleEngine.completedPass = true
         await model.refreshMonitor()
-        expect(await eventually { written().contains("No Findings") && written().contains("Background checks read your files and found nothing to review.") },
+        expect(await eventually { written().contains("No Findings") && written().contains("Loose Keys checked your files and found nothing to review.") },
                "after a full pass that read everything, an empty review list says background checks found nothing")
         SampleEngine.unread = 3
         await model.refreshMonitor()
-        expect(await eventually { written().contains("No Findings") && written().contains { $0.contains("could not read 3 places") } },
+        expect(await eventually { written().contains("No Findings") && written().contains { $0.contains("3 places could not be read") } },
                "after a full pass that could not read everything, an empty review list says how many places it missed")
         SampleEngine.monitoring = false
         SampleEngine.completedPass = false
@@ -581,7 +593,7 @@ enum Checks {
             }
             return onPage.flatMap { value($0, kAXEnabledAttribute) as? Bool } == true
         }
-        expect(welcomed && enabled("Enable Background Checks") && enabled("Scan Now") && sidebarRows().isEmpty,
+        expect(welcomed && enabled("Scan Automatically") && enabled("Scan Now") && sidebarRows().isEmpty,
                "with nothing to list, the first page asks one question and hides the sidebar")
         // Only the folder already added is listed below it, so that it can be removed.
         expect(button("Show What a Scan Checks") == nil && button("Remove") != nil,
@@ -591,7 +603,7 @@ enum Checks {
                "the sidebar can be opened from the first page, and stays open there")
         model.sidebarAsked = false
         expect(await eventually { sidebarRows().isEmpty }, "the first page hides the sidebar again in a window just opened")
-        await press(button("Enable Background Checks"), "enabling background checks from the first page")
+        await press(button("Scan Automatically"), "enabling background checks from the first page")
         expect(await eventually { SampleEngine.monitoring && sidebarRows().count == 5 && !model.showsWelcome },
                "enabling background checks from the first page starts them and brings the sidebar back")
         SampleEngine.monitoring = false
@@ -638,11 +650,11 @@ enum Checks {
                && !unscannedGaps.contains("No Scan Yet"),
                "before any scan, Not Checked lists the folders left out with Include Again")
         await open(.overview)
-        expect(!SampleEngine.monitoring && button("Enable Background Checks") != nil,
+        expect(!SampleEngine.monitoring && button("Turn On") != nil,
                "Overview offers background setup without enabling it before consent")
         let accessGate = DispatchSemaphore(value: 0)
         SampleEngine.accessGate = accessGate
-        await press(button("Enable Background Checks"), "preparing folder access", until: { button("Cancel Preparation") != nil && written().contains("Preparing folder access…") })
+        await press(button("Turn On"), "preparing folder access", until: { button("Cancel Preparation") != nil && written().contains("Preparing folder access…") })
         // A Form section heading is not exposed as AXValue. Check the
         // accessible status and explanation, as well as the usable control.
         expect(await eventually {
@@ -654,11 +666,11 @@ enum Checks {
         await press(button("Cancel Preparation"), "cancelling folder access preparation")
         SampleEngine.accessGate = nil
         accessGate.signal()
-        expect(await eventually { !model.preparingAccess && button("Enable Background Checks") != nil },
+        expect(await eventually { !model.preparingAccess && button("Turn On") != nil },
                "cancelling preparation returns to the start choices")
         expect(!SampleEngine.monitoring && model.results == nil,
                "cancelled preparation neither enables the helper nor scans")
-        await press(button("Enable Background Checks"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains("Active") })
+        await press(button("Turn On"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains("Active") })
         expect(await eventually { SampleEngine.monitoring && written().contains("Active") },
                "background setup starts the helper without a one-time scan")
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
@@ -1162,14 +1174,17 @@ enum Checks {
                "with the review list full, the Overview says background checks are on, not unavailable")
         let before = windows()
         await press(button("Settings…"), "pressing Settings…")
-        for _ in 0..<10 where toggle("Check in the Background") == nil { await settle() }
-        let consent = toggle("Check in the Background")
-        expect(written().contains { $0.contains("3 places were not read") },
+        for _ in 0..<10 where toggle("Scan Automatically") == nil { await settle() }
+        let consent = toggle("Scan Automatically")
+        let settingsWindow = windows().first { window in !before.contains { CFEqual($0, window) } }
+        expect(consent != nil && written(in: settingsWindow).contains("Active"),
+               "Settings shows the state of automatic scanning under its switch")
+        expect(written(in: settingsWindow).contains { $0.contains("3 places could not be read") },
                "Settings says how many places the helper's last full pass did not read")
-        expect(!written().contains("Last Recorded Check"), "Settings diagnostic timestamps start collapsed")
+        expect(!written(in: settingsWindow).contains("Last Recorded Check") && button("Show Check Details", in: settingsWindow) == nil,
+               "Settings leaves check timing to the Overview")
         // Once they are off, macOS answers a request without asking: the
         // switch is in System Settings.
-        let settingsWindow = windows().first { window in !before.contains { CFEqual($0, window) } }
         expect(settingsWindow != nil && button("Allow Notifications…", in: settingsWindow) == nil
                    && button("Open System Settings", in: settingsWindow) != nil,
                "Settings offers System Settings, not a request, for notifications that are off")
@@ -1183,11 +1198,20 @@ enum Checks {
         SampleEngine.permission = "denied"
         await model.refreshReview()
         await settle()
-        await press(button("Show Check Details"), "expanding Settings check details")
-        expect(await eventually { written().contains("Last Completed Full Scan") }, "Settings check details reveal scan timing")
-        await press(button("Hide Check Details"), "collapsing Settings check details")
-        expect(await eventually { !written().contains("Last Recorded Check") && written().contains { $0.contains("3 places were not read") } },
-               "collapsing Settings details keeps unread places visible")
+        // The helper has a row only when it needs something done.
+        expect(button("Restart Helper", in: settingsWindow) == nil && button("Stop Helper", in: settingsWindow) == nil,
+               "Settings offers no helper control while the helper runs")
+        SampleEngine.helperStopped = true
+        await model.refreshMonitor()
+        expect(await eventually { button("Restart Helper", in: settingsWindow) != nil && written(in: settingsWindow).contains("Not running") },
+               "Settings offers Restart Helper for a helper that is registered but not running")
+        SampleEngine.loginRequests = []
+        await press(button("Restart Helper", in: settingsWindow), "restarting the helper from Settings",
+                    until: { SampleEngine.loginRequests == [false, true] && button("Restart Helper", in: settingsWindow) == nil })
+        await press(toggle("Pause Scanning"), "pausing from Settings",
+                    until: { SampleEngine.paused && written(in: settingsWindow).contains("Paused") })
+        await press(toggle("Pause Scanning"), "resuming from Settings",
+                    until: { !SampleEngine.paused && written(in: settingsWindow).contains("Active") })
         // Show in Menu Bar is saved by the engine and on until turned off.
         // While on, an icon is in this Mac's menu bar.
         expect(await eventually { model.menuBarOn && menuBarItems().count == 1 }, "Show in Menu Bar is on by default, with one icon in the menu bar")
@@ -1229,6 +1253,8 @@ enum Checks {
         expect(!SampleEngine.monitoring,
                "with the review list full, the switch for background checks still turns them off (assistive software is told the switch is \(told == true ? "enabled" : told == false ? "disabled" : "not there"))")
         let settings = windows().first { window in !before.contains { CFEqual($0, window) } }
+        expect(await eventually { toggle("Pause Scanning") == nil && button("Open System Settings", in: settings) == nil },
+               "with automatic scanning off, Settings shows neither Pause Scanning nor notifications")
         if let settings, let close = value(settings, kAXCloseButtonAttribute), CFGetTypeID(close) == AXUIElementGetTypeID() {
             await press((close as! AXUIElement), "closing Settings")
         }

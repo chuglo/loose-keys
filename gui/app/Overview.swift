@@ -60,7 +60,7 @@ struct OverviewView: View {
                     .font(.title.weight(.semibold))
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 8)
-                Text("Loose Keys checks your home folder for supported passwords, keys, tokens and other sign-in material, and says how to remove each exposure.")
+                Text("Loose Keys checks your files for supported passwords, keys, tokens and other sign-in material, and says how to remove each exposure.")
                     .font(.title3)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -70,7 +70,7 @@ struct OverviewView: View {
                 // One width for both buttons, so they read as a pair of choices.
                 VStack(spacing: 10) {
                     Button { model.setMonitoring(enabled: true, paused: false) } label: {
-                        Text("Enable Background Checks").frame(maxWidth: .infinity)
+                        Text("Scan Automatically").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.monitorFailure != nil || model.phase == .scanning || model.places?.home == nil)
@@ -93,7 +93,7 @@ struct OverviewView: View {
                         .padding(.top, 12)
                 }
                 Label {
-                    Text("A helper checks your home folder as files change, starting at login.")
+                    Text("Scan Automatically checks your files whenever they change, even when the app is closed.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "lock.shield")
@@ -203,7 +203,7 @@ struct OverviewView: View {
         } header: {
             Text("Places to Check")
         } footer: {
-            Text("Background checks watch your home folder. Added folders and drives are included only in one-time scans.")
+            Text("Automatic scanning does not include added folders and drives. Use Scan Now to check them.")
         }
     }
 
@@ -213,12 +213,12 @@ struct OverviewView: View {
         Section {
             if let monitor = model.monitor, !monitor.enabled {
                 LabeledContent {
-                    Button("Enable Background Checks") { model.setMonitoring(enabled: true, paused: false) }
+                    Button("Turn On") { model.setMonitoring(enabled: true, paused: false) }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.monitorFailure != nil || model.phase == .scanning || model.places?.home == nil)
                 } label: {
-                    Text("Background Checks")
-                    Text("A helper checks your home folder as files change, starting at login.")
+                    Text("Automatic Scanning")
+                    Text("Checks your files whenever they change, even when the app is closed.")
                 }
             } else {
                 LabeledContent {
@@ -234,19 +234,19 @@ struct OverviewView: View {
                         }
                     }
                 } label: {
-                    Text("Background Checks")
+                    Text("Automatic Scanning")
                     Text(model.backgroundState)
                     if let monitor = model.monitor {
                         if model.backgroundState == "Active", monitor.health.fullPass == nil {
                             Text("Checking existing files…")
                         }
                         if let unread = monitor.health.unread, unread > 0 {
-                            Text("\(plural(unread, "place was", "places were")) not read during background checks. Run a one-time scan for details.")
+                            Text("\(plural(unread, "place", "places")) could not be read. Run a scan to see which.")
                         }
                         if monitor.login == 3 {
                             Text("Approve the helper in System Settings > General > Login Items.")
                         } else if monitor.login != 2 || monitor.health.running == false {
-                            Text("Open Settings to start the helper. If it is registered but not running, use Stop Helper, then Start Helper.")
+                            Text("Open Settings to restart the helper.")
                         }
                     }
                 }

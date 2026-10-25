@@ -761,6 +761,41 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     check(model.backgroundState == "Waiting for Helper Status", "registration alone is not a running helper")
 }
 
+func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
+    json(["enabled": true, "paused": paused, "scanning": false, "login": login,
+          "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
+}
+
+/// Restart Helper stops a registered helper, then starts it, and only starts
+/// one that is not registered. After a stop that failed it starts nothing and
+/// says so.
+@MainActor func restartHelperOrder() async {
+    for (login, stopAnswer, sent) in [(2, "1", [false, true]), (1, "", [true]), (2, "4", [false])] {
+        let clock = HeldSleep()
+        let bench = Bench(clock: clock)
+        let model = bench.model
+        model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(helperStatus(login: login, running: false).utf8))
+        model.restartHelper()
+        for (index, enabled) in sent.enumerated() {
+            let call = await bench.next("set_login_startup", after: index)
+            check(call.args["enabled"] as? Bool == enabled,
+                  "restart from login \(login): request \(index + 1) is a \(enabled ? "start" : "stop")")
+            bench.answer(call, .success(enabled ? "2" : stopAnswer))
+        }
+        bench.answer(await bench.next("monitor_status"), .success(helperStatus(login: 2, running: true)))
+        await clock.wake(after: 2_000_000_000)
+        bench.answer(await bench.next("monitor_status", after: 1), .success(helperStatus(login: 2, running: true, paused: true)))
+        await eventually("the restart's last status read is applied") { model.monitor?.paused == true }
+        check(bench.engine.held("set_login_startup").count == sent.count,
+              "restart from login \(login): \(sent.count) registration requests, no more")
+        if stopAnswer == "4" {
+            await eventually("a failed stop is reported") { model.failure != nil }
+        } else {
+            check(model.failure == nil, "restart from login \(login): nothing is reported when it works")
+        }
+    }
+}
+
 /// With Show in Menu Bar on, the icon follows the helper while the window is
 /// in the background, more slowly, and still one read at a time.
 @MainActor func menuBarFollowsHelperInBackground() async {
@@ -894,11 +929,11 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
           "menu bar: a full list with items open counts them and says it is full")
     // Checks that are not known to be running say so, as Settings does.
     model.monitor = nil
-    check(model.menuBarCheckLine == "Background checks: Unavailable", "menu bar: a status not read is not running checks")
-    for (status, line) in [(monitorStatus(enabled: false), "Background checks: Off"),
-                           (monitorStatus(enabled: true, paused: true, running: true), "Background checks: Paused"),
-                           (monitorStatus(enabled: true, running: false), "Background checks: Helper Not Running"),
-                           (monitorStatus(enabled: true), "Background checks: Waiting for Helper Status")] {
+    check(model.menuBarCheckLine == "Automatic scanning: Unavailable", "menu bar: a status not read is not running checks")
+    for (status, line) in [(monitorStatus(enabled: false), "Automatic scanning: Off"),
+                           (monitorStatus(enabled: true, paused: true, running: true), "Automatic scanning: Paused"),
+                           (monitorStatus(enabled: true, running: false), "Automatic scanning: Helper Not Running"),
+                           (monitorStatus(enabled: true), "Automatic scanning: Waiting for Helper Status")] {
         model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(status.utf8))
         check(model.menuBarCheckLine == line, "menu bar: \(line)")
     }
@@ -950,6 +985,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
             ("scan: refreshes while a scan runs", scanDoesNotHoldRefreshes),
             ("background checks: foreground follows the helper", foregroundFollowsHelper),
             ("background checks: honest helper status", backgroundStatusIsHonest),
+            ("background checks: Restart Helper stops, then starts", restartHelperOrder),
             ("notifications: coming forward re-reads permission", activationRereadsNotificationPermission),
             ("menu bar: follows the helper in the background", menuBarFollowsHelperInBackground),
             ("menu bar: a refused switch or failed read keeps the icon", menuBarSettingFailures),

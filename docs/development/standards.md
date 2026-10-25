@@ -129,8 +129,11 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   cannot start a registration. A registration waiting for approval is not
   retried; withdrawing consent unregisters it too. A native failure becomes a
   fixed error, never system error text. Consent is saved even when
-  registration fails, so the status and the manual helper controls stay
-  available. Recovery after `launchctl bootout` is unverified.
+  registration fails, so the status and Restart Helper stay available.
+  Settings shows Restart Helper only while the helper is not running; it
+  unregisters a registered helper and registers it again, as new consent
+  does. Recovery after `launchctl bootout` is unverified; the guest helper
+  check's restart stage tests it.
 - The app adds itself to Login Items (`SMAppService.mainAppService`,
   through `ch_app_login_status` and `ch_app_login_set` in `notifications.m`,
   declared only in `lib.rs`, not in `Bridge.h`) only while Show in Menu Bar

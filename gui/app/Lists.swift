@@ -26,7 +26,7 @@ struct ReviewTable: View {
             ContentUnavailableView {
                 Label("Reading the List", systemImage: "hourglass")
             } description: {
-                Text("This takes longer while a background check is saving what it found.")
+                Text("This can take a little longer while new findings are being saved.")
             }
         } else if model.reviewPaneItems.isEmpty {
             let empty = self.empty
@@ -91,9 +91,9 @@ extension ReviewTable {
             if model.results != nil {
                 rest = "Not Checked lists any places the scan could not read."
             } else if let monitor = model.monitor, monitor.enabled, monitor.health.fullPass == nil {
-                rest = "Background checks list new findings here as they read your files."
+                rest = "New findings show up here as Loose Keys checks your files."
             } else if let monitor = model.monitor, monitor.enabled, let unread = monitor.health.unread, unread > 0 {
-                rest = "Background checks could not read \(plural(unread, "place", "places")). Scan this Mac to see which."
+                rest = "\(plural(unread, "place", "places")) could not be read. Scan this Mac to see which."
             } else {
                 rest = "Scan this Mac to check it now."
             }
@@ -105,20 +105,20 @@ extension ReviewTable {
             if let monitor = model.monitor, monitor.enabled {
                 guard monitor.health.fullPass != nil else {
                     return ("No Findings Yet", "tray",
-                            "Background checks list findings here as they read your files.")
+                            "Findings show up here as Loose Keys checks your files.")
                 }
                 if let unread = monitor.health.unread, unread > 0 {
                     return ("No Findings", "tray",
-                            "Background checks found nothing to review, but could not read \(plural(unread, "place", "places")).")
+                            "Nothing to review, but \(plural(unread, "place", "places")) could not be read.")
                 }
                 return ("No Findings", "tray",
-                        "Background checks read your files and found nothing to review.")
+                        "Loose Keys checked your files and found nothing to review.")
             }
             return model.monitor?.health.lastScan == nil
                 ? ("No Scan Yet", "exclamationmark.triangle",
                    "Scan this Mac to look for saved passwords, keys and tokens.")
                 : ("Nothing to Review", "tray",
-                   "Background checks have found nothing that needs your attention. Scan this Mac to check it now.")
+                   "Earlier automatic scans found nothing that needs your attention. Scan this Mac to check it now.")
         }
         if results.review > 0 {
             return ("Findings Not Listed", "exclamationmark.triangle",

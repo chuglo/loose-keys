@@ -1,4 +1,4 @@
-// Settings: background checks, their helper, notifications and the menu bar.
+// Settings: automatic scanning, its helper, notifications and the menu bar.
 import SwiftUI
 
 struct SettingsView: View {
@@ -7,126 +7,109 @@ struct SettingsView: View {
     var body: some View {
         Form {
             if let monitor = model.monitor {
-                checks(monitor)
-                helper(monitor)
-                notifications(monitor)
+                scanning(monitor)
                 menuBar(monitor)
             } else {
                 Section {
-                    Text("Background checks are not available.").foregroundStyle(.secondary)
+                    Text("Automatic scanning is not available.").foregroundStyle(.secondary)
                 }
             }
         }
         .formStyle(.grouped)
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
-        .confirmationDialog("Allow Background Checks?", isPresented: $model.askingConsent) {
+        .confirmationDialog("Allow Automatic Scanning?", isPresented: $model.askingConsent) {
             Button("Allow") { model.setMonitoring(enabled: true, paused: false) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("A helper checks your home folder as files change, starting at login.")
+            Text("Loose Keys will check your files whenever they change, even when the app is closed.")
         }
     }
 
-    @ViewBuilder private func checks(_ monitor: MonitorStatus) -> some View {
+    /// The switch with its state beneath it. The rest shows only while the
+    /// switch is on: the helper when it needs something done, Pause, and
+    /// notifications, which only the helper sends. Check timing is on the
+    /// Overview.
+    @ViewBuilder private func scanning(_ monitor: MonitorStatus) -> some View {
         Section {
-            Toggle("Check in the Background", isOn: Binding(
+            Toggle(isOn: Binding(
                 get: { monitor.enabled },
                 set: { on in
                     if on { model.askingConsent = true } else { model.setMonitoring(enabled: false, paused: false) }
-                }))
-                .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
-            if monitor.enabled {
-                // Neither switch can be used during a scan, so that a setting
-                // is never changed under one that is running.
-                Toggle("Pause Checks", isOn: Binding(
-                    get: { monitor.paused },
-                    set: { model.setMonitoring(enabled: true, paused: $0) }))
-                    .disabled(model.phase == .scanning)
+                })) {
+                Text("Scan Automatically")
+                Text(monitor.enabled ? model.backgroundState : "Checks your files whenever they change, even when the app is closed.")
+                // The helper keeps the number and not the places: a scan lists them.
+                if let unread = monitor.health.unread, unread > 0 {
+                    Text("\(plural(unread, "place", "places")) could not be read. Run a scan to see which.")
+                }
+            }
+            .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
+            if monitor.enabled, let helper = helperProblem(monitor) {
+                LabeledContent {
+                    if helper.restarts {
+                        Button("Restart Helper") { model.restartHelper() }
+                    }
+                } label: {
+                    Text("Helper")
+                    Text(helper.text)
+                }
             }
             if let error = monitor.error ?? monitor.health.error {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
             }
-            LabeledContent {
-                Button(model.settingsCheckDetails ? "Hide Check Details" : "Show Check Details") {
-                    model.settingsCheckDetails.toggle()
-                }
-            } label: {
-                Text("Status")
-                Text(model.backgroundState)
-                // The helper keeps the number and not the places: a scan lists them.
-                if let unread = monitor.health.unread, unread > 0 {
-                    Text("\(plural(unread, "place was", "places were")) not read during background checks. Run a scan to see what was not checked.")
-                }
+            if monitor.enabled {
+                // Neither switch can be used during a scan, so that a setting
+                // is never changed under one that is running.
+                Toggle("Pause Scanning", isOn: Binding(
+                    get: { monitor.paused },
+                    set: { model.setMonitoring(enabled: true, paused: $0) }))
+                    .disabled(model.phase == .scanning)
+                notifications(monitor)
             }
-            if model.settingsCheckDetails {
-                BackgroundCheckDetails(health: monitor.health)
-            }
-        } header: {
-            Text("Background Checks")
-        }
-    }
-
-    @ViewBuilder private func helper(_ monitor: MonitorStatus) -> some View {
-        Section {
-            LabeledContent {
-                if monitor.login == 2 || monitor.login == 3 {
-                    Button("Stop Helper") { model.setHelper(running: false) }
-                } else if monitor.login != 0, monitor.enabled {
-                    Button("Start Helper") { model.setHelper(running: true) }
-                }
-            } label: {
-                Text("Status")
-                Text(helperText(monitor))
-            }
-        } header: {
-            Text("Helper")
         } footer: {
-            Text("macOS starts the helper at login and restarts it if it stops unexpectedly.")
+            if monitor.enabled {
+                Text("Notifications never show file names or credentials.")
+            }
         }
     }
 
-    /// macOS reports a registered helper as enabled even when it will not start.
-    private func helperText(_ monitor: MonitorStatus) -> String {
+    /// What the helper needs, if it is not simply running. macOS reports a
+    /// registered helper as enabled even when it will not start.
+    private func helperProblem(_ monitor: MonitorStatus) -> (text: String, restarts: Bool)? {
         switch monitor.login {
-        case 0: return "Needs macOS 13 or later"
-        case 2: return monitor.health.running == false ? "Registered, but not running" : "Running"
-        case 3: return "Needs approval in System Settings > General > Login Items"
-        case 4: return monitor.enabled ? "Could not be registered" : "Not started"
-        default: return "Not started"
+        case 0: return ("Needs macOS 13 or later", false)
+        case 2: return monitor.health.running == false ? ("Not running", true) : nil
+        case 3: return ("Needs approval in System Settings > General > Login Items", false)
+        case 4: return ("macOS could not start it", true)
+        default: return ("Not started", true)
         }
     }
 
     @ViewBuilder private func notifications(_ monitor: MonitorStatus) -> some View {
         let permission = model.review?.permission ?? "checking"
-        Section {
+        LabeledContent {
+            // Once macOS has an answer it no longer asks: the switch is in
+            // System Settings, either way.
+            if model.canAskForNotifications {
+                Button("Allow Notifications…") { model.enableNotifications() }
+                    .disabled(model.awaitingPermission)
+            } else if permission == "denied" || permission == "allowed" {
+                Button("Open System Settings") { model.openNotificationSettings() }
+            }
+        } label: {
+            Text("Notifications")
+            Text(model.awaitingPermission ? "Waiting for your answer…" : permissionText(permission))
+        }
+        if monitor.pendingDelivery {
             LabeledContent {
-                // Once macOS has an answer it no longer asks: the switch is in
-                // System Settings, either way.
-                if model.canAskForNotifications {
-                    Button("Allow Notifications…") { model.enableNotifications() }
-                        .disabled(model.awaitingPermission)
-                } else if permission == "denied" || permission == "allowed" {
-                    Button("Open System Settings") { model.openNotificationSettings() }
+                if monitor.attempts >= 3 {
+                    Button("Try Again") { model.retryNotifications() }
                 }
             } label: {
-                Text("Status")
-                Text(model.awaitingPermission ? "Waiting for your answer…" : permissionText(permission))
+                Text("Pending Notification")
+                Text("Not sent yet. The finding is in Worth Reviewing.")
             }
-            if monitor.enabled, monitor.pendingDelivery {
-                LabeledContent {
-                    if monitor.attempts >= 3 {
-                        Button("Try Again") { model.retryNotifications() }
-                    }
-                } label: {
-                    Text("Pending Notification")
-                    Text("A finding is waiting to be notified. It is listed under Worth Reviewing.")
-                }
-            }
-        } header: {
-            Text("Notifications")
-        } footer: {
-            Text("A notification says only that something needs review. It never names a file or a credential.")
         }
     }
 

@@ -278,7 +278,7 @@ fn set_monitoring_with_login(
         if enabled && !was_enabled && status == 2 {
             status = set_login(false);
             if status != 1 {
-                break 'helper Err("macOS could not reset the background helper registration. Open Settings and use Stop Helper, then Start Helper.".into());
+                break 'helper Err("macOS could not restart the background helper. If Settings says it is not running, use Restart Helper there.".into());
             }
         }
         // Do not repeat a request awaiting approval, but withdrawing consent must
@@ -288,8 +288,11 @@ fn set_monitoring_with_login(
         }
         if matches!((enabled, status), (true, 2 | 3) | (false, 1)) {
             Ok(())
+        } else if enabled {
+            // Consent is kept, so Settings offers Restart Helper.
+            Err("macOS could not start the background helper. Use Restart Helper in Settings, or check System Settings > General > Login Items.".into())
         } else {
-            Err("macOS could not start or stop the background helper. Check System Settings > General > Login Items, or use Stop Helper, then Start Helper in the app's Settings.".into())
+            Err("macOS could not stop the background helper. Check System Settings > General > Login Items.".into())
         }
     };
     let login = reconcile_app_login(enabled && menu_bar, app_status(), set_app_login);

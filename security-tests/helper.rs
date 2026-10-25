@@ -600,12 +600,20 @@ impl Run {
     fn restart(&mut self) -> Check<Value> {
         let before = self.state()?;
         let old_pid = pid(&before)?;
-        self.control("stop")?;
-        wait_for("helper unregister and process exit", 20, || {
+        // Unloading the job leaves the helper registered with macOS but not
+        // running, which is when Settings offers Restart Helper.
+        let service = self.service();
+        let out = self.invoke(
+            "bootout",
+            Command::new("/bin/launchctl").args(["bootout", &service]),
+            30,
+        )?;
+        require(out.status == Some(0), "launchctl bootout failed")?;
+        wait_for("helper unload and process exit", 20, || {
             Ok(self.stopped(old_pid)?.then_some(()))
         })?;
         self.write_fixture()?;
-        self.control("start")?;
+        self.control("restart")?;
         let state = wait_for("restart and real FSEvents history replay", 90, || {
             let state = self.state()?;
             let a = &state["agent"];

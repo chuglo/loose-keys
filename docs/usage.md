@@ -4,8 +4,8 @@
 
 ## The app
 
-On the first page, click **Enable Background Checks**. The helper then checks
-your home folder on its own, and its findings appear without a manual scan.
+On the first page, click **Scan Automatically**. A helper then checks your
+home folder on its own, and its findings appear without a manual scan.
 If macOS requires approval, Overview tells you where to give it. Allow
 notifications separately if you want alerts while the app is closed.
 
@@ -13,10 +13,10 @@ For a detailed point-in-time report, click **Scan Now**. The sidebar lists
 what is worth reviewing, the sign-ins that are stored, and the places that
 could not be checked. Select a finding to see what it is, why it matters and
 what to do. **Export** saves the full report or a counts-only file, and copies
-the text summary. Opening the app turns on neither background checks nor
+the text summary. Opening the app turns on neither automatic scanning nor
 notifications.
 
-Before a scan or turning on background checks, the app asks macOS for
+Before a scan or turning on automatic scanning, the app asks macOS for
 Desktop, Documents and Downloads, one at a time. A folder you deny is listed
 under **Not Checked**; the rest are still checked. **Cancel Preparation**
 stops once the open prompt is answered. Other protected folders may still
@@ -92,14 +92,14 @@ Checks react to filesystem events. Busy files, work limits, sleep, Low Power
 Mode and macOS permission prompts can delay detection. Added folders and
 drives are included in one-time scans, not watched by the helper.
 
-Background checks are done by a separate helper with no window or Dock icon.
+Automatic scanning is done by a separate helper with no window or Dock icon.
 Giving consent registers it with macOS as a launchd job, which starts it at
 login and restarts it if it stops unexpectedly. It checks a file when it
 changes, works through the whole home folder in short slices at low priority,
 repeats that pass weekly, and marks an item fixed when its file no longer
 matches. Closing the window quits the app, unless it is in the menu bar, and
-quitting the app does not stop the helper. **Pause Checks** stops its checks; turning background checks off
-also removes the launchd job.
+quitting the app does not stop the helper. **Pause Scanning** stops its
+checks; turning **Scan Automatically** off also removes the launchd job.
 
 The build signs ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
 code-signing identity. An ad-hoc identity changes with every build; an Apple
@@ -111,8 +111,8 @@ LOOSE_KEYS_SIGN_IDENTITY="Apple Development" sh gui/build-macos.sh
 ```
 
 If registering the helper fails, the app shows an error and keeps your
-consent, and the status still says whether the helper is running. Use
-**Stop Helper**, then **Start Helper**, to try again.
+consent, and the status still says whether the helper is running. While it
+is not running, Settings offers **Restart Helper** to try again.
 
 A new finding worth reviewing, or one whose credential changed or whose file
 became readable by others, can produce one grouped alert. Stored sign-ins and
@@ -125,19 +125,19 @@ or restarts, and nothing is sent while the app is in front.
 has a dot while items are open in Worth Reviewing or the list is full, and is
 a warning triangle when the list cannot be read. A key with no dot means
 nothing is open in what was checked, or the list is still being read, not
-that nothing is exposed. Its menu shows the count and the state of background
-checks, and opens the window or Settings; it changes nothing.
+that nothing is exposed. Its menu shows the count and the state of automatic
+scanning, and opens the window or Settings; it changes nothing.
 
 While it is on, closing the window leaves the app in the menu bar, with no Dock icon
-until a window opens. With background checks also on, the app is in Login
+until a window opens. With automatic scanning also on, the app is in Login
 Items and opens at login in the menu bar; turning either off removes it.
 Quit lasts until the next login.
 
 ### Removing Loose Keys
 
-1. In Settings, turn off **Show in Menu Bar** and **Check in the
-   Background**. This removes the app from Login Items, stops the helper and
-   removes its launchd job.
+1. In Settings, turn off **Show in Menu Bar** and **Scan Automatically**.
+   This removes the app from Login Items, stops the helper and removes its
+   launchd job.
 2. Quit the app and move it to the Trash.
 3. Delete `~/Library/Application Support/dev.loosekeys.desktop`, and
    `~/.loose-keys-review` if an earlier version left one.
