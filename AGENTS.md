@@ -72,8 +72,9 @@ guest; `docs/testing/guest.md` has its setup and both checks.
 There is no CI. Before a push to `main` that is not prose-only, run
 `sh tests/check-all.sh` on the exact commit and report each check's exit
 status ("Before a push to `main`" in `docs/testing/local-verification.md`).
-Run the guest checks only when the person directing the session asks;
-otherwise list them under "Not verified".
+Run the shipped-app and native-helper guest checks only when the person
+directing the session asks; otherwise list them under "Not verified". The
+sample window check runs in a guest whenever the matrix requires it.
 
 ## Keep the machine you work on safe
 
@@ -85,10 +86,13 @@ otherwise list them under "Not verified".
   session's record. macOS starts the helper on the account's actual home
   whatever `HOME` says, so the app and the helper are started only inside
   the guest, whose home is not a real one.
-- The sample-data `PREVIEW` build and `gui/tests/check-window.sh` are the
-  exception: they use no engine and read no home folder, so they may run on
-  the host without substituting `HOME`. Say first that a window will appear.
-  The real app, helper and `SNAPSHOTS` build remain guest-only.
+- Run the sample-data `PREVIEW` build and `gui/tests/check-window.sh` in a
+  disposable macOS guest with no host window (`tart run --no-graphics`),
+  because their windows and menu bar controls disrupt work on the host.
+  They use no engine and read no home folder. Do not run them on the host
+  unless the person explicitly asks. The model check shows no window and
+  may run on the host. The real app, helper and `SNAPSHOTS` build remain
+  guest-only.
 - Never write a complete token-shaped string into source, tests, docs, a
   commit message or your own output. Build it from pieces, as
   `src/rules/token.rs` does with `concat!`, or generate it at run time. Secret
@@ -112,9 +116,10 @@ otherwise list them under "Not verified".
   push to `main`" must pass on the exact release commit. Report passed checks
   and list omitted checks under "Not verified", including guest checks.
   Omitted optional checks do not require another confirmation to publish;
-  a failed or blocked required check still prevents release. Run guest checks
-  only when requested. The `release` skill (`.agents/skills/release/`) has the
-  steps and scripts for a release.
+  a failed or blocked required check still prevents release. Run shipped-app
+  and native-helper guest checks only when requested; the sample window check
+  still follows the matrix. The `release` skill (`.agents/skills/release/`)
+  has the steps and scripts for a release.
 
 ## What the product must keep doing
 

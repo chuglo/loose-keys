@@ -2,8 +2,8 @@
 # Every check in docs/testing/local-verification.md except the scan by hand,
 # one at a time. Prints each exit status and elapsed seconds and keeps going
 # after a failure; exits 1 if any check failed. Each check's output is in its
-# own log. The window check puts a window on screen for about a minute, and the
-# dependency audit needs the network. No guest check runs.
+# own log. The sample window check runs in a headless macOS guest; the
+# dependency audit needs the network. Real app/helper guest checks do not run.
 set -u
 if [ ! -f gui/macos/Info.plist ]; then
     printf '%s\n' 'Run this script from the repository root.' >&2
@@ -35,8 +35,9 @@ check scanner-gate sh security-tests/check_scanner.sh "$RUN/gate"
 check platform sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$RUN/platform"
 check bundle sh gui/build-macos.sh
 check bundle-contract node --test gui/tests/bundle-contract.test.js
-printf '%s\n' 'window: a window appears for about a minute'
-check window sh gui/tests/check-window.sh "$RUN/window"
+check window-runner python3 -I gui/tests/check-window-guest.py
+printf '%s\n' 'window: sample check runs in a headless macOS guest'
+check window sh gui/tests/check-window-guest.sh "$RUN/window"
 check model sh gui/tests/check-model.sh "$RUN/model"
 check bridges sh gui/tests/check-bridges.sh "$RUN/bridges"
 check audit-install cargo install cargo-audit --locked --version 0.22.2 --root "$TMPDIR/cargo-audit"

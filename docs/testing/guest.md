@@ -28,6 +28,51 @@ tart exec "$VM" sh -c "mkdir -p ~/work/target/release/bundle/macos &&
   codesign --verify --deep --strict ~/work/target/release/bundle/macos/'Loose Keys.app'"
 ```
 
+## Sample window check
+
+Run from the repository root, with Tart installed and the
+`ghcr.io/cirruslabs/macos-tahoe-base:latest` image already cached. The image
+must contain synthetic data only, a logged-in desktop, the Tart guest agent
+and Apple's command-line tools. The wrapper does not download an image:
+
+```sh
+sh gui/tests/check-window-guest.sh "$TMPDIR/window-check"
+```
+
+The wrapper snapshots the current working-tree Swift source, English plural
+forms, deployment target and window-check script, including uncommitted
+changes. It clones the cached image under a new name and starts it with
+`--no-graphics --no-audio --no-clipboard`; no host window appears and no host
+privacy grants are needed. Only the dedicated source archive directory is
+shared, read-only. It waits up to three minutes for readiness and compares
+SHA-256 checksums, then the guest builds and runs `check-window.sh` with sample
+data and no scanner. `caffeinate` keeps the guest display awake; it does not
+unlock an already locked desktop. Host deadlines bound image listing (15
+seconds), cloning (120 seconds), checksum and report transfers and stopping
+(30 seconds each), and syncing (10 seconds). The guest build plus window
+check has a 600-second infrastructure deadline; the window assertions keep
+their existing deadlines. A stalled command is terminated and cleanup still
+attempts to stop the owned clone; a stop timeout is reported as a failure,
+not successful cleanup.
+
+Each invocation keeps its source archive, checksum, command logs, report and
+report log in a new `run.*` folder beneath the output path. A failing check
+keeps its exit status. Cleanup stops only the clone it created, on success
+or failure, and a failed stop makes the wrapper fail. The clone is retained
+for inspection, never automatically deleted. Transfer checksums detect
+accidental changes; they do not authenticate a hostile host. This checks
+sample window behavior, not the real bundle, helper, or visual appearance.
+The offline wrapper controls replace Tart with a stand-in and check a stalled
+checksum command, successful completion, nonzero check-status propagation,
+and stopping only the owned clone. They start no VM or window:
+
+```sh
+python3 -I gui/tests/check-window-guest.py
+```
+
+Running `check-window.sh` directly on the host requires an explicit request
+to show the preview there; normal checks use this wrapper.
+
 ## The shipped bundle
 
 In the guest, from `~/work`, with a new work folder and the screen awake and
