@@ -63,10 +63,16 @@ Sync and stop the guest afterward. List an omitted walkthrough as Not verified.
 
 ## Publish
 
-Report the commit, ZIP and DMG SHA-256, exit statuses, logs and remaining checks.
-Include untested items from the commit history, appearance, login, updating
-from the prior release, a physical Mac and notarization. Draft release notes
-in the window's words, with installation instructions.
+Report the commit, ZIP and DMG SHA-256, exit statuses, logs and remaining checks
+in the session's release report. Include untested items from the commit history,
+appearance, login, updating from the prior release, a physical Mac and
+notarization. Keep verification details in that report and commit messages.
+
+Public release notes are concise: user-visible changes in the window's words,
+installation instructions, and download checksums. Include limitations only
+when they affect what a person must do or can rely on, such as the beta's
+notarization notice or a known bug. Omit internal test inventories, VM details,
+process history and lists of unverified scenarios.
 
 An explicit request to publish or cut this release authorizes its merge,
 push, tag and publication. Do not ask again solely because optional checks
