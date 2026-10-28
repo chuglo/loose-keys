@@ -1,61 +1,66 @@
 # Loose Keys
 
-Loose Keys is a Mac app that watches your home folder, and any other folders
-or drives you add, for credentials left in plain files: password exports,
-private keys, API tokens, saved sign-ins, and secrets your AI agents leave
-around. For each one it tells you what it found and how to take care of it.
-It never connects to the network or changes the files it reads. It is in
-English and Spanish.
+Loose Keys is a Mac app that finds credentials left in plain files. It checks
+your home folder and any other folders or drives you add.
 
-Version 0.4.0, MIT licensed.
+It looks for password exports, private keys, API tokens, saved sign-ins, and
+secrets left by AI agents. For each finding, it explains what it found and how
+to deal with it.
 
-## Installing the beta
+Loose Keys works offline and never changes the files it scans.
 
-You need macOS 14 or later. Download the app from the
-[latest release](https://github.com/chuglo/loose-keys/releases/latest), unzip
-it and move **Loose Keys** to Applications. If the release includes a `.dmg`,
-open it and drag **Loose Keys** onto its **Applications** shortcut, then eject
-the disk and open the app from Applications.
+Version 0.4.0 · MIT licensed
 
-While Loose Keys is in beta it isn't notarized by Apple, so macOS blocks it the
-first time you open it. Click **Done**:
+## Install the beta
+
+Loose Keys requires macOS 14 or later.
+
+1. Download the app from the [latest release](https://github.com/chuglo/loose-keys/releases/latest).
+2. Unzip it and move **Loose Keys** to Applications. If the release includes a
+   `.dmg`, you can open it instead, drag **Loose Keys** onto its **Applications**
+   shortcut, and eject the disk.
+3. Open Loose Keys from Applications.
+
+The beta isn't notarized by Apple, so macOS will block it the first time you
+open it. Click **Done**:
 
 ![“Loose Keys” Not Opened, with Move to Trash and Done buttons](docs/images/not-opened.png)
 
-Then open **System Settings › Privacy & Security**, scroll to **Security**,
-click **Open Anyway** beside the message about Loose Keys, and confirm:
+Then open **System Settings › Privacy & Security**, scroll to **Security**, and
+click **Open Anyway** beside the message about Loose Keys. Confirm when asked:
 
 ![Privacy & Security: “Loose Keys” was blocked to protect your Mac, with an Open Anyway button](docs/images/open-anyway.png)
 
-Press **Scan Automatically** to have it keep watching after you close the
-window, or **Scan Now** to check once.
+Choose **Scan Now** for a one-time check, or **Scan Automatically** to keep
+checking after you close the window.
 
-## Building the app
+## Build the app
 
-You need Rust 1.88 or later and Apple's command-line developer tools.
+You'll need Rust 1.88 or later and Apple's command-line developer tools.
 
 ```sh
 sh gui/build-macos.sh
 open "target/release/bundle/macos/Loose Keys.app"
 ```
 
-To keep it, move it to Applications. To make a drag-to-Applications disk
-image from that bundle, run `sh gui/package-dmg.sh`. It writes
-`target/release/bundle/macos/Loose-Keys-<version>.dmg` and refuses to overwrite
-an existing image.
+Move the app to Applications if you want to keep it. To make a disk image with
+a drag-to-Applications shortcut, run `sh gui/package-dmg.sh`. It writes
+`target/release/bundle/macos/Loose-Keys-<version>.dmg` and won't overwrite an
+existing image.
 
-## Command line
+## Use the command line
 
-The app includes the `loose-keys` command, for a one-time scan from a
-terminal or a script. Link it into a folder on your `PATH`:
+The app includes a `loose-keys` command for one-time scans in a terminal or
+script. To make it available on your `PATH`, link it and run a scan:
 
 ```sh
 ln -s "/Applications/Loose Keys.app/Contents/MacOS/loose-keys" /usr/local/bin/
 loose-keys scan
 ```
 
-It runs the app's scanner but doesn't read or keep the app's state, so
-findings you set aside in the app are still reported there.
+The command uses the same scanner as the app, but doesn't use the app's saved
+state. Findings you set aside in the app will still appear in command-line
+results.
 
 ```sh
 loose-keys scan --limits                  # also print what the scan can't detect
@@ -65,20 +70,20 @@ loose-keys scan --feedback counts.json    # counts only, no paths
 loose-keys --list-rules                   # every rule and its advice
 ```
 
-`--help` has the rest, including exit codes.
+Run `loose-keys --help` for the remaining options and exit codes.
 
-A full report contains file paths; a counts file leaves out paths but still
-shows which kinds of credentials you have. Look before you share either one.
+A full report contains file paths. A counts file leaves out paths, but still
+shows which kinds of credentials you have. Check either file before sharing it.
 
 ## Development
 
-One Cargo workspace: the scanner is a library (`src/`) with the `loose-keys`
-command on top, and `gui/` is the app's engine, linked into a Swift window.
+This repository is one Cargo workspace. The scanner is a library in `src/`,
+with the `loose-keys` command on top. The app's engine is in `gui/` and links
+into a Swift window.
 
-Read [AGENTS.md](AGENTS.md) and
-[standards](docs/development/standards.md) before changing
-anything. Every check runs locally, and
-[local checks](docs/testing/local-verification.md) lists them all.
+Before making changes, read [AGENTS.md](AGENTS.md) and the
+[development standards](docs/development/standards.md). All checks run
+locally; see [local checks](docs/testing/local-verification.md) for the list.
 
 - [Usage and detection limits](docs/usage.md)
 - [All documentation](docs/README.md)
