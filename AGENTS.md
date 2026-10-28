@@ -108,7 +108,8 @@ otherwise list them under "Not verified".
 - Push, merge, tag or release only when the person directing the session
   asked for that action. A tag also needs the list in "Before a push to
   `main`" to pass on the exact commit, and that person's word on what that
-  leaves unchecked (the guest checks).
+  leaves unchecked (the guest checks). The `release` skill
+  (`.claude/skills/release/`) has the steps and scripts for a release.
 
 ## What the product must keep doing
 
