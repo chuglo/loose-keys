@@ -332,6 +332,17 @@ struct SetAsideReason: Identifiable {
         returns: String(localized: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing.",
                         comment: "Inspector details for a finding set aside as a test credential, or as one that no longer works: what the choice covers and when it comes back."))
 
+    // Set by the organization's managed settings, never chosen here: shown,
+    // not offered in the menu.
+    static let expected = SetAsideReason(
+        id: "expected",
+        label: String(localized: "Expected by Your Organization",
+                      comment: "The reason an organization's settings give for a set-aside finding; not offered in the menu."),
+        summary: String(localized: "Expected by your organization",
+                        comment: "Inspector, Set Aside section: the finding is on the list the person's organization set."),
+        returns: String(localized: "Your organization's settings list this file as expected here. Move to Worth Reviewing to review it anyway.",
+                        comment: "Inspector details for a finding the organization's settings list as expected: what the choice covers and how to review it anyway."))
+
 }
 
 extension ReviewItem {

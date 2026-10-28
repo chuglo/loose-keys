@@ -183,7 +183,7 @@ private struct ReviewInspector: View {
     }
 
     private var reason: SetAsideReason? {
-        (SetAsideReason.all + [SetAsideReason.legacy]).first { $0.id == item.setAside }
+        (SetAsideReason.all + [SetAsideReason.legacy, SetAsideReason.expected]).first { $0.id == item.setAside }
     }
 
     /// A folder is left out by itself or along with a folder above it.

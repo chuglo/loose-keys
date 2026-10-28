@@ -415,6 +415,15 @@
 /* Inspector details for a credential the person keeps here on purpose: what the choice covers and when it comes back. [Models.swift:310] */
 "Applies only to this location. Returns to review if the file becomes readable by others, a different kind of credential appears here, or after six months." = "Se aplica solo a esta ubicación. Vuelve a estar pendiente de revisión si el archivo pasa a ser legible por otros, si aparece aquí otro tipo de credencial o al cabo de seis meses.";
 
+/* The reason an organization's settings give for a set-aside finding; not offered in the menu. [Models.swift:337] */
+"Expected by Your Organization" = "Previsto por tu organización";
+
+/* Inspector, Set Aside section: the finding is on the list the person's organization set. [Models.swift:339] */
+"Expected by your organization" = "Previsto por tu organización";
+
+/* Inspector details for a finding the organization's settings list as expected: what the choice covers and how to review it anyway. [Models.swift:341] */
+"Your organization's settings list this file as expected here. Move to Worth Reviewing to review it anyway." = "La configuración de tu organización indica que este archivo es de esperar aquí. Usa Mover a Para revisar para revisarlo de todos modos.";
+
 /* The reason an older version of the app recorded for a set-aside finding: a test credential, or one that no longer works. [Models.swift:318] */
 "Testing or No Longer Working (Previous Choice)" = "Se usa para pruebas o ya no funciona (elección anterior)";
 

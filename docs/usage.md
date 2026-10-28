@@ -65,6 +65,12 @@ up elsewhere is still reported. It survives rotating the value in place, and
 ends if the file becomes readable by others, if a different kind of credential
 appears there, or after six months.
 
+**Expected by your organization** appears when a managed setting from your
+organization lists the finding's rule and file. It covers only that file; a
+different kind of credential there is still reported. **Move to Worth
+Reviewing** reviews it anyway, and it stays in Worth Reviewing until your
+organization's list changes.
+
 Setting an item aside moves it out of Worth Reviewing into **Set Aside**, under
 Findings in the sidebar. You stay in Worth Reviewing. The inspector of a
 set-aside finding shows your reason under **Set Aside**, with **Move to Worth
@@ -98,6 +104,33 @@ not credential values. The directory uses mode `0700`; the file uses `0600`.
 The CLI does not use this review state. Earlier versions kept it in
 `~/.loose-keys-review`; the app moves it from there on first start, unless
 the new folder already holds state.
+
+#### Expected findings set by MDM
+
+An organization can list findings its own tools create on purpose, so they
+start out in Set Aside instead of Worth Reviewing. Deliver a configuration
+profile with a payload of type `dev.loosekeys.desktop` holding the key
+`ExpectedFindings`: an array of dictionaries, each with `rule` (an id from
+`loose-keys --list-rules`) and `path` (`~/` and the file's path inside the
+home folder, plain ASCII, one file per entry). The first 32 entries are used.
+The app reads the key only from a managed value; a plist in
+`~/Library/Preferences` is ignored.
+
+```xml
+<key>ExpectedFindings</key>
+<array>
+  <dict>
+    <key>rule</key><string>key.ssh.private</string>
+    <key>path</key><string>~/.safe-chain/certs/ca-key.pem</string>
+  </dict>
+</array>
+```
+
+Expected findings are still found and counted, and stay in saved reports and
+copied summaries. The background helper follows the list the app last read, so
+a changed profile takes effect the next time the app opens. The `loose-keys`
+command does not read the list: scripts that collect its reports apply the same
+rule and path pairs themselves.
 
 ### Background helper and notifications
 

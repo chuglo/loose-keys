@@ -456,11 +456,30 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.handle(name, payload) }
         }
         if reviewRoute { pane = .review }
+        syncExpected()
         Task { await refresh() }
+    }
+
+    /// The organization's expected findings, from a managed preference only:
+    /// a value macOS does not mark as forced may come from a file in the
+    /// home folder, and is not read. Nothing forced means nothing is listed,
+    /// and the engine drops what it had.
+    func syncExpected() {
+        #if !PREVIEW
+        let key = "ExpectedFindings" as CFString
+        let domain = "dev.loosekeys.desktop" as CFString
+        var entries: [[String: String]] = []
+        if CFPreferencesAppValueIsForced(key, domain),
+           let listed = CFPreferencesCopyAppValue(key, domain) as? [[String: String]] {
+            entries = listed
+        }
+        Task { try? await engine.send("set_expected", ["entries": entries]) }
+        #endif
     }
 
     /// The helper may have found something while the window was in the background.
     func becameActive() {
+        syncExpected()
         // Notifications may have been allowed or blocked in System Settings
         // meanwhile. While macOS is asking, its answer is on the way.
         if !active, !awaitingPermission {

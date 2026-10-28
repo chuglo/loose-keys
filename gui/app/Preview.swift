@@ -955,7 +955,7 @@ enum Checks {
             await open(.setAside)
             expect(await eventually { written().contains("No Items Set Aside") },
                    "the Set Aside page explains an empty list")
-            for reason in SetAsideReason.all + [SetAsideReason.legacy] {
+            for reason in SetAsideReason.all + [SetAsideReason.legacy, SetAsideReason.expected] {
                 await open(.review)
                 guard let item = model.reviewRows.first(where: { $0.id == 6 }) else {
                     expect(false, "the finding is available for each decision reason")
