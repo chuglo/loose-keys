@@ -46,6 +46,14 @@ four reasons:
 - **No Longer Works**
 - **Keeping It Here Intentionally**
 
+Use Command-click to select several findings, Shift-click to select a range,
+or Command-A while the table has focus to select all visible findings.
+The inspector's **Set Aside…** applies the chosen reason to selected findings
+that are not fixed. Set Aside also supports selecting several findings to
+**Move to Worth Reviewing**. File actions require a single selection.
+Decisions are saved one at a time: if one fails, earlier saves remain and the
+list refreshes before showing the error; later items are not changed.
+
 The first three cover matching copies wherever they are stored. If a password
 or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
 or Key**, changed text appears there if it is flagged again. A finding set

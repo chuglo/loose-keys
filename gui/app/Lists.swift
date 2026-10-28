@@ -37,7 +37,7 @@ struct ReviewTable: View {
                 Text(empty.text)
             }
         } else {
-            Table(model.reviewRows, selection: $model.selectedReview, sortOrder: $model.reviewSort) {
+            Table(model.reviewRows, selection: $model.selectedReviews, sortOrder: $model.reviewSort) {
                 TableColumn("Finding", value: \.shownTitle) { (item: ReviewItem) in
                     // Most rows are open, and Set Aside lists only set-aside
                     // ones, so only a fixed row says what it is.
@@ -64,12 +64,12 @@ struct ReviewTable: View {
             }
             .contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
                 // Not for a file whose name the app does not act on.
-                if let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
                     Button("Show in Finder") { model.showInFinder(id, review: true) }
                     Button("Copy Path") { model.copyPath(id, review: true) }
                 }
             } primaryAction: { ids in
-                if let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
                     model.showInFinder(id, review: true)
                 }
             }

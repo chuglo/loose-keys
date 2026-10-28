@@ -213,6 +213,46 @@ func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> 
                  "skipped": [String](), "full": full])
 }
 
+@MainActor func multipleReviewSelection() async {
+    let bench = Bench()
+    bench.model.pane = .review
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(reviewStates(["open", "open", "fixed"])))
+    bench.model.selectedReviews = [1, 2, 3]
+    check(bench.model.currentReview == nil && bench.model.currentReviews.count == 3,
+          "multiple selection never inspects an arbitrary item")
+    bench.model.search = "fixture-2"
+    check(bench.model.selectedReviews == [2], "filtering retains only visible selections")
+    bench.model.search = ""
+    bench.model.selectedReviews = [1, 2, 3]
+    let first = await bench.ask("decide_review") { $0.decideSelection(reason: "testing") }
+    check(first.call.args["id"] as? Int == 1 && first.call.args["revision"] as? Int == 1,
+          "batch sends the first displayed id and revision")
+    bench.model.decideSelection(reason: "kept")
+    check(await bench.holdsOnly(1, "decide_review"), "repeated presses cannot overlap a batch")
+    // A later selection must not change the captured targets.
+    bench.model.selectedReview = 3
+    await bench.answer(first, .success("null"))
+    let second = await bench.next("decide_review", after: 1)
+    check(second.args["id"] as? Int == 2 && second.args["revision"] as? Int == 1
+          && second.args["reason"] as? String == "testing", "batch keeps the drawn targets and reason")
+    bench.answer(second, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["set-aside", "set-aside", "fixed"])))
+    await eventually("batch refresh finishes") { !bench.model.decidingSelection }
+    check(bench.model.selectedReviews == [3] && bench.engine.held("decide_review").count == 2,
+          "fixed items are skipped and a later visible selection survives")
+
+    bench.model.pane = .setAside
+    bench.model.selectedReviews = [1, 2]
+    let failed = await bench.ask("decide_review") { $0.decideSelection(reason: nil) }
+    await bench.answer(failed, .failure(EngineError(message: "The finding changed.")))
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewStates(["set-aside", "set-aside", "fixed"], revision: 2)))
+    await eventually("failed batch refresh finishes") { !bench.model.decidingSelection }
+    check(bench.model.failure != nil && bench.engine.held("decide_review").count == 3,
+          "a refusal is shown after refreshing and stops the remaining decisions")
+    check(bench.model.selectedReviews == [1, 2], "failed decisions retain visible selections")
+}
+
 @MainActor func setAsideLeavesReview() async {
     let bench = Bench()
     bench.model.pane = .review
@@ -1114,6 +1154,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
 @main enum RefreshOrder {
     @MainActor static func main() async {
         let cases: [(String, @MainActor () async -> Void)] = [
+            ("multiple review selection", multipleReviewSelection),
             ("set aside leaves the review queue", setAsideLeavesReview),
             ("set aside failures and changed values", setAsideFailuresAndChanges),
             ("set aside: a later choice outranks a saved move", setAsideMoveYieldsToLaterChoice),

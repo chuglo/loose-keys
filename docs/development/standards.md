@@ -560,6 +560,19 @@ vendors change their settings.
   refresh succeed, and only if the person chose no other row and did not
   change page in the meantime. The checks do not cover pointer placement, a
   move with several set-aside rows in the real table, or the real engine.
+- Review tables keep a set of selected ids. Filtering intersects it with
+  visible rows, and refresh maps each grouped finding to its current entry
+  before removing hidden selections. The inspector shows a single finding
+  only for one selection; file actions likewise require exactly one id.
+  Multiple decisions capture the displayed ids and revisions, send existing
+  commands sequentially, stop on the first failure and refresh even then.
+  Earlier successful saves are not rolled back. Repeated batch presses are
+  disabled until that refresh ends. The model check covers captured targets,
+  filtering, fixed rows, repeated presses and failure; the window check sets
+  multiple table rows through accessibility, checks the inspector and returns
+  several sample findings with its button.
+  Unverified: modifier-key selection with a pointer and batch decisions
+  through the real engine in the guest.
 - Two messages in the window's log are known and come from SwiftUI's own
   tables, not from this code: "Publishing changes from within view updates"
   on each selection change, and AppKit's "reentrant operation" warning when

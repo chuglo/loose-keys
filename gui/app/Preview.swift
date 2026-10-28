@@ -809,6 +809,16 @@ enum Checks {
             let keys: [PartialKeyPath<ReviewItem>] = [\.shownTitle, \.path, \.riskLevel]
             await headings(list, keys, sort: { model.reviewSort }, rows: { model.reviewRows })
             expect(model.selectedReview == chosen, "sorting keeps the chosen finding selected")
+            begin("selecting several findings")
+            let selected = Array(rows(list).prefix(2))
+            let selectionResult = AXUIElementSetAttributeValue(list, kAXSelectedRowsAttribute as CFString, selected as CFArray)
+            await settle(after: "selecting several findings")
+            expect(selectionResult == .success && model.selectedReviews.count == 2,
+                   "the table accepts multiple selected rows")
+            expect(model.currentReview == nil && button("Copy Path") == nil,
+                   "multiple selection does not offer an arbitrary file action")
+            expect(await eventually { written().contains("2 items selected") },
+                   "the inspector shows the selected count")
             model.search = "no finding has this text"
             await settle(after: "filtering out the selected finding")
             expect(model.selectedReview == nil && model.currentReview == nil, "a finding the filter hides is no longer selected")
@@ -944,6 +954,22 @@ enum Checks {
                 expect(await eventually { model.pane == .review && model.setAsideCount == 0 },
                        "each decision can be returned to review")
             }
+            await open(.review)
+            let batch = Set(model.reviewRows.filter { $0.status == "open" }.prefix(2).map(\.id))
+            model.selectedReviews = batch
+            await settle(after: "selecting findings to set aside together")
+            expect(batch.count == 2 && everything().flatMap(names).contains("Set Aside…"),
+                   "multiple findings offer Set Aside")
+            // Menus are chosen through the model, as in the single-item checks.
+            model.decideSelection(reason: "testing")
+            expect(await eventually { !model.decidingSelection && batch.allSatisfy { model.reviewEntry($0)?.status == "set-aside" } },
+                   "Set Aside applies to each selected finding")
+            await open(.setAside)
+            model.selectedReviews = batch
+            await settle(after: "selecting findings to return together")
+            await press(button("Move to Worth Reviewing"), "returning several findings to review")
+            expect(await eventually { !model.decidingSelection && batch.allSatisfy { model.reviewEntry($0)?.status == "open" } },
+                   "Move to Worth Reviewing returns each selected finding")
             SampleEngine.decisions = [6: "kept"]
             await model.refreshReview()
             await open(.review)

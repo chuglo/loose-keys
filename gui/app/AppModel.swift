@@ -171,7 +171,13 @@ final class AppModel: ObservableObject {
     private var accessCancelled = false
     @Published var progress: ScanProgress?
     @Published var started: Date?
-    @Published var selectedReview: ReviewItem.ID?
+    @Published var selectedReviews: Set<ReviewItem.ID> = []
+    /// Single-item callers and the inspector never pick an arbitrary member.
+    var selectedReview: ReviewItem.ID? {
+        get { selectedReviews.count == 1 ? selectedReviews.first : nil }
+        set { selectedReviews = newValue.map { [$0] } ?? [] }
+    }
+    @Published private(set) var decidingSelection = false
     @Published var selectedStored: StoredRow.ID?
     /// The column headings each list is sorted by, the last one clicked first.
     /// Status is where the review list starts: open first, then by risk.
@@ -329,6 +335,32 @@ final class AppModel: ObservableObject {
                       comment: "Overview, under the last scan's counts. The first number counts findings, the second the Worth Reviewing list's items.")
     }
 
+    var currentReviews: [ReviewItem] {
+        guard reviewProblem == nil else { return [] }
+        return reviewRows.filter { selectedReviews.contains($0.id) }
+    }
+
+    /// Capture displayed revisions before starting. Stop on the first refusal;
+    /// earlier saves remain saved and the ordered refresh shows that progress.
+    func decideSelection(reason: String?) {
+        guard !decidingSelection else { return }
+        let items = currentReviews.filter { $0.status != "fixed" }
+        guard !items.isEmpty else { return }
+        decisionTurn += 1
+        decidingSelection = true
+        Task {
+            defer { decidingSelection = false }
+            var problem: String?
+            do {
+                for item in items {
+                    try await engine.send("decide_review", drawn(item).merging(["reason": reason ?? NSNull()]) { $1 })
+                }
+            } catch { problem = error.localizedDescription }
+            await refreshReview()
+            if let problem { failure = problem }
+        }
+    }
+
     var currentReview: ReviewItem? {
         // A list that cannot be used is not shown, so none of its items is the
         // current one. After a failed read or save the engine would refuse a
@@ -355,7 +387,7 @@ final class AppModel: ObservableObject {
     private func dropHiddenSelection() {
         // Against what the filter leaves, not the current finding: no finding
         // is current while the list cannot be used, and the choice is kept then.
-        if let chosen = selectedReview, !reviewShown.contains(where: { $0.id == chosen }) { selectedReview = nil }
+        selectedReviews.formIntersection(reviewShown.map(\.id))
         if selectedStored != nil, currentStored == nil { selectedStored = nil }
     }
 
@@ -489,9 +521,7 @@ final class AppModel: ObservableObject {
                 review = answer
                 reviewUnread = nil
                 // The chosen row may be back under another copy's id. It stays chosen.
-                if let chosen = selectedReview, let entry = reviewEntry(chosen), entry.id != chosen {
-                    selectedReview = entry.id
-                }
+                selectedReviews = Set(selectedReviews.map { reviewEntry($0)?.id ?? $0 })
                 if reviewProblem == nil { dropHiddenSelection() }
             } catch {
                 // The read that follows a request made since answers for this
@@ -788,6 +818,7 @@ final class AppModel: ObservableObject {
 
     /// Set an item aside for a reason, or return it to review with nil.
     func decide(_ item: ReviewItem, reason: String?) {
+        guard !decidingSelection else { return }
         decisionTurn += 1
         let turn = decisionTurn
         let from = pane
@@ -799,7 +830,7 @@ final class AppModel: ObservableObject {
             // refresh has dropped its row from Set Aside, so a selection left
             // is one made after the press, and so is a page change.
             guard turn == decisionTurn, reason == nil,
-                  from == .setAside, pane == from, paneChanged == since, selectedReview == nil,
+                  from == .setAside, pane == from, paneChanged == since, selectedReviews.isEmpty,
                   let entry = reviewEntry(item.id), entry.status != "set-aside" else { return }
             pane = .review
             selectedReview = reviewShown.first { $0.id == entry.id }?.id

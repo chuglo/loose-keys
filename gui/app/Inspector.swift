@@ -7,6 +7,26 @@ struct Inspector: View {
     var body: some View {
         if model.pane == .review || model.pane == .setAside, let item = model.currentReview {
             ReviewInspector(item: item)
+        } else if (model.pane == .review || model.pane == .setAside), model.currentReviews.count > 1 {
+            Form {
+                Section {
+                    Text(String(localized: "\(model.currentReviews.count) items selected",
+                                comment: "Inspector heading when several findings are selected."))
+                    if model.pane == .setAside {
+                        Button("Move to Worth Reviewing") { model.decideSelection(reason: nil) }
+                    } else if model.currentReviews.contains(where: { $0.status != "fixed" }) {
+                        Menu("Set Aside…") {
+                            ForEach(SetAsideReason.all) { reason in
+                                Button(reason.label) { model.decideSelection(reason: reason.id) }
+                            }
+                        }
+                    } else {
+                        Text("It is fixed here, so there is nothing to set aside.")
+                    }
+                }
+                .disabled(model.decidingSelection)
+            }
+            .formStyle(.grouped)
         } else if model.pane == .stored, let row = model.currentStored {
             StoredInspector(row: row)
         } else {
@@ -54,6 +74,7 @@ private struct ReviewInspector: View {
                     Text(reason?.summary ?? String(localized: "Set aside by you",
                                                    comment: "Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know."))
                     Button("Move to Worth Reviewing") { model.decide(item, reason: nil) }
+                        .disabled(model.decidingSelection)
                 } header: {
                     Text("Set Aside")
                 }
@@ -105,7 +126,7 @@ private struct ReviewInspector: View {
 
             if item.status != "set-aside" {
                 Section("Review Options") {
-                    decisions
+                    decisions.disabled(model.decidingSelection)
                 }
                 if item.status != "fixed", let folder = item.folder {
                     Section("Folder") {
