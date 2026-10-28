@@ -161,6 +161,10 @@ sample window check runs in a guest whenever the matrix requires it.
   Optional signing of local builds with an Apple Development identity
   (`LOOSE_KEYS_SIGN_IDENTITY` in `gui/build-macos.sh`) was approved on
   2026-10-15. The ad-hoc default must keep working without one.
+- **No new languages without explicit approval or instruction.** Use the
+  existing language and toolchain for the component and its tests. Ask before
+  introducing another language or runtime there, even if it is already used
+  elsewhere in the repository. Convenience alone is not a reason to add one.
 - **macOS only:** the code has no branch for
   another system, and nothing is built, checked or claimed for
   one. The engine still has no window, dialog or clipboard code.
