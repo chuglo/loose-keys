@@ -155,7 +155,7 @@ final class SampleEngine: Engine {
          "reason":"A recovery phrase is the wallet. Anyone who copies these words can take everything in it, with no password, and stealers collect small text files from Desktop, Documents and Downloads.",
          "next_step":"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now.",
          "severity":"\(severity)","steps":["Write the phrase on paper, or stamp it in metal, and store it somewhere safe away from the computer.","Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots.","If this Mac may have been infected, create a new wallet with a new phrase and move the funds to it."],
-         "link":null,"subject":\(quoted(subject)),"detail":\(quoted(detail)),"first_seen":"2026-10-10T21:40:00Z","resolved_at":null,
+         "link":null,"subject":\(quoted(subject)),"detail":\(quoted(detail)),"first_seen":"2026-10-\(10 + id % 9)T21:40:00Z","resolved_at":null,
          "resolved":\(state == "fixed"),"state":"\(state)","set_aside":\(quoted(aside)),
          "places":\(copies),"folder":null,"actionable":\(actionable)}
         """
@@ -821,7 +821,7 @@ enum Checks {
                    "the finding's details start folded and unfold")
             await press(button("Hide Details"), "folding the finding's details")
             expect(await eventually { !written().contains("Rule") }, "the inspector folds the finding's details again")
-            let keys: [PartialKeyPath<ReviewItem>] = [\.shownTitle, \.path, \.riskLevel]
+            let keys: [PartialKeyPath<ReviewItem>] = [\.shownTitle, \.path, \.riskLevel, \.firstSeenOrder]
             await headings(list, keys, sort: { model.reviewSort }, rows: { model.reviewRows })
             expect(model.selectedReview == chosen, "sorting keeps the chosen finding selected")
             begin("selecting several findings")
@@ -885,7 +885,7 @@ enum Checks {
         #if PREVIEW
         await open(.setAside)
         if let table = list(), let row = rows(table).first {
-            expect(headingButtons(table).count == 3 && !headingButtons(table).flatMap(names).contains("Status"),
+            expect(headingButtons(table).count == 4 && !headingButtons(table).flatMap(names).contains("Status"),
                    "Set Aside omits the redundant Status column")
             await choose(row, "choosing a set-aside finding")
             expect(model.reviewRows.map(\.id) == [6] && model.currentReview?.id == 6,

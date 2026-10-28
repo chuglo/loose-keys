@@ -581,6 +581,14 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             entry.folder = offered_folder(&lead.path);
             entry.actionable = plain(&lead.path);
         }
+        // The credential was first seen where it was found first, fixed or
+        // not. The same clock writes every date, so text order is time order.
+        entry.item.first_seen = state
+            .items
+            .iter()
+            .filter(|i| entry.places.iter().any(|p| p.id == i.id))
+            .filter_map(|i| i.first_seen.clone())
+            .min();
         let decision = open.iter().find_map(|(_, d)| *d);
         entry.set_aside = decision.map(|d| d.reason);
         entry.state = if open.is_empty() {
@@ -2819,6 +2827,35 @@ mod tests {
             .decide(2, review::Reason::Kept, now(), "then".into())
             .unwrap();
         assert_eq!(review_items(&state).0[0].state, "set-aside");
+    }
+
+    #[test]
+    fn a_credential_in_several_places_was_first_seen_in_the_first() {
+        let copy = |id: u64, path: &str, seen: &str| -> review::Item {
+            serde_json::from_value(json!({
+                "id": id, "revision": id, "rule": "secret.service-token", "path": path,
+                "secret": "digest-a", "line": null, "title": "t", "explanation": "e",
+                "reason": null, "next_step": null, "first_seen": seen,
+            }))
+            .unwrap()
+        };
+        let mut state = review::Review {
+            items: vec![
+                copy(1, "~/later.txt", "2026-10-05T00:00:00Z"),
+                copy(2, "~/earlier.txt", "2026-10-01T00:00:00Z"),
+            ],
+            ..Default::default()
+        };
+        let first = |state: &review::Review| review_items(state).0[0].item.first_seen.clone();
+        assert_eq!(first(&state).as_deref(), Some("2026-10-01T00:00:00Z"));
+        // Still so when the entry speaks for the later copy, or once the
+        // earlier one is fixed.
+        state.items[1].resolved = true;
+        assert_eq!(review_items(&state).0[0].item.path, "~/later.txt");
+        assert_eq!(first(&state).as_deref(), Some("2026-10-01T00:00:00Z"));
+        // A copy saved before the date was kept says nothing either way.
+        state.items[1].first_seen = None;
+        assert_eq!(first(&state).as_deref(), Some("2026-10-05T00:00:00Z"));
     }
 
     #[test]

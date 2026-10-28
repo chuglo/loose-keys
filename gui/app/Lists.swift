@@ -61,6 +61,11 @@ struct ReviewTable: View {
                     RiskLabel(severity: item.severity)
                 }
                 .width(min: 92, ideal: 96, max: 120)
+                // The first click puts the newest at the top.
+                TableColumn("First Seen", sortUsing: KeyPathComparator(\ReviewItem.firstSeenOrder, order: .reverse)) { (item: ReviewItem) in
+                    Text(localDay(item.firstSeen))
+                }
+                .width(min: 90, ideal: 110, max: 160)
             }
             .contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
                 // Not for a file whose name the app does not act on.

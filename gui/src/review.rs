@@ -532,6 +532,10 @@ impl Review {
                     }
                 };
                 let changed = item.resolved || differs || (f.shared && !item.shared);
+                // Another value taking the item was first seen now.
+                if matches!((&item.secret, &f.secret), (Some(old), Some(now)) if old != now) {
+                    item.first_seen = Some(report.generated_at.clone());
+                }
                 if changed {
                     self.revision = self.revision.saturating_add(1);
                     item.revision = self.revision;
@@ -1803,6 +1807,35 @@ mod tests {
         }
         old.resolve(&elsewhere, |_| there(&[]));
         assert!(old.items[0].resolved);
+    }
+
+    #[test]
+    fn first_seen_is_when_the_value_was_found() {
+        const R: &str = "secret.service-token";
+        const P: &str = "~/notes.txt";
+        let at = |digest| (R, P, Some("Synthetic token"), Some(digest));
+        let when = |findings: &[_], time: &str| {
+            let mut r = found(findings);
+            r.generated_at = time.into();
+            r
+        };
+        let first = |state: &Review| state.items[0].first_seen.clone().unwrap();
+        let mut state = Review::default();
+        checked(&mut state, &when(&[at("digest-a")], "2026-10-01T00:00:00Z"));
+        // Found again, it is still the value first seen then.
+        checked(&mut state, &when(&[at("digest-a")], "2026-10-02T00:00:00Z"));
+        assert_eq!(first(&state), "2026-10-01T00:00:00Z");
+        // Removed, then put back: the same value, first seen then too.
+        state.resolve(&found(&[]), |_| Some(Vec::new()));
+        assert!(state.items[0].resolved);
+        checked(&mut state, &when(&[at("digest-a")], "2026-10-04T00:00:00Z"));
+        assert_eq!(first(&state), "2026-10-01T00:00:00Z");
+        // Replaced in place by another value, which takes the item: that
+        // value was first seen when it was found.
+        checked(&mut state, &when(&[at("digest-b")], "2026-10-05T00:00:00Z"));
+        assert_eq!(state.items.len(), 1);
+        assert_eq!(state.items[0].secret.as_deref(), Some("digest-b"));
+        assert_eq!(first(&state), "2026-10-05T00:00:00Z");
     }
 
     #[test]

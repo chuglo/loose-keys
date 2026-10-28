@@ -374,6 +374,10 @@ extension ReviewItem {
         }
     }
 
+    /// What the First Seen heading sorts by. The engine writes every date
+    /// the same way, in UTC, so text order is time order.
+    var firstSeenOrder: String { firstSeen ?? "" }
+
     /// Open first, then by risk, so what needs attention is at the top.
     var order: Int {
         statusRank * 10 + (2 - riskLevel)
@@ -404,4 +408,10 @@ func riskText(_ severity: String) -> String {
 func localTime(_ timestamp: String?) -> String {
     guard let timestamp, let date = ISO8601DateFormatter().date(from: timestamp) else { return timestamp ?? "" }
     return date.formatted(date: .abbreviated, time: .shortened)
+}
+
+/// The day of the engine's UTC timestamp, in the person's own format.
+func localDay(_ timestamp: String?) -> String {
+    guard let timestamp, let date = ISO8601DateFormatter().date(from: timestamp) else { return timestamp ?? "" }
+    return date.formatted(date: .abbreviated, time: .omitted)
 }
