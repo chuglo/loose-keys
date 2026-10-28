@@ -15,7 +15,7 @@ OLD=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
 O=$(printf '%s' "$OLD" | sed 's/\./\\./g')
 
 sed -i '' "s/^version = \"$O\"\$/version = \"$NEW\"/" Cargo.toml gui/Cargo.toml
-sed -i '' "s/^Version $O, MIT licensed\\.\$/Version $NEW, MIT licensed./" README.md
+sed -i '' "s/^Version $O\\([ ,].*\\)\$/Version $NEW\\1/" README.md
 sed -i '' "s#<string>$O</string>#<string>$NEW</string>#g" gui/macos/Info.plist
 cargo metadata --offline --format-version 1 > /dev/null  # rewrites Cargo.lock
 

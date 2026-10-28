@@ -53,6 +53,36 @@ class ReleaseScripts(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual((root / "Cargo.toml").read_text(), original)
 
+    def test_bump_preserves_readme_version_line_format(self):
+        with tempfile.TemporaryDirectory(prefix=f"release-readme-{os.getpid()}-") as folder:
+            root = Path(folder)
+            repo = root / "repo"
+            repo.mkdir()
+            def run(*args, cwd=repo):
+                return subprocess.run(args, cwd=cwd, check=True, capture_output=True)
+            run("git", "init")
+            (repo / "gui/macos").mkdir(parents=True)
+            (repo / "src").mkdir()
+            (repo / "gui/src").mkdir()
+            (repo / "src/lib.rs").write_text("")
+            (repo / "gui/src/lib.rs").write_text("")
+            (repo / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["gui"]\n[package]\nname = "fixture"\nversion = "0.2.0"\nedition = "2021"\n')
+            (repo / "gui/Cargo.toml").write_text(
+                '[package]\nname = "fixture-gui"\nversion = "0.2.0"\nedition = "2021"\n')
+            (repo / "README.md").write_text("Version 0.2.0 · MIT licensed\n")
+            (repo / "gui/macos/Info.plist").write_text("<string>0.2.0</string>\n")
+            run("cargo", "metadata", "--offline", "--format-version", "1")
+            run("git", "add", ".")
+            run("git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "-c", "commit.gpgsign=false", "commit", "-m", "Synthetic version fixture")
+            work = root / "work"
+            run("git", "worktree", "add", str(work))
+            result = subprocess.run(["sh", str(HERE / "bump.sh"), "0.2.1"],
+                                    cwd=work, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((work / "README.md").read_text(), "Version 0.2.1 · MIT licensed\n")
+
     def test_failed_guest_setup_stops_owned_guest(self):
         with tempfile.TemporaryDirectory(prefix=f"release-cleanup-{os.getpid()}-") as folder:
             root = Path(folder)
