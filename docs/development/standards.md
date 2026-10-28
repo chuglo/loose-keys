@@ -420,6 +420,22 @@ vendors change their settings.
 
 ## The window and running the app
 
+### Disk image packaging
+
+`gui/package-dmg.sh` copies the signed build into a compressed, read-only
+HFS+ disk image with an `/Applications` shortcut and English/Spanish install
+instructions. It uses macOS tools, adds no dependency, starts no app, and
+never writes to Applications. A private temporary staging directory is
+removed on exit; an existing output image is refused. The release candidate
+includes both this image and the existing ZIP in its checksum manifest.
+Candidate verification requires both packages at fixed paths and rejects
+a missing or modified one; candidates from the ZIP-only workflow must be
+rebuilt. The offline script regression checks each package independently.
+The ZIP remains the input to the guest scripts; that does not verify the
+Finder installation flow. See [disk image checks](../testing/local-verification.md#installer-disk-image)
+for verification and remaining unverified behavior. Packaging does not add
+notarization or change signing.
+
 ### Building and starting
 
 - `sh gui/build-macos.sh` builds the engine with cargo, links the window to

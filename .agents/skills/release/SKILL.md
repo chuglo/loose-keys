@@ -23,8 +23,12 @@ interactive desktop agent or VNC.
    Check that the tree stayed clean. Keep the configured commit signing.
 4. Run `sh .agents/skills/release/candidate.sh <commit>`. It builds an ad-hoc
    bundle and harness from that commit, checks the bundle and versions, and
-   prints the candidate directory and ZIP checksum. Keep the directory:
-   the guest checks and upload must use this ZIP. A new build needs new checks.
+   prints the candidate directory and ZIP and DMG checksums. Both packages
+   contain the same app. Keep the directory: the guest checks use this ZIP,
+   and publication uses both tested packages. Run the disk image checks in
+   `docs/testing/local-verification.md`: mount read-only, verify the signature
+   and Applications shortcut, and compare its app with the unzipped ZIP.
+   A new build needs new checks.
 
 ## Guest checks
 
@@ -59,7 +63,7 @@ Sync and stop the guest afterward. List an omitted walkthrough as Not verified.
 
 ## Publish
 
-Report the commit, ZIP SHA-256, exit statuses, logs and remaining checks.
+Report the commit, ZIP and DMG SHA-256, exit statuses, logs and remaining checks.
 Include untested items from the commit history, appearance, login, updating
 from the prior release, a physical Mac and notarization. Draft release notes
 in the window's words, with installation instructions.
@@ -70,15 +74,16 @@ can fast-forward main. A changed release commit needs new checks and a new
 candidate. Recheck the candidate's `SHA256SUMS` against its files.
 
 Merge the tested commit, push main, create and push its signed `v0.y.z` tag,
-then publish the tested ZIP:
+then publish both tested packages:
 
 ```sh
 gh release create v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.zip" \
+  "<candidate directory>/share/Loose-Keys-0.y.z.dmg" \
   --verify-tag --title "Loose Keys 0.y.z (beta)" --notes-file "<notes file>"
 ```
 
-Verify the remote commit and tag signatures. Download the published ZIP into
-a fresh directory and compare its SHA-256 with the tested copy.
+Verify the remote commit and tag signatures. Download both published packages
+into a fresh directory and compare their SHA-256 values with the tested copies.
 
 ## Checking these scripts
 

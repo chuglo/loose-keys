@@ -66,6 +66,26 @@ or a Spanish entry has no key, and lists them ready to paste. `cargo test`
 does the same for the engine's text in `gui/macos/es.lproj/Engine.strings`.
 Neither shows the Spanish on screen.
 
+## Installer disk image
+
+After building the bundle, run `sh gui/package-dmg.sh`. It verifies the code
+signature and the compressed image. Mount the image without opening the app:
+
+```sh
+hdiutil attach -readonly -nobrowse target/release/bundle/macos/Loose-Keys-0.4.0.dmg
+readlink "/Volumes/Loose Keys/Applications"
+codesign --verify --deep --strict "/Volumes/Loose Keys/Loose Keys.app"
+diff -qr "target/release/bundle/macos/Loose Keys.app" "/Volumes/Loose Keys/Loose Keys.app"
+hdiutil detach "/Volumes/Loose Keys"
+```
+
+The shortcut must point to `/Applications`; the bundle must match the source.
+Use the version printed by the packaging script. Finder chooses the layout;
+there is no custom background or forced icon positioning. Not verified by
+these commands: dragging in Finder, installing over an older app, opening
+the downloaded image through Gatekeeper, or launching the installed app.
+Those checks belong in the disposable guest when requested.
+
 ## The window
 
 The window check runs the sample-data build, with no engine and no home

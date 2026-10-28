@@ -16,7 +16,8 @@ verify_candidate() {
     printf '%s\n' "$VERSION" | grep -Eq '^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
         || fail 'invalid candidate version'
     ZIP="Loose-Keys-$VERSION.zip"
-    sums=$(cd "$CAND" && shasum -a 256 commit share/repo.tar share/security-harness "share/$ZIP") \
+    DMG="Loose-Keys-$VERSION.dmg"
+    sums=$(cd "$CAND" && shasum -a 256 commit share/repo.tar share/security-harness "share/$ZIP" "share/$DMG") \
         || fail 'candidate files are missing'
     printf '%s\n' "$sums" | cmp -s - "$CAND/SHA256SUMS" || fail 'candidate changed; build a new candidate'
 }

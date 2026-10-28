@@ -28,6 +28,7 @@ VERSION=$(git show "$COMMIT:Cargo.toml" | sed -n 's/^version = "\(.*\)"$/\1/p' |
 printf '%s\n' "$VERSION" | grep -Eq '^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || fail 'invalid version in Cargo.toml'
 OUT=$(mktemp -d "${TMPDIR%/}/release-$VERSION-$SHORT.XXXXXX")
 ZIP="Loose-Keys-$VERSION.zip"
+DMG="Loose-Keys-$VERSION.dmg"
 mkdir -p "$OUT/src" "$OUT/share"
 
 # An export of the commit alone: no uncommitted change and no old target/.
@@ -55,14 +56,19 @@ done
 logged harness-build sh security-tests/harness.sh executable
 cp "$(tail -n 1 "$OUT/harness-build.log")" "$OUT/share/security-harness"
 
+logged disk-image sh gui/package-dmg.sh
+cp "target/release/bundle/macos/$DMG" "$OUT/share/$DMG"
 ditto -c -k --keepParent "target/release/bundle/macos/$APP" "$OUT/share/$ZIP"
 (cd "$OUT/share" && shasum -a 256 "$ZIP") > "$OUT/$ZIP.sha256"
+(cd "$OUT/share" && shasum -a 256 "$DMG") > "$OUT/$DMG.sha256"
 cd "$OUT"
 rm -rf "$OUT/src"
 printf '%s %s\n' "$COMMIT" "$VERSION" > "$OUT/commit"
-shasum -a 256 commit share/repo.tar share/security-harness "share/$ZIP" > "$OUT/SHA256SUMS"
+shasum -a 256 commit share/repo.tar share/security-harness "share/$ZIP" "share/$DMG" > "$OUT/SHA256SUMS"
 
 printf 'Candidate: %s\n' "$OUT"
 printf 'Commit:    %s (%s)\n' "$COMMIT" "$REF"
+printf 'Disk image: %s\n' "$OUT/share/$DMG"
 printf 'Zip:       %s\n' "$OUT/share/$ZIP"
 printf 'SHA-256:   %s\n' "$(cut -d ' ' -f 1 "$OUT/$ZIP.sha256")"
+printf 'DMG SHA-256: %s\n' "$(cut -d ' ' -f 1 "$OUT/$DMG.sha256")"

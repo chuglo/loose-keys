@@ -13,7 +13,9 @@ Version 0.4.0, MIT licensed.
 
 You need macOS 14 or later. Download the app from the
 [latest release](https://github.com/chuglo/loose-keys/releases/latest), unzip
-it and move **Loose Keys** to Applications.
+it and move **Loose Keys** to Applications. If the release includes a `.dmg`,
+open it and drag **Loose Keys** onto its **Applications** shortcut, then eject
+the disk and open the app from Applications.
 
 While Loose Keys is in beta it isn't notarized by Apple, so macOS blocks it the
 first time you open it. Click **Done**:
@@ -37,7 +39,10 @@ sh gui/build-macos.sh
 open "target/release/bundle/macos/Loose Keys.app"
 ```
 
-To keep it, move it to Applications.
+To keep it, move it to Applications. To make a drag-to-Applications disk
+image from that bundle, run `sh gui/package-dmg.sh`. It writes
+`target/release/bundle/macos/Loose-Keys-<version>.dmg` and refuses to overwrite
+an existing image.
 
 ## Command line
 

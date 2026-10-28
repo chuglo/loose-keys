@@ -15,7 +15,8 @@ class ReleaseScripts(unittest.TestCase):
             root = Path(folder)
             (root / "share").mkdir()
             (root / "commit").write_text("a" * 40 + " 0.3.0\n")
-            names = ["commit", "share/repo.tar", "share/security-harness", "share/Loose-Keys-0.3.0.zip"]
+            names = ["commit", "share/repo.tar", "share/security-harness",
+                     "share/Loose-Keys-0.3.0.zip", "share/Loose-Keys-0.3.0.dmg"]
             for name in names[1:]:
                 (root / name).write_bytes(b"original")
             (root / "SHA256SUMS").write_text("".join(
@@ -26,7 +27,13 @@ class ReleaseScripts(unittest.TestCase):
                                        "check", str(HERE / "guest-lib.sh")],
                                       env=dict(os.environ, CAND=folder), capture_output=True)
             self.assertEqual(verify().returncode, 0)
-            (root / names[-1]).write_bytes(b"changed")
+            for name in names[-2:]:
+                with self.subTest(package=name):
+                    (root / name).write_bytes(b"changed")
+                    self.assertNotEqual(verify().returncode, 0)
+                    (root / name).write_bytes(b"original")
+                    self.assertEqual(verify().returncode, 0)
+            (root / names[-1]).unlink()
             self.assertNotEqual(verify().returncode, 0)
 
     def test_invalid_version_does_not_modify_files(self):
