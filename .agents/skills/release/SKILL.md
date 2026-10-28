@@ -1,6 +1,6 @@
 ---
 name: release
-description: Build, check, and publish a Loose Keys release. Use when asked to prepare a release, check whether one is ready, or tag and publish it. Publishing requires explicit approval.
+description: Build, check, and publish a Loose Keys release. Use when asked to prepare a release, check whether one is ready, or tag and publish it. An explicit request to publish or cut a release authorizes publication; preparation or review alone does not.
 ---
 
 Read `AGENTS.md`, `tests/AGENTS.md`, and `docs/testing/local-verification.md`.
@@ -68,9 +68,15 @@ Include untested items from the commit history, appearance, login, updating
 from the prior release, a physical Mac and notarization. Draft release notes
 in the window's words, with installation instructions.
 
-Get approval to merge, push, tag and publish this release, including acceptance
-of what remains unverified. Fetch the remote and check that the tested commit
-can fast-forward main. A changed release commit needs new checks and a new
+An explicit request to publish or cut this release authorizes its merge,
+push, tag and publication. Do not ask again solely because optional checks
+were omitted: report them under "Not verified". Preparation or review alone
+requires publication approval after the candidate and release notes are ready.
+A failed or blocked required check still prevents release; run guest checks
+only when requested.
+
+Fetch the remote and check that the tested commit can fast-forward main or
+is already on main. A changed release commit needs new checks and a new
 candidate. Recheck the candidate's `SHA256SUMS` against its files.
 
 Merge the tested commit, push main, create and push its signed `v0.y.z` tag,

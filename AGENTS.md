@@ -106,10 +106,15 @@ otherwise list them under "Not verified".
   any other host privacy or security change, scans of a real home,
   unrelated prompts, or disabling SIP or Gatekeeper.
 - Push, merge, tag or release only when the person directing the session
-  asked for that action. A tag also needs the list in "Before a push to
-  `main`" to pass on the exact commit, and that person's word on what that
-  leaves unchecked (the guest checks). The `release` skill
-  (`.agents/skills/release/`) has the steps and scripts for a release.
+  asked for that action. An explicit request to publish or cut a release
+  authorizes the merge, push and tag needed for that release; preparing or
+  reviewing a release alone does not. Before tagging, the list in "Before a
+  push to `main`" must pass on the exact release commit. Report passed checks
+  and list omitted checks under "Not verified", including guest checks.
+  Omitted optional checks do not require another confirmation to publish;
+  a failed or blocked required check still prevents release. Run guest checks
+  only when requested. The `release` skill (`.agents/skills/release/`) has the
+  steps and scripts for a release.
 
 ## What the product must keep doing
 
