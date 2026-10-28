@@ -89,7 +89,7 @@ fn runner_self_test(work: &Path) -> Result<()> {
     // Every build, GUI and network command is replaced. Only the runner's
     // sequencing, timing and status handling execute for real.
     let stub = b"#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CALLS\"\ncase \"$*\" in *check_detection.sh*) exit \"$TEST_STATUS\";; esac\nexit 0\n";
-    for name in ["cargo", "node", "sh"] {
+    for name in ["cargo", "node", "sh", "python3"] {
         let file = bin.join(name);
         write_private(&file, stub)?;
         fs::set_permissions(file, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
@@ -133,6 +133,16 @@ fn runner_self_test(work: &Path) -> Result<()> {
                 .count()
                 != 1
             || !calls.contains("check_detection.sh --workspace")
+            || calls
+                .lines()
+                .filter(|line| line.contains("check-window-guest.sh"))
+                .count()
+                != 1
+            || calls
+                .lines()
+                .filter(|line| line.contains("check-window-guest.py"))
+                .count()
+                != 1
             || calls.contains("test --locked --workspace")
             || !calls.lines().last().unwrap_or("").starts_with("audit --db")
         {
