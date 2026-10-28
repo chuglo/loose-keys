@@ -173,10 +173,10 @@
 			<string>%lld places</string>
 		</dict>
 	</dict>
-	<key>%lld places could not be read. Run a scan to see which.</key>
+	<key>%lld places could not be read.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@places@ could not be read. Run a scan to see which.</string>
+		<string>%#@places@ could not be read.</string>
 		<key>places</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>
@@ -189,10 +189,26 @@
 			<string>%lld places</string>
 		</dict>
 	</dict>
-	<key>%lld places could not be read. Scan this Mac to see which.</key>
+	<key>At least %lld places could not be read.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@places@ could not be read. Scan this Mac to see which.</string>
+		<string>At least %#@places@ could not be read.</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld place</string>
+			<key>other</key>
+			<string>%lld places</string>
+		</dict>
+	</dict>
+	<key>%lld places could not be read. See Not Checked for details.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@places@ could not be read. See Not Checked for details.</string>
 		<key>places</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>

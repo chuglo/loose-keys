@@ -173,7 +173,7 @@
 			<string>%lld lugares</string>
 		</dict>
 	</dict>
-	<key>%lld places could not be read. Run a scan to see which.</key>
+	<key>%lld places could not be read.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>%#@places@</string>
@@ -184,12 +184,12 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>lld</string>
 			<key>one</key>
-			<string>No se pudo leer %lld lugar. Haz un análisis para ver cuál.</string>
+			<string>No se pudo leer %lld lugar.</string>
 			<key>other</key>
-			<string>No se pudieron leer %lld lugares. Haz un análisis para ver cuáles.</string>
+			<string>No se pudieron leer %lld lugares.</string>
 		</dict>
 	</dict>
-	<key>%lld places could not be read. Scan this Mac to see which.</key>
+	<key>At least %lld places could not be read.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>%#@places@</string>
@@ -200,9 +200,25 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>lld</string>
 			<key>one</key>
-			<string>No se pudo leer %lld lugar. Analiza tu Mac para ver cuál.</string>
+			<string>No se pudo leer al menos %lld lugar.</string>
 			<key>other</key>
-			<string>No se pudieron leer %lld lugares. Analiza tu Mac para ver cuáles.</string>
+			<string>No se pudieron leer al menos %lld lugares.</string>
+		</dict>
+	</dict>
+	<key>%lld places could not be read. See Not Checked for details.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@places@</string>
+		<key>places</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>No se pudo leer %lld lugar. Consulta los detalles en Sin comprobar.</string>
+			<key>other</key>
+			<string>No se pudieron leer %lld lugares. Consulta los detalles en Sin comprobar.</string>
 		</dict>
 	</dict>
 	<key>%lld set aside</key>

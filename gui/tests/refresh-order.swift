@@ -1151,9 +1151,38 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     }
 }
 
+@MainActor func automaticCoverageReads() async {
+    let bench = Bench()
+    let old = #"{"full_pass":"2026-10-20T12:00:00Z","unread":1,"unread_gaps":[{"label":"Could not be read","help":"","count":1,"paths":["~/old"],"more":0}],"unread_truncated":false}"#
+    let newer = old.replacingOccurrences(of: "~/old", with: "~/new")
+        .replacingOccurrences(of: "2026-10-20", with: "2026-10-21")
+    let first = await bench.ask("automatic_coverage") { await $0.refreshAutomaticCoverage() }
+    await bench.answer(first, .success(old))
+    let failing = await bench.ask("automatic_coverage") { await $0.refreshAutomaticCoverage() }
+    let queued = await bench.request { await $0.refreshAutomaticCoverage() }
+    await bench.answer(failing, refused)
+    check(bench.model.automaticCoverage?.unreadGaps?.first?.paths == ["~/old"]
+          && bench.model.automaticCoverageError == nil,
+          "coverage: a superseded failure preserves the saved list while the next read is pending")
+    bench.answer(await bench.next("automatic_coverage", after: 2), .success(newer))
+    await queued.value
+    check(bench.model.automaticCoverage?.unreadGaps?.first?.paths == ["~/new"],
+          "coverage: the last read supplies paths and completion time together")
+    let last = await bench.ask("automatic_coverage") { await $0.refreshAutomaticCoverage() }
+    await bench.answer(last, refused)
+    check(bench.model.automaticCoverage?.unreadGaps?.first?.paths == ["~/new"]
+          && bench.model.automaticCoverageError != nil,
+          "coverage: a final failure is visible and retains the previous details")
+    check(bench.engine.mostAtOnce("automatic_coverage") == 1,
+          "coverage: reads do not overlap")
+    check(bench.engine.held("start_scan").isEmpty && bench.engine.held("prepare_access").isEmpty,
+          "coverage: reading details neither scans nor prompts for file access")
+}
+
 @main enum RefreshOrder {
     @MainActor static func main() async {
         let cases: [(String, @MainActor () async -> Void)] = [
+            ("automatic coverage: ordered reads and failures", automaticCoverageReads),
             ("multiple review selection", multipleReviewSelection),
             ("set aside leaves the review queue", setAsideLeavesReview),
             ("set aside failures and changed values", setAsideFailuresAndChanges),

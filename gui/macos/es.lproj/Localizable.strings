@@ -675,3 +675,23 @@
 
 /* Notification button that opens the app's review list. [notifications.m (shown by macOS as a notification)] */
 "Review" = "Revisar";
+
+"Show Unread Places" = "Mostrar lugares no leídos";
+
+"Last Automatic Scan" = "Último análisis automático";
+
+"Last Manual Scan" = "Último análisis manual";
+
+"These details are from automatic scanning of your home folder. Added folders and drives are not included." = "Estos detalles corresponden al análisis automático de tu carpeta de inicio. No incluyen las carpetas y unidades añadidas.";
+
+
+"No unread places were recorded in this automatic scan." = "No se registraron lugares sin leer en este análisis automático.";
+
+"The saved list reached its limit. More places could not be checked than are listed here." = "La lista guardada alcanzó su límite. No se pudieron comprobar más lugares de los que aparecen aquí.";
+
+"This automatic scan saved a count but no list. Details will be available after the next automatic full scan." = "Este análisis automático guardó un recuento, pero no una lista. Los detalles estarán disponibles después del próximo análisis automático completo.";
+
+"Automatic scan details could not be refreshed. Any details below are from the last successful read." = "No se pudieron actualizar los detalles del análisis automático. Los detalles que aparecen abajo corresponden a la última lectura correcta.";
+"Loading Details…" = "Cargando detalles…";
+
+"See Not Checked for details." = "Consulta los detalles en Sin comprobar.";

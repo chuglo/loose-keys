@@ -91,7 +91,8 @@ struct RequestOrder {
 }
 
 /// Reads of one thing the window shows and the helper can change: the review
-/// list, or the status of background checks. Only one is out at a time, so
+/// list, background status, or saved automatic coverage. Only one of each
+/// is out at a time, so
 /// answers are shown in the order the engine read them. A number for each
 /// request was not enough: of two calls out together, the one asked for later
 /// could read first, and what the other then read, the newest, was put aside.
@@ -202,6 +203,9 @@ final class AppModel: ObservableObject {
     private var placesOrder = RequestOrder()
     private let reviewReads = ReadTurns()
     private let monitorReads = ReadTurns()
+    private let coverageReads = ReadTurns()
+    @Published var automaticCoverage: AutomaticCoverage?
+    @Published var automaticCoverageError: String?
     private var backgroundUpdates: Task<Void, Never>?
     /// How often `backgroundUpdates` reads, if it runs.
     private var pollInterval: UInt64?
@@ -543,10 +547,27 @@ final class AppModel: ObservableObject {
             // unavailable, not what an older status said of them.
             monitor = answer
             if let answer { menuBarOn = answer.menuBar }
+            if pane == .gaps, let answer,
+               automaticCoverage == nil || automaticCoverageError != nil
+                || automaticCoverage?.fullPass != answer.health.fullPass {
+                await refreshAutomaticCoverage()
+            }
             updatePolling()
             // The engine keeps the last scan this process ran, for a window opened after it.
             if results == nil, phase == .ready, let held = monitor?.results {
                 results = held
+            }
+        }
+    }
+
+    func refreshAutomaticCoverage() async {
+        await coverageReads.run { [self] in
+            do {
+                automaticCoverage = try await engine.request("automatic_coverage")
+                automaticCoverageError = nil
+            } catch {
+                guard !coverageReads.askedAgain else { return }
+                automaticCoverageError = error.localizedDescription
             }
         }
     }
@@ -597,6 +618,28 @@ final class AppModel: ObservableObject {
         for window in NSApp.windows where window.isMiniaturized { window.deminiaturize(nil) }
         openMainWindow()
         if review { pane = .review }
+    }
+
+    /// Open the recorded coverage, without preparing access or running a scan.
+    func showUnreadPlaces() {
+        showWindow(review: false)
+        pane = .gaps
+    }
+
+    var hasAutomaticCoverage: Bool {
+        if let coverage = automaticCoverage,
+           coverage.fullPass != nil || coverage.unread > 0 { return true }
+        guard let health = monitor?.health else { return false }
+        return health.fullPass != nil || (health.unread ?? 0) > 0
+    }
+
+    // Two different scopes may overlap, so their counts must not be added.
+    var gapsCount: Int? {
+        if hasAutomaticCoverage {
+            guard monitor?.health.unreadTruncated != true else { return nil }
+            return results == nil ? monitor?.health.unread : nil
+        }
+        return results?.notChecked
     }
 
     /// Show a short confirmation under the window title, then give the subtitle back.

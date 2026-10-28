@@ -254,6 +254,40 @@ The threats are a local user racing a root run with links, and hostile files
   there is left as it is. A helper from before the move that is still running
   writes to the removed old folder until it restarts.
 
+### Saved automatic coverage
+
+The helper keeps the last completed automatic pass's unread paths and reasons
+in `Agent.unread_places`, alongside its count and completion time in the same
+owner-only store transaction. A pass in progress does not replace that snapshot;
+a failed save retries the slice. Snapshots contain no file contents or credential
+values. `UnreadPlaces` deduplicates path/reason pairs and limits them to 4096
+entries and 512 KiB serialized, within the store's existing 8 MiB limit. Reaching
+either limit marks the snapshot truncated, and the UI describes the count as a
+lower bound. The store validates these bounds on save and load.
+
+`automatic_coverage` reads this snapshot on demand without scanning or probing
+file access. It returns all retained paths escaped through `report::escape`;
+there are no file actions on these display paths. Frequent status polls keep
+only the count, truncation flag and completion time. The model orders detail
+reads with `ReadTurns`, retains a usable snapshot after failures, and refreshes
+it when a newly completed pass is observed while Not Checked is open. Automatic
+and manual details are labeled separately because their scopes differ; their
+counts are not added. Exports still contain only the manual report.
+
+Older state has no snapshot and is shown as count-only until the next automatic
+full pass. An older app/helper saving state can discard the new optional field.
+The retained result is historical: file changes do not rewrite its paths, and
+the helper still excludes `scan-limit` gaps from its completed-pass count because
+slice boundaries are resumable. This does not claim complete coverage of limits
+that no slice gets past. Guest behavior and actual macOS permissions remain
+subject to the guest checks, not the preview or Rust tests.
+
+Verification: the helper's multi-slice test checks persistence and replacement;
+store tests cover entry/byte caps and old state; the helper check searches saved state and detail output for planted file values;
+the engine check exercises path escaping; model checks cover overlapping
+reads and failures; the sample window check opens the list from Settings and
+asserts that no scan was requested.
+
 ## Secrets
 
 - A value does not leave the function that matched it. A matcher returns

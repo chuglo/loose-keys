@@ -43,9 +43,6 @@ const RECHECK_AFTER: Duration = Duration::from_secs(30);
 const INBOX_MAX: usize = 5000;
 /// A path whose check was cut short asks for a full pass once in this long.
 const PASS_AGAIN: Duration = Duration::from_secs(24 * 3600);
-/// Places one full pass did not read that are told apart. Beyond this the
-/// count stands still.
-const UNREAD_MAX: usize = 4096;
 
 // FSEvents flags: events were dropped or coalesced, so the folder must be
 // walked; and the marker that ends replayed history.
@@ -482,7 +479,7 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
     // What the slices of the full pass under way list as not checked, for
     // every reason but "scan-limit": where one slice stops, the next goes on,
     // and a report cannot tell that from a limit no slice gets past.
-    let mut unread: HashSet<(String, &'static str)> = HashSet::new();
+    let mut unread = review::UnreadPlaces::default();
     while let Some(tick) = agent.monitor.wait() {
         if !agent.monitor.arm(ScanKind::Automatic) {
             continue;
@@ -599,7 +596,7 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 full_pass = Some(resume);
             } else {
                 if resume.is_none() {
-                    unread.clear();
+                    unread = review::UnreadPlaces::default();
                 }
                 let before = resume.clone();
                 let (report, pending) = Scan::sweep(
@@ -610,22 +607,18 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                     cancel.clone(),
                     agent.fingerprint(),
                 );
-                let gaps = report.not_checked.iter();
-                for gap in gaps.filter(|gap| gap.reason != "scan-limit") {
-                    if unread.len() < UNREAD_MAX {
-                        unread.insert((gap.path.clone(), gap.reason));
-                    }
-                }
+                unread.record(&report);
                 let done = pending.is_empty();
                 let nothing: &[PathBuf] = &[];
                 let place = (done && !owed).then(|| handled(&waiting, event));
-                let not_read = unread.len();
+                let not_read = unread.places.len();
                 let saved = agent.record(&report, (!done).then_some(nothing), place, |h| {
                     h.left = folders_left(&pending);
                     if done {
                         h.baseline = Some(report.generated_at.clone());
                         h.baseline_at = crate::now();
                         h.unread = not_read;
+                        h.unread_places = Some(unread.clone());
                     }
                 });
                 // A pass that three slices in a row leave as they found it is
@@ -1058,6 +1051,8 @@ mod tests {
     fn a_full_pass_says_how_many_places_it_did_not_read() {
         use std::os::unix::fs::PermissionsExt;
         let locked = "d5/export-3.csv";
+        let pieces = ["fixture-private-", "unread-material"];
+        let planted = pieces.concat();
         let mode = |home: &Path, mode| {
             let permissions = std::fs::Permissions::from_mode(mode);
             std::fs::set_permissions(home.join(locked), permissions).unwrap();
@@ -1075,17 +1070,48 @@ mod tests {
             |agent| {
                 agent.slice.entries = 25;
                 agent.slice_pause = Duration::from_millis(20);
+                std::fs::write(
+                    agent.home.join(locked),
+                    format!("url,username,password\nhttps://fixture.invalid,fixture,{planted}\n"),
+                )
+                .unwrap();
                 mode(&agent.home, 0o000);
             },
         );
         // The file the helper may not open is no finding, and is not silence.
         let state = f.first_pass();
         assert_eq!(state.agent.unread, 1);
+        let saved = serde_json::to_value(&state.agent).unwrap();
+        assert_eq!(
+            saved["unread_places"]["places"],
+            serde_json::json!([["~/d5/export-3.csv", "permission-denied"]])
+        );
+        assert_eq!(saved["unread_places"]["truncated"], false);
+        for output in [
+            serde_json::to_string(&state).unwrap(),
+            serde_json::to_string(&crate::automatic_coverage(&state.agent)).unwrap(),
+        ] {
+            for piece in pieces
+                .iter()
+                .copied()
+                .chain(std::iter::once(planted.as_str()))
+            {
+                assert!(!output.contains(piece));
+            }
+        }
         assert_eq!(state.items.len(), files.len() - 1);
         // The count is of the last pass, not of every pass so far.
         mode(&f.home, 0o600);
         f.changes_lost();
         f.wait("a pass that read everything", |s| s.agent.unread == 0);
+        let state = f.app.read().unwrap();
+        assert!(state
+            .agent
+            .unread_places
+            .as_ref()
+            .unwrap()
+            .places
+            .is_empty());
         f.stop();
     }
 

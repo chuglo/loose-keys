@@ -41,13 +41,19 @@ struct SettingsView: View {
                 Text(monitor.enabled ? model.backgroundState.text
                      : String(localized: "Checks your files whenever they change, even when the app is closed.",
                               comment: "Under the Scan Automatically switch while it is off, and under Automatic Scanning in Overview: what turning it on does."))
-                // The helper keeps the number and not the places: a scan lists them.
+                // The count and its details are from the same completed pass.
                 if let unread = monitor.health.unread, unread > 0 {
-                    Text(String(localized: "\(unread) places could not be read. Run a scan to see which.",
+                    Text(monitor.health.unreadTruncated == true
+                         ? String(localized: "At least \(unread) places could not be read.",
+                                  comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
+                         : String(localized: "\(unread) places could not be read.",
                                 comment: "Overview and Settings, under the state of automatic scanning: how many places the helper's last full pass could not read."))
                 }
             }
             .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
+            if let unread = monitor.health.unread, unread > 0 {
+                Button("Show Unread Places") { model.showUnreadPlaces() }
+            }
             if monitor.enabled, let helper = helperProblem(monitor) {
                 LabeledContent {
                     if helper.restarts {

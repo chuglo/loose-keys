@@ -56,6 +56,9 @@ final class SampleEngine: Engine {
     static var permission = "denied"
     /// Places the helper's last full pass did not read. Set by the checks.
     static var unread = 0
+    static var scanRequests = 0
+    static var coverageFails = false
+    static var coverageMissing = false
     /// The window check holds preparation while it presses Cancel.
     static var accessGate: DispatchSemaphore?
 
@@ -125,7 +128,11 @@ final class SampleEngine: Engine {
             onEvent?("notification-permission", Data("null".utf8))
             return Data("null".utf8)
         case "monitor_status": return Data(Self.monitor.utf8)
+        case "automatic_coverage":
+            if Self.coverageFails { throw EngineError(message: "Synthetic coverage read failure.") }
+            return Data(Self.automaticCoverage.utf8)
         case "start_scan":
+            Self.scanRequests += 1
             Thread.sleep(forTimeInterval: 0.3)
             // The sample scan could not read everything: its status is "partial".
             return Data((Self.nothingFound ? Self.results.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) : Self.results).utf8)
@@ -212,6 +219,14 @@ final class SampleEngine: Engine {
      "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. No findings is not a clean bill of health."}
     """
 
+    private static var automaticCoverage: String {
+        let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
+        let gaps = unread > 0 ? #"[{"label":"Could not be read","help":"The system returned an error for these.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
+        return """
+        {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
+        """
+    }
+
     private static var monitor: String {
         let error = listFull ? #""The review list is full, so new findings are not being added.""# : "null"
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
@@ -219,7 +234,7 @@ final class SampleEngine: Engine {
         return """
         {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring && !helperUnregistered ? 2 : 1),
          "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
-         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"changes":0,"error":\(helperFailed)},
+         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
          "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
         """
     }
@@ -1209,6 +1224,27 @@ enum Checks {
                "Settings says how many places the helper's last full pass did not read")
         expect(!written(in: settingsWindow).contains("Last Recorded Check") && button("Show Check Details", in: settingsWindow) == nil,
                "Settings leaves check timing to the Overview")
+        let scansBeforeDetails = SampleEngine.scanRequests
+        await press(button("Show Unread Places", in: settingsWindow), "opening unread places from Settings")
+        expect(await eventually { model.pane == .gaps && written().contains("~/Library/SyntheticUnread") },
+               "Settings opens the saved automatic-scan paths in Not Checked")
+        expect(SampleEngine.scanRequests == scansBeforeDetails,
+               "opening unread places does not run a scan")
+        SampleEngine.coverageFails = true
+        await model.refreshAutomaticCoverage()
+        expect(await eventually { written().contains("Synthetic coverage read failure.") && written().contains("~/Library/SyntheticUnread") },
+               "a failed coverage read keeps the saved paths and explains the failure")
+        SampleEngine.coverageFails = false
+        await press(button("Try Again"), "retrying the automatic coverage read",
+                    until: { model.automaticCoverageError == nil })
+        SampleEngine.coverageMissing = true
+        await model.refreshAutomaticCoverage()
+        expect(await eventually { written().contains("This automatic scan saved a count but no list. Details will be available after the next automatic full scan.") },
+               "older automatic results explain their missing details instead of claiming nothing was missed")
+        SampleEngine.coverageMissing = false
+        await model.refreshAutomaticCoverage()
+        // Return focus to Settings for its remaining controls.
+        await press(button("Settings…"), "returning to Settings")
         // Once they are off, macOS answers a request without asking: the
         // switch is in System Settings.
         expect(settingsWindow != nil && button("Allow Notifications…", in: settingsWindow) == nil

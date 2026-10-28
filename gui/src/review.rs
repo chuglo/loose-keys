@@ -207,11 +207,50 @@ pub struct Agent {
     /// The last file-change event handled, and the volume it belongs to.
     pub event_id: u64,
     pub volume: String,
-    /// Places the last full pass listed as not checked, for every reason
-    /// but "scan-limit", as its slices found them. Not which: a scan in the
-    /// app lists them.
+    /// Places the last full pass listed as not checked, excluding slice limits.
     #[serde(default)]
     pub unread: usize,
+    /// None in older state, which retained only the count.
+    #[serde(default)]
+    pub unread_places: Option<UnreadPlaces>,
+}
+
+pub const MAX_UNREAD: usize = 4096;
+const UNREAD_BYTES: usize = 512 * 1024;
+
+/// A bounded snapshot, published with the completed pass's timestamp.
+/// Contains paths and fixed reasons only, never bytes from scanned files.
+#[derive(Clone, Default, Deserialize, Serialize)]
+pub struct UnreadPlaces {
+    pub places: std::collections::BTreeSet<(String, String)>,
+    pub truncated: bool,
+}
+
+impl UnreadPlaces {
+    pub fn record(&mut self, report: &Report) {
+        let mut used = stored_size(self);
+        for gap in report
+            .not_checked
+            .iter()
+            .filter(|g| g.reason != "scan-limit")
+        {
+            let entry = (gap.path.clone(), gap.reason.to_owned());
+            if self.places.contains(&entry) {
+                continue;
+            }
+            let size = stored_size(&entry) + 1;
+            if self.places.len() >= MAX_UNREAD || used + size > UNREAD_BYTES {
+                self.truncated = true;
+                continue;
+            }
+            used += size;
+            self.places.insert(entry);
+        }
+    }
+
+    fn within_bounds(&self) -> bool {
+        self.places.len() <= MAX_UNREAD && stored_size(self) <= UNREAD_BYTES
+    }
 }
 
 #[cfg(test)]
@@ -945,6 +984,11 @@ impl Store {
         if review.items.len() > 4096
             || (!review.key.is_empty() && review.key.len() != 32)
             || (review.key.is_empty() && review.items.iter().any(|i| i.fingerprint.is_some()))
+            || review
+                .agent
+                .unread_places
+                .as_ref()
+                .is_some_and(|p| !p.within_bounds())
             || review.attempts > 3
         {
             return Err("Local review storage exceeds monitoring bounds.".into());
@@ -953,7 +997,13 @@ impl Store {
     }
 
     pub fn save(&self, review: &Review) -> Result<(), String> {
-        if review.items.len() > 4096 {
+        if review.items.len() > 4096
+            || review
+                .agent
+                .unread_places
+                .as_ref()
+                .is_some_and(|p| !p.within_bounds())
+        {
             return Err("Local review storage reached its item limit.".into());
         }
         let json = serde_json::to_vec(review).map_err(|e| e.to_string())?;
@@ -1065,6 +1115,52 @@ mod tests {
                 reason: "permission-denied",
             }],
         }
+    }
+
+    #[test]
+    fn unread_snapshot_is_bounded_and_marks_omissions() {
+        let mut r = report(&[]);
+        r.not_checked = (0..MAX_UNREAD)
+            .map(|i| NotChecked {
+                path: format!("~/synthetic-{i}"),
+                reason: "unreadable",
+            })
+            .collect();
+        let mut snapshot = UnreadPlaces::default();
+        snapshot.record(&r);
+        assert_eq!(snapshot.places.len(), MAX_UNREAD);
+        assert!(!snapshot.truncated);
+        // Repeated slices must neither duplicate entries nor imply omissions.
+        snapshot.record(&r);
+        assert!(!snapshot.truncated);
+        r.not_checked = vec![NotChecked {
+            path: "~/one-more".into(),
+            reason: "unreadable",
+        }];
+        snapshot.record(&r);
+        assert_eq!(snapshot.places.len(), MAX_UNREAD);
+        assert!(snapshot.truncated);
+        assert!(snapshot.within_bounds());
+
+        let mut snapshot = UnreadPlaces::default();
+        r.not_checked = vec![NotChecked {
+            path: "x".repeat(UNREAD_BYTES),
+            reason: "unreadable",
+        }];
+        snapshot.record(&r);
+        assert!(snapshot.places.is_empty());
+        assert!(snapshot.truncated);
+        assert!(snapshot.within_bounds());
+    }
+
+    #[test]
+    fn old_unread_count_has_no_invented_details() {
+        let mut saved = serde_json::to_value(Agent::default()).unwrap();
+        saved.as_object_mut().unwrap().remove("unread_places");
+        saved["unread"] = 403.into();
+        let old: Agent = serde_json::from_value(saved).unwrap();
+        assert_eq!(old.unread, 403);
+        assert!(old.unread_places.is_none());
     }
 
     /// A report of review findings: (rule, path, subject, secret).

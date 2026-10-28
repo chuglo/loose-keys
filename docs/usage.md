@@ -114,6 +114,16 @@ matches. Closing the window quits the app, unless it is in the menu bar, and
 quitting the app does not stop the helper. **Pause Scanning** stops its
 checks; turning **Scan Automatically** off also removes the launchd job.
 
+If automatic scanning could not read some places, **Show Unread Places** in
+Settings or Overview opens the saved paths and reasons in **Not Checked**.
+Opening this list does not run another scan. It is dated to the last completed
+automatic full pass; later file or permission changes do not rewrite that
+result. Manual-scan details are listed separately, and saved reports still
+contain only the manual scan. The automatic list retains up to 4096 path/reason
+entries within 512 KiB and says when it is incomplete. Older versions saved
+only the count; their details become available after the next automatic full
+pass.
+
 The build signs ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
 code-signing identity. An ad-hoc identity changes with every build; an Apple
 Development identity stays the same, so sign with one from the first install

@@ -130,8 +130,16 @@ struct HelperHealth: Decodable {
     let left: Int?
     /// Places the helper's last full pass did not read.
     let unread: Int?
+    let unreadTruncated: Bool?
     let changes: Int?
     let error: String?
+}
+
+struct AutomaticCoverage: Decodable {
+    let fullPass: String?
+    let unread: Int
+    let unreadGaps: [Gap]?
+    let unreadTruncated: Bool
 }
 
 struct ScanPlaces: Decodable {

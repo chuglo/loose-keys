@@ -119,8 +119,8 @@ struct MainView: View {
             return model.results == nil ? ""
                 : String(localized: "\(model.storedShown.count) items", comment: "Subtitle of Stored Sign-ins: how many sign-ins the list shows.")
         case .gaps:
-            let places = model.results.map {
-                String(localized: "\($0.notChecked) places", comment: "Subtitle of Not Checked: how many places the last scan could not check. A comma may follow.")
+            let places = model.gapsCount.map {
+                String(localized: "\($0) places", comment: "Subtitle of Not Checked: how many places the last scan could not check. A comma may follow.")
             }
             let skipped = model.reviewProblem == nil ? model.review?.skipped?.count ?? 0 : 0
             let left = skipped > 0
@@ -210,7 +210,7 @@ struct Sidebar: View {
                     .badge(model.results?.stored ?? 0)
                     .tag(Pane.stored)
                 Label("Not Checked", systemImage: "eye.slash")
-                    .badge(model.results?.notChecked ?? 0)
+                    .badge(model.gapsCount ?? 0)
                     .tag(Pane.gaps)
                 Label("Set Aside", systemImage: "archivebox")
                     .badge(model.setAsideCount)

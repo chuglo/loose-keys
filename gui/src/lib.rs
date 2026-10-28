@@ -97,6 +97,7 @@ struct Health {
     left: usize,
     /// Places the last full pass did not read.
     unread: usize,
+    unread_truncated: bool,
     changes: u64,
     error: Option<String>,
 }
@@ -114,8 +115,48 @@ fn health(agent: &review::Agent) -> Health {
         full_pass: agent.baseline.clone(),
         left: agent.left,
         unread: agent.unread,
+        unread_truncated: agent.unread_places.as_ref().is_some_and(|p| p.truncated),
         changes: agent.changes,
         error: agent.error.clone(),
+    }
+}
+
+/// Details are read on demand; frequent status polls carry only counts.
+#[derive(Serialize)]
+struct AutomaticCoverage {
+    full_pass: Option<String>,
+    unread: usize,
+    unread_gaps: Option<Vec<GapView>>,
+    unread_truncated: bool,
+}
+
+fn automatic_coverage(agent: &review::Agent) -> AutomaticCoverage {
+    AutomaticCoverage {
+        full_pass: agent.baseline.clone(),
+        unread: agent.unread,
+        unread_gaps: agent.unread_places.as_ref().map(|snapshot| {
+            let mut grouped = std::collections::BTreeMap::<&str, Vec<String>>::new();
+            for (path, reason) in &snapshot.places {
+                grouped
+                    .entry(reason)
+                    .or_default()
+                    .push(report::escape(path));
+            }
+            grouped
+                .into_iter()
+                .map(|(reason, paths)| {
+                    let (label, help) = gap_text(reason);
+                    GapView {
+                        label: report::escape(label),
+                        help: help.to_owned(),
+                        count: paths.len(),
+                        paths,
+                        more: 0,
+                    }
+                })
+                .collect()
+        }),
+        unread_truncated: agent.unread_places.as_ref().is_some_and(|p| p.truncated),
     }
 }
 
@@ -798,6 +839,10 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
             done(())
         }
         "monitor_status" => done(monitor_status(app)),
+        "automatic_coverage" => {
+            let state = app.store.as_ref().map_err(Clone::clone)?.read()?;
+            done(automatic_coverage(&state.agent))
+        }
         "set_monitoring" => done(set_monitoring(
             app,
             args.get("enabled")?,
@@ -1038,10 +1083,10 @@ struct ItemView {
     actionable: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct GapView {
-    label: &'static str,
-    help: &'static str,
+    label: String,
+    help: String,
     count: usize,
     paths: Vec<String>,
     more: usize,
@@ -1086,8 +1131,8 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
         .map(|(reason, paths)| {
             let (label, help) = gap_text(reason);
             GapView {
-                label,
-                help,
+                label: label.to_owned(),
+                help: help.to_owned(),
                 count: paths.len(),
                 paths: paths
                     .iter()
@@ -1340,7 +1385,7 @@ fn still_there(item: &review::Item, home: &Path, key: &[u8]) -> Option<review::S
     scan::recheck_values(&item.rule, &path, home, item.mount, &digest)
 }
 
-fn gap_text(reason: &'static str) -> (&'static str, &'static str) {
+fn gap_text(reason: &str) -> (&str, &str) {
     match reason {
         "permission-denied" => (
             "Blocked by system permissions",
@@ -2919,6 +2964,23 @@ mod tests {
             assert!(indexes.insert(item.index));
         }
         assert_eq!(indexes.len(), 10_000);
+    }
+
+    #[test]
+    fn automatic_gap_details_are_escaped() {
+        let mut saved = serde_json::to_value(review::Agent::default()).unwrap();
+        saved["unread_places"] = json!({
+            "places": [["~/hostile\u{202e}\u{1b}", "unreadable"]],
+            "truncated": true,
+        });
+        let agent: review::Agent = serde_json::from_value(saved).unwrap();
+        let output = serde_json::to_value(automatic_coverage(&agent)).unwrap();
+        assert_eq!(
+            output["unread_gaps"][0]["paths"][0],
+            "~/hostile\\u{202e}\\u{1b}"
+        );
+        assert_eq!(output["unread_gaps"][0]["more"], 0);
+        assert_eq!(output["unread_truncated"], true);
     }
 
     #[test]

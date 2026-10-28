@@ -87,8 +87,7 @@ extension ReviewTable {
                            comment: "The Set Aside page, empty."))
         }
         if model.setAsideCount > 0 {
-            // Not Checked lists only a scan's gaps, so without one this says
-            // what background checks have read instead.
+            // Without a manual scan, describe the automatic pass's coverage.
             let rest: String
             if model.results != nil {
                 rest = String(localized: "Not Checked lists any places the scan could not read.",
@@ -97,7 +96,11 @@ extension ReviewTable {
                 rest = String(localized: "New findings show up here as Loose Keys checks your files.",
                               comment: "Worth Reviewing, empty because every finding is set aside, while automatic scanning has not yet read every file once.")
             } else if let monitor = model.monitor, monitor.enabled, let unread = monitor.health.unread, unread > 0 {
-                rest = String(localized: "\(unread) places could not be read. Scan this Mac to see which.",
+                rest = monitor.health.unreadTruncated == true
+                    ? String(localized: "At least \(unread) places could not be read.",
+                             comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
+                        + " " + String(localized: "See Not Checked for details.")
+                    : String(localized: "\(unread) places could not be read. See Not Checked for details.",
                               comment: "Worth Reviewing, empty because every finding is set aside, after automatic scanning could not read some places.")
             } else {
                 rest = String(localized: "Scan this Mac to check it now.",
@@ -119,7 +122,10 @@ extension ReviewTable {
                 }
                 if let unread = monitor.health.unread, unread > 0 {
                     return (String(localized: "No Findings", comment: "Worth Reviewing, empty after automatic scanning read the files: it found nothing to review."), "tray",
-                            String(localized: "Nothing to review, but \(unread) places could not be read.",
+                            monitor.health.unreadTruncated == true
+                            ? String(localized: "At least \(unread) places could not be read.",
+                                     comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
+                            : String(localized: "Nothing to review, but \(unread) places could not be read.",
                                    comment: "Worth Reviewing, empty after automatic scanning could not read some places."))
                 }
                 return (String(localized: "No Findings", comment: "Worth Reviewing, empty after automatic scanning read the files: it found nothing to review."), "tray",
@@ -193,62 +199,108 @@ struct GapsView: View {
         let skipped = model.review?.skipped ?? []
         // A list that could not be read says nothing about what was left out.
         let unread = model.reviewProblem != nil
-        if gaps.isEmpty && skipped.isEmpty && !unread {
-            ContentUnavailableView {
-                Label(model.results == nil ? "No Scan Yet" : "Everything Was Checked", systemImage: "eye.slash")
-            } description: {
-                Text(model.results == nil
-                     ? "Places macOS or the scan could not read are listed here after a scan."
-                     : "The last scan read every place it was asked to.")
-            }
-        } else {
-            Form {
-                Section {
-                    Text(!gaps.isEmpty
-                         ? "These places could not be checked, so anything in them was not found. The scan is incomplete because of them."
-                         : model.results == nil
+        Group {
+            if gaps.isEmpty && skipped.isEmpty && !unread && !model.hasAutomaticCoverage && model.automaticCoverageError == nil {
+                ContentUnavailableView {
+                    Label(model.results == nil ? "No Scan Yet" : "Everything Was Checked", systemImage: "eye.slash")
+                } description: {
+                    Text(model.results == nil
                          ? "Places macOS or the scan could not read are listed here after a scan."
-                         : "The last scan read every place it was asked to, except the folders you left out.")
-                        .foregroundStyle(.secondary)
-                    if unread {
-                        Text("The folders you left out could not be read, so they are not listed here.")
-                    }
+                         : "The last scan read every place it was asked to.")
                 }
-                ForEach(gaps) { gap in
-                    Section {
-                        ForEach(gap.paths, id: \.self) { path in
-                            Text(path).font(.callout.monospaced()).textSelection(.enabled)
-                        }
-                        if gap.more > 0 {
-                            Text(String(localized: "and \(gap.more) more. Save the report for the full list.",
-                                        comment: "Not Checked, below the places listed under one heading: how many more there are."))
-                                .foregroundStyle(.secondary)
-                        }
-                    } header: {
-                        Text(verbatim: "\(EngineText.shown(gap.label)) (\(gap.count))")
-                    } footer: {
-                        if !gap.help.isEmpty {
-                            Text(EngineText.shown(gap.help))
+            } else {
+                Form {
+                    if let error = model.automaticCoverageError {
+                        Section("Last Automatic Scan") {
+                            Text("Automatic scan details could not be refreshed. Any details below are from the last successful read.")
+                            Text(EngineText.shown(error)).foregroundStyle(.secondary)
+                            Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
                         }
                     }
-                }
-                if !skipped.isEmpty {
-                    Section {
-                        ForEach(Array(skipped.enumerated()), id: \.offset) { index, folder in
-                            LabeledContent {
-                                Button("Include Again") { model.checkFolderAgain(index, shown: folder) }
-                            } label: {
-                                Label(folder, systemImage: "folder.badge.minus")
+                    if model.hasAutomaticCoverage, let health = model.automaticCoverage {
+                        Section("Last Automatic Scan") {
+                            if let date = health.fullPass {
+                                Text(localTime(date)).foregroundStyle(.secondary)
+                            }
+                            Text("These details are from automatic scanning of your home folder. Added folders and drives are not included.")
+                            if let automatic = health.unreadGaps {
+                                if automatic.isEmpty && health.unreadTruncated != true {
+                                    Text("No unread places were recorded in this automatic scan.")
+                                }
+                                if health.unreadTruncated == true {
+                                    Text("The saved list reached its limit. More places could not be checked than are listed here.")
+                                }
+                                ForEach(automatic) { gap in
+                                    LazyVStack(alignment: .leading, spacing: 8) {
+                                        Text(verbatim: "\(EngineText.shown(gap.label)) (\(gap.count))").font(.headline)
+                                        if !gap.help.isEmpty { Text(EngineText.shown(gap.help)) }
+                                        ForEach(gap.paths, id: \.self) { path in
+                                            Text(path).font(.callout.monospaced()).textSelection(.enabled)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text("This automatic scan saved a count but no list. Details will be available after the next automatic full scan.")
                             }
                         }
-                    } header: {
-                        Text("Not Checked at Your Request")
-                    } footer: {
-                        Text("These folders are not read, so anything in them is not found.")
+                    }
+                    if model.hasAutomaticCoverage && model.automaticCoverage == nil && model.automaticCoverageError == nil {
+                        Section("Last Automatic Scan") { ProgressView("Loading Details…") }
+                    }
+                    Section {
+                        if let results = model.results, model.hasAutomaticCoverage {
+                            Text("Last Manual Scan").font(.headline)
+                            Text(localTime(results.generatedAt)).foregroundStyle(.secondary)
+                        }
+                        if model.results != nil || !model.hasAutomaticCoverage {
+                            Text(!gaps.isEmpty
+                             ? "These places could not be checked, so anything in them was not found. The scan is incomplete because of them."
+                             : model.results == nil
+                             ? "Places macOS or the scan could not read are listed here after a scan."
+                             : "The last scan read every place it was asked to, except the folders you left out.")
+                            .foregroundStyle(.secondary)
+                        }
+                        if unread {
+                            Text("The folders you left out could not be read, so they are not listed here.")
+                        }
+                    }
+                    ForEach(gaps) { gap in
+                        Section {
+                            ForEach(gap.paths, id: \.self) { path in
+                                Text(path).font(.callout.monospaced()).textSelection(.enabled)
+                            }
+                            if gap.more > 0 {
+                                Text(String(localized: "and \(gap.more) more. Save the report for the full list.",
+                                            comment: "Not Checked, below the places listed under one heading: how many more there are."))
+                                    .foregroundStyle(.secondary)
+                            }
+                        } header: {
+                            Text(verbatim: "\(EngineText.shown(gap.label)) (\(gap.count))")
+                        } footer: {
+                            if !gap.help.isEmpty {
+                                Text(EngineText.shown(gap.help))
+                            }
+                        }
+                    }
+                    if !skipped.isEmpty {
+                        Section {
+                            ForEach(Array(skipped.enumerated()), id: \.offset) { index, folder in
+                                LabeledContent {
+                                    Button("Include Again") { model.checkFolderAgain(index, shown: folder) }
+                                } label: {
+                                    Label(folder, systemImage: "folder.badge.minus")
+                                }
+                            }
+                        } header: {
+                            Text("Not Checked at Your Request")
+                        } footer: {
+                            Text("These folders are not read, so anything in them is not found.")
+                        }
                     }
                 }
+                .formStyle(.grouped)
             }
-            .formStyle(.grouped)
         }
+        .task { await model.refreshAutomaticCoverage() }
     }
 }
