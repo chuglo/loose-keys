@@ -43,6 +43,36 @@ The negative control is the same command with `--omit-create` and a new work
 folder. It must exit 1, with event-create FAIL at its missing assertion, later
 cases NOT RUN and cleanup PASS.
 
+The Settings driver also declines the three protected-folder requests made
+before automatic scanning starts. It accepts only the exact English Desktop,
+Documents and Downloads prompts naming Loose Keys or `tart-guest-agent`,
+in macOS's `UserNotificationCenter`. The latter can be the responsible client
+when Tart starts the harness. It presses only Don't Allow and records a fixed
+note, never dialog text. The fixture is in `.aws`, so these permissions are
+unnecessary. An unexpected prompt is left unanswered and the existing action
+deadline fails; no permission database is edited and no grant is added.
+The polling pause runs the main run loop so a newly launched dialog process
+appears in `NSWorkspace.runningApplications`, as required by
+[AppKit](https://developer.apple.com/documentation/appkit/nsworkspace/runningapplications).
+The twenty-second action deadline is unchanged.
+
+Without this handling, the app waits in Preparing Folder Access and disables
+Scan Automatically. The old driver misreported that disabled control as
+missing, and cleanup could not turn monitoring off either. These checks run
+through the command-line harness and guest Accessibility; they do not need
+Codex Desktop or Computer Use.
+The prompt wording and responsible-client attribution were checked on the
+macOS 26.6.2 guest. Other macOS versions and non-English dialogs remain
+unverified; an unmatched request must fail rather than receive a guessed
+answer.
+
+Regression checked on 2026-10-27 against the unchanged 0.3.0 candidate:
+the old driver failed enable-baseline and cleanup; the updated driver passed
+all eight positive stages (exit 0). A separate fresh guest with
+`--omit-create` failed event-create, left the later cases NOT RUN, and passed
+cleanup (exit 1), as required. Both guests were stopped and their receipts
+kept on the host. Earlier failed diagnostic runs remain recorded too.
+
 `results.json` in the work folder records PASS, FAIL, BLOCKED or NOT RUN for
 each case, never the review store, its key or fixture values. Exit 0 means
 the suite passed, 1 a failure (cleanup included) and 2 a blocked

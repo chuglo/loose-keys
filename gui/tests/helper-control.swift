@@ -75,10 +75,49 @@ func named(_ element: AXUIElement, _ name: String) -> Bool {
 func windows() -> [AXUIElement] {
     (attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []).flatMap { descendants($0) }
 }
+// The app probes these folders before enabling checks. Decline only its
+// exact English folder prompts, through the guest UI; the helper fixture is
+// in .aws and needs none of these grants. Never dump system dialog contents.
+func declineFolderAccess() {
+    let requests = ["Loose Keys", "tart-guest-agent"].flatMap { client in
+        ["Desktop", "Documents", "Downloads"].map {
+            "\"\(client)\" would like to access files in your \($0) folder."
+        }
+    }
+    for owner in NSWorkspace.shared.runningApplications {
+        guard ProcessInfo.processInfo.systemUptime < deadline else { return }
+        guard owner.bundleIdentifier == "com.apple.UserNotificationCenter" else { continue }
+        let systemApp = AXUIElementCreateApplication(owner.processIdentifier)
+        AXUIElementSetMessagingTimeout(systemApp, 0.2)
+        for window in attribute(systemApp, kAXWindowsAttribute) as? [AXUIElement] ?? [] {
+            let elements = descendants(window)
+            let request = elements.contains { element in
+                [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute].contains { key in
+                    guard let text = attribute(element, key) as? String else { return false }
+                    let normalized = text.replacingOccurrences(of: "“", with: "\"")
+                        .replacingOccurrences(of: "”", with: "\"")
+                    return requests.contains(normalized)
+                }
+            }
+            guard request else { continue }
+            let buttons = elements.filter {
+                attribute($0, kAXRoleAttribute) as? String == kAXButtonRole &&
+                (named($0, "Don’t Allow") || named($0, "Don't Allow")) &&
+                attribute($0, kAXEnabledAttribute) as? Bool == true
+            }
+            guard buttons.count == 1 else { continue }
+            press(buttons[0], "decline folder access")
+            print("NOTE: declined a protected-folder request in the guest")
+        }
+    }
+}
 func wait(_ message: String, _ condition: () -> Bool) {
     repeat {
+        declineFolderAccess()
         if condition() { return }
-        Thread.sleep(forTimeInterval: 0.1)
+        // NSWorkspace updates runningApplications only when the main run
+        // loop runs. The system prompt's app can launch after this driver.
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
     } while ProcessInfo.processInfo.systemUptime < deadline
     stop("FAIL: " + message)
 }
