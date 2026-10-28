@@ -657,6 +657,15 @@ fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reaso
     })?
 }
 
+/// The organization's expected findings, as the window read them from a
+/// forced preference. The engine checks each entry again before saving it.
+fn set_expected(app: &App, entries: Vec<review::Expected>) -> Answer<()> {
+    if app.storage_error.lock().unwrap().is_some() {
+        return Err("Private state is unavailable.".into());
+    }
+    update_state(app, |state| state.set_expected(entries))
+}
+
 /// Stop checking the folder that holds this item. The front end names an
 /// item, never a path. The folder stays listed wherever results are shown.
 fn skip_folder(app: &App, id: u64) -> Answer<()> {
@@ -836,6 +845,7 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
             args.get("revision")?,
             args.get("reason")?,
         )?),
+        "set_expected" => done(set_expected(app, args.get("entries")?)?),
         "skip_folder" => done(skip_folder(app, args.get("id")?)?),
         "unskip_folder" => done(unskip_folder(app, args.get("index")?, args.get("shown")?)?),
         "version" => done(env!("CARGO_PKG_VERSION")),
@@ -3471,5 +3481,53 @@ mod tests {
         });
         std::fs::remove_dir_all(home).unwrap();
         assert_eq!(empty, 0, "of 2000 lists, drawn from an older read's state");
+    }
+
+    #[test]
+    fn an_expected_entry_sets_the_row_aside_until_the_person_returns_it() {
+        let notes = Notes::new("expected-entry", &token('A'));
+        let app = App::open(Ok(notes.0.clone()));
+        app.ready();
+        update_state(&app, |state| notes.save(state, &notes.scan())).unwrap();
+        let list = |app: &App| ask(app, "pending_review", "{}")["ok"].clone();
+        let row = list(&app)["items"][0].clone();
+        let entries = json!({ "entries": [{ "rule": row["rule"], "path": row["path"] }] });
+        assert_eq!(
+            ask(&app, "set_expected", &entries.to_string()),
+            json!({ "ok": null })
+        );
+        let shown = list(&app);
+        assert_eq!(shown["items"][0]["state"], "set-aside");
+        assert_eq!(shown["items"][0]["set_aside"], "expected");
+        assert_eq!(
+            (&shown["counts"]["set_aside"], &shown["counts"]["kept"]),
+            (&json!(1), &json!(0))
+        );
+        // The person cannot choose the reason themselves.
+        let revision = shown["items"][0]["revision"].clone();
+        let press = json!({ "id": row["id"], "revision": revision, "reason": "expected" });
+        assert_eq!(
+            ask(&app, "decide_review", &press.to_string())["error"],
+            "That reason is set by your organization's settings."
+        );
+        // Move to Worth Reviewing opens it, and the list sent again leaves it open.
+        let back = json!({ "id": row["id"], "revision": revision, "reason": null });
+        assert_eq!(
+            ask(&app, "decide_review", &back.to_string()),
+            json!({ "ok": null })
+        );
+        assert_eq!(
+            ask(&app, "set_expected", &entries.to_string()),
+            json!({ "ok": null })
+        );
+        assert_eq!(list(&app)["items"][0]["state"], "open");
+        let stored = review::Store::open(&notes.0).unwrap().read().unwrap();
+        assert_eq!(stored.returned.len(), 1);
+        // Nothing is saved while private state is unavailable.
+        *app.storage_error.lock().unwrap() = Some("gone".into());
+        assert_eq!(
+            ask(&app, "set_expected", r#"{"entries":[]}"#)["error"],
+            "Private state is unavailable."
+        );
     }
 }

@@ -245,6 +245,19 @@ The threats are a local user racing a root run with links, and hostile files
   included: `Store::open` and `load` require the user's ownership, no access
   for others, one link, a size limit and sane counts. Code running as the user
   can edit that file.
+- The organization's expected-findings list enters only through the
+  window's `set_expected`, from a preference macOS reports as forced
+  (`CFPreferencesAppValueIsForced`): a configuration profile or a file under
+  `/Library/Managed Preferences/`, where only root can create or replace a
+  file (macOS checks the folder, not the file's owner). The merged defaults
+  are never read: they include
+  `~/Library/Preferences/dev.loosekeys.desktop.plist`, which anyone who can
+  write to the home folder can write. The engine checks each entry again
+  (`review::accepted`: a rule the scanner has, a plain `~/` path below the
+  home, 32 at most) and keeps it in `state.json` beside the person's
+  decisions, with the same standing as a Kept decision. The CLI reads none
+  of it. A file planted at a listed path is still listed, under Set Aside
+  with its rule and details, counted and exported.
 - The app's state folder is `review::STATE_DIR` in the home folder.
   `Store::open` makes and opens each folder on the way without following a
   link, so a link anywhere on that path stops it rather than sending the

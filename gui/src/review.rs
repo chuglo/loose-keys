@@ -77,6 +77,9 @@ pub enum Reason {
     // Retained for decisions saved before testing and no longer works split.
     TestOrRevoked,
     Kept,
+    /// Listed by the organization's settings. About the place, like Kept,
+    /// and never chosen by the person: `decide` refuses it.
+    Expected,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -109,6 +112,34 @@ pub struct Decision {
 pub struct Skip {
     pub path: String,
     pub added: String,
+}
+
+/// One entry of the organization's expected-findings list: a rule at a file.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Expected {
+    pub rule: String,
+    pub path: String,
+}
+
+/// How many of the organization's entries are honoured.
+pub const MAX_EXPECTED: usize = 32;
+
+/// A `~/...` path below the home folder, in plain components with no "..".
+fn below_home(path: &str) -> bool {
+    let mut parts = Path::new(path).components();
+    parts.next() == Some(Component::Normal("~".as_ref()))
+        && parts.clone().next().is_some()
+        && parts.all(|part| matches!(part, Component::Normal(_)))
+}
+
+/// An entry of the organization's list that is honoured: a rule the scanner
+/// has, at a plain file path below the home folder, no longer than a path
+/// the report lists.
+fn accepted(entry: &Expected) -> bool {
+    loose_keys::rules::RULES.iter().any(|r| r.id == entry.rule)
+        && entry.path.len() <= 4096
+        && crate::plain(&entry.path)
+        && below_home(&entry.path)
 }
 
 /// "Kept" is asked about again after this long, in the app, without an alert.
@@ -180,6 +211,14 @@ pub struct Review {
     pub decisions: Vec<Decision>,
     #[serde(default)]
     pub skipped: Vec<Skip>,
+    /// What the organization's settings list as expected, as `set_expected`
+    /// checked it: decisions with `Reason::Expected`, applied for the place.
+    #[serde(default)]
+    pub expected: Vec<Decision>,
+    /// Expected places the person moved back to review. Forgotten for a
+    /// place the list no longer has, or that the person then decides on.
+    #[serde(default)]
+    pub returned: Vec<Expected>,
     /// A finding has been left out for lack of room, and no scan the person
     /// ran to its end has since found room on the list. `ingest` only sets it.
     #[serde(default)]
@@ -334,9 +373,11 @@ impl Review {
     /// place was kept and the value in it was also decided on, it is the one
     /// about the value: that is what the person said of this very credential.
     pub fn decision(&self, item: &Item, now: u64) -> Option<&Decision> {
-        let mut applying = self.decisions.iter().filter(|d| {
+        let mut applying = self.decisions.iter().chain(&self.expected).filter(|d| {
             let place = d.rule == item.rule && d.path == item.path && d.subject == item.subject;
             match d.reason {
+                // The organization's: the rule at the file, whatever it concerns.
+                Reason::Expected => d.rule == item.rule && d.path == item.path,
                 // About the value: wherever it is, and only while it is that value.
                 Reason::NotACredential
                 | Reason::Testing
@@ -358,9 +399,44 @@ impl Review {
         });
         let first = applying.next()?;
         Some(match first.reason {
-            Reason::Kept => applying.find(|d| d.reason != Reason::Kept).unwrap_or(first),
+            Reason::Kept => applying
+                .find(|d| !matches!(d.reason, Reason::Kept | Reason::Expected))
+                .unwrap_or(first),
             _ => first,
         })
+    }
+
+    /// Take in the organization's list. Entries of another shape are not
+    /// honoured, and a place the person moved back to review stays open
+    /// until the list no longer has it.
+    pub fn set_expected(&mut self, list: Vec<Expected>) {
+        let mut kept: Vec<Expected> = Vec::new();
+        for entry in list {
+            if kept.len() == MAX_EXPECTED {
+                break;
+            }
+            if accepted(&entry) && !kept.contains(&entry) {
+                kept.push(entry);
+            }
+        }
+        self.returned.retain(|r| kept.contains(r));
+        self.expected = kept
+            .into_iter()
+            .filter(|e| !self.returned.contains(e))
+            .map(|e| Decision {
+                reason: Reason::Expected,
+                secret: None,
+                rule: e.rule,
+                path: e.path,
+                subject: None,
+                fingerprint: None,
+                token_type: None,
+                shared: false,
+                severity: String::new(),
+                decided: "organization".into(),
+                decided_at: 0,
+            })
+            .collect();
     }
 
     /// Set an item aside for a reason. Replaces any earlier decision on it,
@@ -372,6 +448,9 @@ impl Review {
         now: u64,
         stamp: String,
     ) -> Result<(), String> {
+        if reason == Reason::Expected {
+            return Err("That reason is set by your organization's settings.".into());
+        }
         let item = self
             .items
             .iter()
@@ -379,6 +458,8 @@ impl Review {
             .ok_or("That review item is no longer available.")?
             .clone();
         self.undo(id);
+        self.returned
+            .retain(|r| !(r.rule == item.rule && r.path == item.path));
         let value = reason != Reason::Kept;
         if value {
             // About the value, so about every place it is in: a place that
@@ -420,6 +501,18 @@ impl Review {
                 None => !place,
             }
         });
+        let before = self.expected.len();
+        self.expected
+            .retain(|d| !(d.rule == item.rule && d.path == item.path));
+        if self.expected.len() < before {
+            let pair = Expected {
+                rule: item.rule,
+                path: item.path,
+            };
+            if !self.returned.contains(&pair) {
+                self.returned.push(pair);
+            }
+        }
     }
 
     /// Whether this item should be brought to the person's attention now.
@@ -436,12 +529,6 @@ impl Review {
     /// by this app: it is not honoured. It stays listed, where it can be
     /// seen and removed.
     pub fn honoured_skips(&self) -> impl Iterator<Item = &Skip> {
-        fn below_home(path: &str) -> bool {
-            let mut parts = Path::new(path).components();
-            parts.next() == Some(Component::Normal("~".as_ref()))
-                && parts.clone().next().is_some()
-                && parts.all(|part| matches!(part, Component::Normal(_)))
-        }
         let added = |skip: &&Skip| crate::plain(&skip.path) && below_home(&skip.path);
         self.skipped.iter().filter(added).take(MAX_SKIPS)
     }
@@ -2549,5 +2636,122 @@ mod tests {
         std::fs::remove_file(state).unwrap();
         drop(store);
         remove_store(&root);
+    }
+
+    #[test]
+    fn an_expected_place_is_set_aside_and_does_not_alert() {
+        let mut state = Review::default();
+        let key = (
+            "key.ssh.private",
+            "~/.safe-chain/certs/ca-key.pem",
+            None,
+            None,
+        );
+        state.ingest(&found(&[key]));
+        assert!(state.pending(100));
+        state.set_expected(vec![Expected {
+            rule: key.0.into(),
+            path: key.1.into(),
+        }]);
+        let d = state
+            .decision(&state.items[0], 100)
+            .expect("expected applies");
+        assert_eq!(d.reason, Reason::Expected);
+        assert!(!state.pending(100), "the helper stays quiet");
+        // Another rule at the same path is not covered.
+        let other = ("secret.service-token", key.1, None, Some("digest-a"));
+        state.ingest(&found(&[key, other]));
+        assert!(state.decision(&state.items[1], 100).is_none());
+        // The person's own decision is what is shown.
+        state
+            .decide(state.items[0].id, Reason::Kept, 100, "then".into())
+            .unwrap();
+        assert_eq!(
+            state.decision(&state.items[0], 100).unwrap().reason,
+            Reason::Kept
+        );
+    }
+
+    #[test]
+    fn returning_an_expected_item_keeps_it_open_until_the_list_drops_it() {
+        let mut state = Review::default();
+        let key = (
+            "key.ssh.private",
+            "~/.safe-chain/certs/ca-key.pem",
+            None,
+            None,
+        );
+        let pair = Expected {
+            rule: key.0.into(),
+            path: key.1.into(),
+        };
+        state.ingest(&found(&[key]));
+        state.set_expected(vec![pair.clone()]);
+        state.undo(state.items[0].id);
+        assert!(state.decision(&state.items[0], 100).is_none());
+        assert_eq!(state.returned, vec![pair.clone()]);
+        // The list sent again does not set it aside again.
+        state.set_expected(vec![pair.clone()]);
+        assert!(state.decision(&state.items[0], 100).is_none());
+        // Kept, then returned: open, not expected again.
+        state
+            .decide(state.items[0].id, Reason::Kept, 100, "then".into())
+            .unwrap();
+        assert!(state.returned.is_empty());
+        state.set_expected(vec![pair.clone()]);
+        state.undo(state.items[0].id);
+        assert!(state.decision(&state.items[0], 100).is_none());
+        // The organization drops it: the return is forgotten.
+        state.set_expected(Vec::new());
+        assert!(state.returned.is_empty() && state.expected.is_empty());
+    }
+
+    #[test]
+    fn an_expected_list_is_checked_capped_and_deduplicated() {
+        let mut state = Review::default();
+        let good = |n: usize| Expected {
+            rule: "key.ssh.private".into(),
+            path: format!("~/k{n}"),
+        };
+        let bad = |rule: &str, path: String| Expected {
+            rule: rule.into(),
+            path,
+        };
+        let mut list = vec![
+            bad("no.such-rule", "~/a".into()),
+            bad("key.ssh.private", "/etc/a".into()),
+            bad("key.ssh.private", "~/../a".into()),
+            bad("key.ssh.private", "~".into()),
+            bad("key.ssh.private", "~/caf\u{e9}/key".into()),
+            bad("key.ssh.private", format!("~/{}", "x".repeat(4096))),
+            good(0),
+            good(0),
+        ];
+        list.extend((1..40).map(good));
+        state.set_expected(list);
+        assert_eq!(state.expected.len(), MAX_EXPECTED);
+        assert!(state
+            .expected
+            .iter()
+            .all(|d| d.reason == Reason::Expected && d.decided == "organization"));
+        assert_eq!(
+            state.expected.iter().filter(|d| d.path == "~/k0").count(),
+            1
+        );
+        assert!(state.expected.iter().all(|d| d.path.starts_with("~/k")));
+        assert_eq!(
+            state.decide(0, Reason::Expected, 100, "then".into()),
+            Err("That reason is set by your organization's settings.".into())
+        );
+    }
+
+    #[test]
+    fn state_without_the_expected_fields_loads_as_empty_lists() {
+        let mut saved = serde_json::to_value(Review::default()).unwrap();
+        let map = saved.as_object_mut().unwrap();
+        map.remove("expected");
+        map.remove("returned");
+        let old: Review = serde_json::from_value(saved).unwrap();
+        assert!(old.expected.is_empty() && old.returned.is_empty());
     }
 }

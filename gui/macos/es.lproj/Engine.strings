@@ -603,6 +603,8 @@
 
 /* gui/src/lib.rs:616 */
 "That review item is no longer available." = "Ese elemento de revisión ya no está disponible.";
+/* gui/src/review.rs:452 */
+"That reason is set by your organization's settings." = "Ese motivo lo establece la configuración de tu organización.";
 
 /* gui/src/lib.rs:617 */
 "The home folder cannot be skipped." = "No se puede excluir la carpeta de inicio.";
