@@ -2,7 +2,7 @@
 # Set up a VM for the release walkthrough: a new clone of lk-sip-base with the
 # candidate in /Applications, a decoy home, the app open and nothing scanned.
 # A Tart window shows the guest. Announce the window before running this.
-# Usage: sh .claude/skills/release/walkthrough.sh <candidate folder>
+# Usage: sh .agents/skills/release/walkthrough.sh <candidate folder>
 set -eu
 umask 077
 

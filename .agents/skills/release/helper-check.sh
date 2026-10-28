@@ -3,7 +3,7 @@
 # candidate: the suite, then its negative control, each in a new clone of
 # lk-sip-base (see docs/testing/guest.md). The harness comes built from the
 # candidate, so the guest needs no Rust.
-# Usage: sh .claude/skills/release/helper-check.sh <candidate folder>
+# Usage: sh .agents/skills/release/helper-check.sh <candidate folder>
 set -eu
 umask 077
 

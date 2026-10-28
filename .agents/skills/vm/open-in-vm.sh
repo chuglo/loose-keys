@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build one commit of Loose Keys on this Mac, then open it in a new tart VM
 # whose home holds synthetic decoys. The app runs only in the guest.
-# Usage, from the repository root: sh .claude/skills/vm/open-in-vm.sh [git ref]
+# Usage, from the repository root: sh .agents/skills/vm/open-in-vm.sh [git ref]
 set -eu
 
 REF=${1:-main}

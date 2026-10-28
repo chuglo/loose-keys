@@ -1,7 +1,7 @@
 #!/bin/sh
 # The shipped-bundle check (docs/testing/guest.md) on a release candidate, in
 # a new clone of the base image: the app check, then its negative control.
-# Usage: sh .claude/skills/release/bundle-check.sh <candidate folder>
+# Usage: sh .agents/skills/release/bundle-check.sh <candidate folder>
 set -eu
 umask 077
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Set the version everywhere it is written: both Cargo.toml files, Cargo.lock,
 # README.md and the bundle's Info.plist.
-# Usage, from the root of a worktree: sh .claude/skills/release/bump.sh <new version>
+# Usage, from the root of a worktree: sh .agents/skills/release/bump.sh <new version>
 set -eu
 
 NEW=${1:?usage: bump.sh <new version, e.g. 0.4.0>}

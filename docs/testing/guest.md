@@ -51,7 +51,7 @@ When done, run `sync` in the guest, then `tart stop "$VM"` on this Mac.
 
 ## Repeatable release checks
 
-The [release skill](../../.claude/skills/release/SKILL.md) builds a candidate
+The [release skill](../../.agents/skills/release/SKILL.md) builds a candidate
 from a committed source archive and runs the checks against that same ZIP.
 Its scripts need no Codex Desktop, Computer Use or VNC. They run sequentially
 in fresh clones, verify artifact and transfer checksums, retain host logs,
@@ -81,7 +81,7 @@ changes, a modified candidate being rejected, and a failed guest startup
 stopping only its owned clone. Run them from the repository root:
 
 ```sh
-python3 -I .claude/skills/release/check-scripts.py
+python3 -I .agents/skills/release/check-scripts.py
 ```
 
 Checked on 2026-10-27: a candidate built from `1da0303` passed the bundle

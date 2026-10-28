@@ -2,7 +2,7 @@
 # Build the release candidate for one commit on this Mac: the ad-hoc bundle
 # that ships, zipped, plus the source and security harness the guest checks
 # use. Every guest check and the GitHub release use this one zip.
-# Usage, from the repository root: sh .claude/skills/release/candidate.sh <git ref>
+# Usage, from the repository root: sh .agents/skills/release/candidate.sh <git ref>
 set -eu
 umask 077
 
