@@ -89,6 +89,8 @@ struct ReviewItem: Decodable, Identifiable {
     /// "open", "set-aside" or "fixed".
     let state: String?
     let setAside: String?
+    /// When it was set aside, as the engine's UTC timestamp.
+    let setAsideAt: String?
     let places: [ReviewPlace]?
     let folder: String?
     /// Whether the app will act on this file. It acts only on plain names.

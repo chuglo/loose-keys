@@ -460,6 +460,8 @@ struct ReviewItem {
     state: &'static str,
     /// Why it was set aside, using review::Reason's fixed serialized names.
     set_aside: Option<review::Reason>,
+    /// When the decision behind `set_aside` was made.
+    set_aside_at: Option<String>,
     /// Every place the same credential is stored, this one included.
     places: Vec<PlaceView>,
     /// The folder a "stop checking this folder" would name, if one may be.
@@ -560,6 +562,7 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             item: shown(item),
             state: "open",
             set_aside: None,
+            set_aside_at: None,
             places: vec![place],
         });
     }
@@ -591,6 +594,7 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             .min();
         let decision = open.iter().find_map(|(_, d)| *d);
         entry.set_aside = decision.map(|d| d.reason);
+        entry.set_aside_at = decision.map(|d| d.decided.clone());
         entry.state = if open.is_empty() {
             counts.fixed += 1;
             "fixed"
@@ -2827,6 +2831,39 @@ mod tests {
             .decide(2, review::Reason::Kept, now(), "then".into())
             .unwrap();
         assert_eq!(review_items(&state).0[0].state, "set-aside");
+    }
+
+    #[test]
+    fn a_set_aside_entry_says_when_it_was_set_aside() {
+        let copy = |id: u64, path: &str, secret: &str| -> review::Item {
+            serde_json::from_value(json!({
+                "id": id, "revision": id, "rule": "secret.service-token", "path": path,
+                "secret": secret, "line": null, "title": "t", "explanation": "e",
+                "reason": null, "next_step": null,
+            }))
+            .unwrap()
+        };
+        let mut state = review::Review {
+            items: vec![
+                copy(1, "~/a.txt", "digest-a"),
+                copy(2, "~/b.txt", "digest-b"),
+            ],
+            ..Default::default()
+        };
+        let stamp = "2026-10-24T18:00:00Z";
+        state
+            .decide(1, review::Reason::Testing, now(), stamp.into())
+            .unwrap();
+        let (items, _) = review_items(&state);
+        assert_eq!(items[0].state, "set-aside");
+        assert_eq!(items[0].set_aside_at.as_deref(), Some(stamp));
+        // An open entry has none.
+        assert_eq!(items[1].set_aside_at, None);
+        let json = serde_json::to_value(&items).unwrap();
+        assert_eq!(json[0]["set_aside_at"], stamp);
+        // Returned to review, it has none either.
+        state.undo(1);
+        assert_eq!(review_items(&state).0[0].set_aside_at, None);
     }
 
     #[test]

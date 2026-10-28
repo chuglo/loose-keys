@@ -136,9 +136,6 @@
 /* [Inspector.swift:102] */
 "If this belongs to work or you are unsure, ask IT before changing it. This app does not change files or revoke credentials." = "Si esto es del trabajo o tienes dudas, consulta con el departamento de TI antes de cambiarlo. Esta app no cambia archivos ni revoca credenciales.";
 
-/* [Inspector.swift:107] */
-"Review Options" = "Opciones de revisión";
-
 /* [Inspector.swift:111] */
 "Folder" = "Carpeta";
 

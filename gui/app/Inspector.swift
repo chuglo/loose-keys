@@ -67,12 +67,21 @@ private struct ReviewInspector: View {
                     Text("This file was checked again and no longer matches. That does not prove the credential was revoked, or that no other copy exists.")
                         .foregroundStyle(.secondary)
                 }
+                // At the top, so it is in view without scrolling past what to do.
+                if item.status == "open" {
+                    decisions.disabled(model.decidingSelection)
+                }
             }
 
             if item.status == "set-aside" {
                 Section {
-                    Text(reason?.summary ?? String(localized: "Set aside by you",
-                                                   comment: "Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know."))
+                    let summary = reason?.summary ?? String(localized: "Set aside by you",
+                                                            comment: "Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know.")
+                    if let at = item.setAsideAt {
+                        LabeledContent(summary, value: localDay(at))
+                    } else {
+                        Text(summary)
+                    }
                     Button("Move to Worth Reviewing") { model.decide(item, reason: nil) }
                         .disabled(model.decidingSelection)
                 } header: {
@@ -125,9 +134,6 @@ private struct ReviewInspector: View {
             }
 
             if item.status != "set-aside" {
-                Section("Review Options") {
-                    decisions.disabled(model.decidingSelection)
-                }
                 if item.status != "fixed", let folder = item.folder {
                     Section("Folder") {
                         if folderSkipped(folder) {
@@ -185,25 +191,21 @@ private struct ReviewInspector: View {
         (model.review?.skipped ?? []).contains { folder == $0 || folder.hasPrefix($0 + "/") }
     }
 
-    @ViewBuilder private var decisions: some View {
-        if item.status != "fixed" {
-            Menu {
-                ForEach(SetAsideReason.all) { reason in
-                    Button(reason.label) { model.decide(item, reason: reason.id) }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text("Set Aside…")
-                    Image(systemName: "chevron.down").imageScale(.small)
-                }
+    private var decisions: some View {
+        Menu {
+            ForEach(SetAsideReason.all) { reason in
+                Button(reason.label) { model.decide(item, reason: reason.id) }
             }
-            .menuIndicator(.hidden)
-            .menuStyle(.button)
-            .buttonStyle(.bordered)
-            .fixedSize()
-        } else {
-            Text("It is fixed here, so there is nothing to set aside.").foregroundStyle(.secondary)
+        } label: {
+            HStack(spacing: 6) {
+                Text("Set Aside…")
+                Image(systemName: "chevron.down").imageScale(.small)
+            }
         }
+        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .fixedSize()
     }
 }
 

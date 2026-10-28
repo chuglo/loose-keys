@@ -35,6 +35,8 @@ final class SampleEngine: Engine {
     static var kept: Set<Int> = []
     /// Decisions on the sample's single-location findings.
     static var decisions: [Int: String] = [6: "kept"]
+    /// When every sample decision was made.
+    static let setAsideAt = "2026-10-24T18:00:00Z"
     /// Consent to background checks, with the helper running while it is
     /// given. set_monitoring changes it, and the checks put it back.
     static var monitoring = false
@@ -156,7 +158,7 @@ final class SampleEngine: Engine {
          "next_step":"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now.",
          "severity":"\(severity)","steps":["Write the phrase on paper, or stamp it in metal, and store it somewhere safe away from the computer.","Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots.","If this Mac may have been infected, create a new wallet with a new phrase and move the funds to it."],
          "link":null,"subject":\(quoted(subject)),"detail":\(quoted(detail)),"first_seen":"2026-10-\(10 + id % 9)T21:40:00Z","resolved_at":null,
-         "resolved":\(state == "fixed"),"state":"\(state)","set_aside":\(quoted(aside)),
+         "resolved":\(state == "fixed"),"state":"\(state)","set_aside":\(quoted(aside)),"set_aside_at":\(quoted(aside.map { _ in setAsideAt })),
          "places":\(copies),"folder":null,"actionable":\(actionable)}
         """
     }
@@ -908,6 +910,8 @@ enum Checks {
                 }
                 return heading && text.contains(keptReason.summary) && !text.contains(keptReason.returns)
             }, "the decision card shows the saved reason with its explanation collapsed")
+            expect(await eventually { (written() + everything().flatMap(names)).contains(localDay(SampleEngine.setAsideAt)) },
+                   "the decision card shows the day the finding was set aside")
             await press(button("Show Details"), "revealing the decision explanation in Details")
             expect(await eventually {
                 let text = (written() + everything().flatMap(names)).joined(separator: "\n")
