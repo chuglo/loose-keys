@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadType</key>
+			<string>dev.loosekeys.desktop</string>
+			<key>PayloadIdentifier</key>
+			<string>dev.loosekeys.test.settings.app</string>
+			<key>PayloadUUID</key>
+			<string>6B1F2C9E-4E1D-4C55-9C7B-2F1A0D3E5B71</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>PayloadDisplayName</key>
+			<string>Loose Keys settings</string>
+			<key>ExpectedFindings</key>
+			<array>
+				<dict>
+					<key>rule</key>
+					<string>key.ssh.private</string>
+					<key>path</key>
+					<string>~/.safe-chain/certs/ca-key.pem</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>PayloadDisplayName</key>
+	<string>Loose Keys test settings</string>
+	<key>PayloadIdentifier</key>
+	<string>dev.loosekeys.test.settings</string>
+	<key>PayloadScope</key>
+	<string>System</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>0D7E3A51-8F2B-4A6C-B1D9-5C3E7F9A2B40</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

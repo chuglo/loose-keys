@@ -34,7 +34,8 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   `en.lproj` has only plural forms. `es-419.lproj` has only what differs
   from `es.lproj`; `build-macos.sh` lays it over `es.lproj` in the bundle.
 - `tests/`: the window, model, bundle, notification and power checks, and the
-  guest-only drivers `app-check.swift` and `helper-control.swift`.
+  guest-only drivers `app-check.swift`, `helper-control.swift` and
+  `install-profile.swift`.
 
 ## Commands
 

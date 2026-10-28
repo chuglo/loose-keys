@@ -94,6 +94,51 @@ These clones boot with SIP off, which the
 
 When done, run `sync` in the guest, then `tart stop "$VM"` on this Mac.
 
+## Managed settings
+
+An organization sets the app's preferences with a configuration profile from
+its MDM. To open a build in a new guest with a profile installed, as the
+[vm skill](../../.agents/skills/vm/SKILL.md) does:
+
+```sh
+LOOSE_KEYS_PROFILE=.agents/skills/vm/managed-settings.mobileconfig \
+LOOSE_KEYS_EXTRA_HOME=<folder of extra synthetic files> \
+sh .agents/skills/vm/open-in-vm.sh <ref>
+```
+
+The profile carries one payload whose `PayloadType` is
+`dev.loosekeys.desktop`, with the settings as its other keys: the shape MDM
+"custom settings" produce. `profiles install` has refused to install
+profiles since macOS 11, so `gui/tests/install-profile.swift` opens the file
+and installs it through System Settings, typing the base image's
+administrator password if asked. It runs only in a `VirtualMac` guest, not as
+root, and clicks only where System Settings is the window on top. It passes
+when macOS reports every key in the payload as managed.
+
+Checked on 2026-10-28 in a macOS 26.6.2 tahoe-base clone (SIP off), with
+`CFPreferencesAppValueIsForced` run as the guest user:
+
+| Where the value came from | Managed |
+|---|---|
+| `~/Library/Preferences/dev.loosekeys.desktop.plist` | no |
+| A profile installed through System Settings | yes |
+| A root-owned plist placed in `/Library/Managed Preferences/<user>/` or `/Library/Managed Preferences/` | yes, at once |
+| The same plist owned by the user | yes |
+| A managed and a home-folder value together | yes; the managed value is returned |
+
+A profile with `PayloadScope` `System` wrote root-owned copies to both
+folders. macOS does not check the file's owner: what keeps a person from
+setting a managed value is that only root can write in those folders.
+`sudo profiles remove -identifier <PayloadIdentifier>` in the guest removes
+the profile, and its values stop being managed at once.
+
+Not verified: a profile delivered by an MDM server. The payload and where
+macOS stores it are the same, but a hand-installed profile shows as not
+signed and its user can remove it. A real MDM needs an Apple push
+certificate, and Parallels reports that macOS 26 guests enroll but then
+receive no profiles (unverified here). A `PayloadScope` `User` profile and a
+guest with SIP on are not checked either.
+
 ## Repeatable release checks
 
 The [release skill](../../.agents/skills/release/SKILL.md) builds a candidate

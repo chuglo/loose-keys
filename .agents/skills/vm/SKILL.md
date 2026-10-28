@@ -18,6 +18,14 @@ conversation; when none is specified, use local `main`.
    TMPDIR=/private/tmp/loose-keys-scratch sh .agents/skills/vm/open-in-vm.sh <ref>
    ```
 
+   To open it as a Mac whose organization manages the app, add
+   `LOOSE_KEYS_PROFILE=<file.mobileconfig>`: the profile is installed
+   through System Settings before the app's first start, and the step fails
+   unless macOS reports each of its `dev.loosekeys.desktop` keys as managed.
+   `managed-settings.mobileconfig` beside this file is an example to copy.
+   `LOOSE_KEYS_EXTRA_HOME=<folder>` adds that folder's files to the decoy
+   home, such as a synthetic file at a path the profile names.
+
 3. Report the summary it prints: the VM, the commit and how it was signed.
    The person presses Scan Now. Do not drive the app or scan for them.
 4. If it fails, report the step and the log it names. Every build gets a new
