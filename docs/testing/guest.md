@@ -62,12 +62,12 @@ or failure, and a failed stop makes the wrapper fail. The clone is retained
 for inspection, never automatically deleted. Transfer checksums detect
 accidental changes; they do not authenticate a hostile host. This checks
 sample window behavior, not the real bundle, helper, or visual appearance.
-The offline wrapper controls replace Tart with a stand-in and check a stalled
+The Rust harness's offline wrapper controls replace Tart with a stand-in and check a stalled
 checksum command, successful completion, nonzero check-status propagation,
 and stopping only the owned clone. They start no VM or window:
 
 ```sh
-python3 -I gui/tests/check-window-guest.py
+cargo test --locked --test security_harness
 ```
 
 Running `check-window.sh` directly on the host requires an explicit request

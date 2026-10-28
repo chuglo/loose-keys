@@ -35,7 +35,6 @@ check scanner-gate sh security-tests/check_scanner.sh "$RUN/gate"
 check platform sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$RUN/platform"
 check bundle sh gui/build-macos.sh
 check bundle-contract node --test gui/tests/bundle-contract.test.js
-check window-runner python3 -I gui/tests/check-window-guest.py
 printf '%s\n' 'window: sample check runs in a headless macOS guest'
 check window sh gui/tests/check-window-guest.sh "$RUN/window"
 check model sh gui/tests/check-model.sh "$RUN/model"
