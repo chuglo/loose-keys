@@ -88,8 +88,33 @@ fn runner_self_test(work: &Path) -> Result<()> {
     let bin = root.join("bin");
     private_dir(&bin)?;
     // Every build, GUI and network command is replaced. Only the runner's
-    // sequencing, timing and status handling execute for real.
-    let stub = b"#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CALLS\"\ncase \"$*\" in *check_detection.sh*) exit \"$TEST_STATUS\";; esac\nexit 0\n";
+    // sequencing, timing and status handling execute for real. fmt records
+    // itself only once the window check has started, or after three seconds,
+    // so the order in CALLS shows whether that check started first. With
+    // WINDOW_STATUS=hold the window check waits to be stopped and fmt waits
+    // to be interrupted.
+    let stub = br#"#!/bin/sh
+if [ "$*" = 'fmt --all --check' ]; then
+    deadline=$(( $(date +%s) + 3 ))
+    until grep -q check-window-guest.sh "$CALLS" 2>/dev/null || [ "$(date +%s)" -ge "$deadline" ]; do
+        sleep 0.01
+    done
+fi
+printf '%s\n' "$*" >> "$CALLS"
+case "$*" in
+    *check_detection.sh*) exit "$TEST_STATUS" ;;
+    *check-window-guest.sh*)
+        [ "$WINDOW_STATUS" = hold ] || exit "$WINDOW_STATUS"
+        sleep 30 &
+        held=$!
+        trap 'kill "$held"; printf "%s\n" window-stopped >> "$CALLS"; exit 143' TERM
+        printf '%s\n' window-held >> "$CALLS"
+        wait "$held"
+        exit 0 ;;
+    "fmt --all --check") [ "$WINDOW_STATUS" != hold ] || exec sleep 30 ;;
+esac
+exit 0
+"#;
     for name in ["cargo", "node", "sh"] {
         let file = bin.join(name);
         write_private(&file, stub)?;
@@ -100,34 +125,44 @@ fn runner_self_test(work: &Path) -> Result<()> {
     let tool = audit.join("cargo-audit");
     write_private(&tool, stub)?;
     fs::set_permissions(tool, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
-    for status in ["0", "7"] {
-        let calls = root.join(format!("calls-{status}"));
+    let runner = |calls: &Path, test: &str, window: &str| {
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/check-all.sh"))
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .env("TMPDIR", &root)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("CALLS", calls)
+            .env("TEST_STATUS", test)
+            .env("WINDOW_STATUS", window);
+        command
+    };
+    for (test, window) in [("0", "0"), ("7", "0"), ("0", "7")] {
+        let calls = root.join(format!("calls-{test}-{window}"));
         let out = run_capture(
-            Command::new("/bin/sh")
-                .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/check-all.sh"))
-                .current_dir(env!("CARGO_MANIFEST_DIR"))
-                .env("TMPDIR", &root)
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        bin.display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("CALLS", &calls)
-                .env("TEST_STATUS", status),
+            &mut runner(&calls, test, window),
             &root,
             Duration::from_secs(10),
         )?;
         let calls = fs::read_to_string(calls).map_err(|e| e.to_string())?;
         let summary = std::str::from_utf8(&out.stdout).map_err(|_| "invalid runner summary")?;
-        if !summary.contains(&format!("test-and-detection: exit {status} ("))
+        let position = |text: &str| calls.lines().position(|line| line.contains(text));
+        if !summary.contains(&format!("test-and-detection: exit {test} ("))
+            || !summary.contains(&format!("window: exit {window} ("))
             || !summary
                 .lines()
                 .filter(|line| line.contains(": exit "))
                 .all(|line| line.ends_with("s)"))
-            || out.status != Some(if status == "0" { 0 } else { 1 })
+            || out.status != Some(if test == "0" && window == "0" { 0 } else { 1 })
+            // The guest check starts first and runs alongside the others.
+            || position("check-window-guest.sh") >= position("fmt --all --check")
             || calls
                 .lines()
                 .filter(|line| line.contains("check_detection.sh"))
@@ -145,7 +180,55 @@ fn runner_self_test(work: &Path) -> Result<()> {
             return Err("full runner lost coverage, repeated tests or hid a failure".into());
         }
     }
-    Ok(())
+    // Ctrl-C reaches the whole process group, but sh ignores it in a
+    // background job, so the runner must stop the window check itself and
+    // wait for it to clean up its guest.
+    let calls = root.join("calls-interrupt");
+    let mut child = runner(&calls, "0", "hold")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let started = Instant::now();
+    let interrupted = (|| -> Result<()> {
+        loop {
+            let seen = fs::read_to_string(&calls).unwrap_or_default();
+            if seen.contains("window-held") && seen.contains("fmt --all --check") {
+                break;
+            }
+            if started.elapsed() >= Duration::from_secs(10) {
+                return Err("runner never started the window check alongside fmt".into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // SAFETY: the runner was started in its own process group and has not been reaped, so its pid identifies that group.
+        unsafe {
+            libc::kill(-(child.id() as libc::pid_t), libc::SIGINT);
+        }
+        let status = loop {
+            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+                break status;
+            }
+            if started.elapsed() >= Duration::from_secs(20) {
+                return Err("runner did not exit after an interrupt".into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let seen = fs::read_to_string(&calls).map_err(|e| e.to_string())?;
+        if status.success() || !seen.contains("window-stopped") || seen.contains("audit --db") {
+            return Err("an interrupted runner left the window check running or carried on".into());
+        }
+        Ok(())
+    })();
+    if interrupted.is_err() {
+        // SAFETY: as above; the group may still hold stand-ins that must not outlive the test.
+        unsafe {
+            libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+        }
+        let _ = child.wait();
+    }
+    interrupted
 }
 
 /// Exercise the real guest wrapper with shell stand-ins, never a VM or UI.

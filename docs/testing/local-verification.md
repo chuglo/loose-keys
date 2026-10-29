@@ -149,9 +149,11 @@ exit status it prints for each check:
 sh tests/check-all.sh
 ```
 
-It runs every command above except the scan by hand, one at a time, with the
-workspace tests and detection as one `--workspace` run. It keeps going after a
-failure, exits 1 if any check failed and prints how long each check took.
-Each check's log is in the folder it names at the end. A later pass does not cancel an earlier
-failure. The sample window check runs in a headless guest; the shipped-app
-and native-helper guest checks are not in it.
+It runs every command above except the scan by hand, with the workspace tests
+and detection as one `--workspace` run. The sample window check starts first
+in a headless guest and runs alongside the others, which run one at a time; it
+builds from its own copy of the sources inside the guest. Ctrl-C stops it and
+waits while it stops its guest. It keeps going after a failure, exits 1 if any
+check failed and prints how long each check took. Each check's log is in the
+folder it names at the end. A later pass does not cancel an earlier failure.
+The shipped-app and native-helper guest checks are not in it.
