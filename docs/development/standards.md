@@ -247,17 +247,23 @@ The threats are a local user racing a root run with links, and hostile files
   can edit that file.
 - The organization's expected-findings list enters only through the
   window's `set_expected`, from a preference macOS reports as forced
-  (`CFPreferencesAppValueIsForced`): a configuration profile or a file under
-  `/Library/Managed Preferences/`, where only root can create or replace a
-  file (macOS checks the folder, not the file's owner). The merged defaults
-  are never read: they include
-  `~/Library/Preferences/dev.loosekeys.desktop.plist`, which anyone who can
-  write to the home folder can write. The engine checks each entry again
-  (`review::accepted`: a rule the scanner has, a plain `~/` path below the
-  home, 32 at most) and keeps it in `state.json` beside the person's
-  decisions, with the same standing as a Kept decision. The CLI reads none
-  of it. A file planted at a listed path is still listed, under Set Aside
-  with its rule and details, counted and exported.
+  (`CFPreferencesAppValueIsForced`). The merged defaults are never read:
+  they include `~/Library/Preferences/dev.loosekeys.desktop.plist`, which
+  anyone who can write to the home folder can write. Checked in a guest on
+  2026-10-28 (macOS 26): a plist in that home-folder location is not
+  forced; a root-owned plist under `/Library/Managed Preferences/` and a
+  configuration profile installed through System Settings are, and a file
+  there is still forced after a change of owner, so the protection is that
+  the folder is writable by root alone. Delivery by an MDM server is
+  unverified. The engine drops each entry of another shape on its own and
+  checks the rest again (`review::accepted`: a rule the scanner has, a plain
+  `~/` path below the home, 32 at most), then keeps them in `state.json`
+  beside the person's decisions, with the same standing as a Kept decision;
+  the helper reads them there and so applies the list the app last saved,
+  which can be stale until the app next runs. The CLI reads none of it. A
+  file planted at a listed path is still listed, under Set Aside with its
+  rule and details, counted and exported. Tests: `expected` and `returned`
+  in `gui/src/review.rs`, `set_expected` in `gui/src/lib.rs`.
 - The app's state folder is `review::STATE_DIR` in the home folder.
   `Store::open` makes and opens each folder on the way without following a
   link, so a link anywhere on that path stops it rather than sending the

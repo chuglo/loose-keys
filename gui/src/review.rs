@@ -82,7 +82,7 @@ pub enum Reason {
     Expected,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 pub struct Decision {
     pub reason: Reason,
     /// The credential, for a decision about the value.
@@ -410,6 +410,17 @@ impl Review {
     /// honoured, and a place the person moved back to review stays open
     /// until the list no longer has it.
     pub fn set_expected(&mut self, list: Vec<Expected>) {
+        (self.expected, self.returned) = self.planned(list);
+    }
+
+    /// Whether `set_expected` with this list would change anything: the
+    /// window sends the list each time the app comes to the front.
+    pub fn expected_changes(&self, list: &[Expected]) -> bool {
+        self.planned(list.to_vec()) != (self.expected.clone(), self.returned.clone())
+    }
+
+    /// What `set_expected` would store for this list.
+    fn planned(&self, list: Vec<Expected>) -> (Vec<Decision>, Vec<Expected>) {
         let mut kept: Vec<Expected> = Vec::new();
         for entry in list {
             if kept.len() == MAX_EXPECTED {
@@ -419,10 +430,15 @@ impl Review {
                 kept.push(entry);
             }
         }
-        self.returned.retain(|r| kept.contains(r));
-        self.expected = kept
+        let returned: Vec<Expected> = self
+            .returned
+            .iter()
+            .filter(|r| kept.contains(r))
+            .cloned()
+            .collect();
+        let expected = kept
             .into_iter()
-            .filter(|e| !self.returned.contains(e))
+            .filter(|e| !returned.contains(e))
             .map(|e| Decision {
                 reason: Reason::Expected,
                 secret: None,
@@ -437,6 +453,7 @@ impl Review {
                 decided_at: 0,
             })
             .collect();
+        (expected, returned)
     }
 
     /// Set an item aside for a reason. Replaces any earlier decision on it,
@@ -457,7 +474,7 @@ impl Review {
             .find(|i| i.id == id)
             .ok_or("That review item is no longer available.")?
             .clone();
-        self.undo(id);
+        self.forget(&item);
         self.returned
             .retain(|r| !(r.rule == item.rule && r.path == item.path));
         let value = reason != Reason::Kept;
@@ -465,7 +482,8 @@ impl Review {
             // About the value, so about every place it is in: a place that
             // was kept must not go on saying the credential is real.
             for n in self.copies(id) {
-                self.undo(self.items[n].id);
+                let copy = self.items[n].clone();
+                self.forget(&copy);
             }
         }
         if self.decisions.len() >= MAX_ITEMS {
@@ -489,11 +507,9 @@ impl Review {
         Ok(())
     }
 
-    /// Remove whatever decision sets this item aside.
-    pub fn undo(&mut self, id: u64) {
-        let Some(item) = self.items.iter().find(|i| i.id == id).cloned() else {
-            return;
-        };
+    /// Remove the person's decisions that set this item aside. The
+    /// organization's list is left as it is.
+    fn forget(&mut self, item: &Item) {
         self.decisions.retain(|d| {
             let place = d.rule == item.rule && d.path == item.path && d.subject == item.subject;
             match &d.secret {
@@ -501,6 +517,16 @@ impl Review {
                 None => !place,
             }
         });
+    }
+
+    /// Move to Worth Reviewing: remove whatever sets this item aside, the
+    /// person's decision or the organization's entry, which is then kept as
+    /// returned so the list sent again does not set it aside once more.
+    pub fn undo(&mut self, id: u64) {
+        let Some(item) = self.items.iter().find(|i| i.id == id).cloned() else {
+            return;
+        };
+        self.forget(&item);
         let before = self.expected.len();
         self.expected
             .retain(|d| !(d.rule == item.rule && d.path == item.path));
@@ -696,14 +722,18 @@ impl Review {
             }
             // Another copy of a credential already on the list is not news.
             // A copy the person keeps where it is does not count: "kept"
-            // covers that place and nowhere else.
+            // covers that place and nowhere else. Nor does a copy at a place
+            // the organization expects, for the same reason.
             let kept = |i: &Item| {
                 self.decisions.iter().any(|d| {
                     d.reason == Reason::Kept
                         && d.rule == i.rule
                         && d.path == i.path
                         && d.subject == i.subject
-                })
+                }) || self
+                    .expected
+                    .iter()
+                    .any(|d| d.rule == i.rule && d.path == i.path)
             };
             let known = f.secret.as_ref().and_then(|secret| {
                 self.items
@@ -2753,5 +2783,87 @@ mod tests {
         map.remove("returned");
         let old: Review = serde_json::from_value(saved).unwrap();
         assert!(old.expected.is_empty() && old.returned.is_empty());
+    }
+
+    /// Kept, then Move to Worth Reviewing, then the list sent again, as the
+    /// window does each time the app comes to the front: still open.
+    #[test]
+    fn a_returned_item_stays_open_after_the_person_kept_it_once() {
+        let mut state = Review::default();
+        let key = (
+            "key.ssh.private",
+            "~/.safe-chain/certs/ca-key.pem",
+            None,
+            None,
+        );
+        let pair = Expected {
+            rule: key.0.into(),
+            path: key.1.into(),
+        };
+        state.ingest(&found(&[key]));
+        state.set_expected(vec![pair.clone()]);
+        state
+            .decide(state.items[0].id, Reason::Kept, 100, "then".into())
+            .unwrap();
+        state.undo(state.items[0].id);
+        assert!(state.decision(&state.items[0], 100).is_none());
+        state.set_expected(vec![pair]);
+        assert!(
+            state.decision(&state.items[0], 100).is_none(),
+            "expected again after the list is sent again"
+        );
+    }
+
+    #[test]
+    fn a_copy_of_an_expected_credential_elsewhere_alerts() {
+        let mut state = Review::default();
+        let key = (
+            "key.ssh.private",
+            "~/.safe-chain/certs/ca-key.pem",
+            None,
+            Some("digest-a"),
+        );
+        state.set_expected(vec![Expected {
+            rule: key.0.into(),
+            path: key.1.into(),
+        }]);
+        state.ingest(&found(&[key]));
+        seen(&mut state);
+        let copy = (
+            "key.ssh.private",
+            "~/Desktop/ca-key.pem",
+            None,
+            Some("digest-a"),
+        );
+        state.ingest(&found(&[key, copy]));
+        assert!(state.decision(&state.items[1], 200).is_none());
+        assert!(state.pending(200), "the copy elsewhere must alert");
+    }
+
+    #[test]
+    fn a_decision_about_the_value_does_not_return_an_expected_place() {
+        let mut state = Review::default();
+        let a = (
+            "key.ssh.private",
+            "~/.safe-chain/certs/ca-key.pem",
+            None,
+            Some("digest-a"),
+        );
+        let b = (
+            "key.ssh.private",
+            "~/Desktop/ca-key.pem",
+            None,
+            Some("digest-a"),
+        );
+        state.set_expected(vec![Expected {
+            rule: a.0.into(),
+            path: a.1.into(),
+        }]);
+        state.ingest(&found(&[a, b]));
+        state
+            .decide(state.items[1].id, Reason::Testing, 100, "then".into())
+            .unwrap();
+        assert!(state.returned.is_empty(), "{:?}", state.returned);
+        assert_eq!(state.expected.len(), 1);
     }
 }

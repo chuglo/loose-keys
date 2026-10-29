@@ -456,30 +456,39 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.handle(name, payload) }
         }
         if reviewRoute { pane = .review }
-        syncExpected()
-        Task { await refresh() }
+        // The list first, so the first review list drawn already has it.
+        Task {
+            await syncExpected()
+            await refresh()
+        }
     }
 
     /// The organization's expected findings, from a managed preference only:
     /// a value macOS does not mark as forced may come from a file in the
     /// home folder, and is not read. Nothing forced means nothing is listed,
-    /// and the engine drops what it had.
-    func syncExpected() {
+    /// and the engine drops what it had. An entry that is not a dictionary
+    /// with string rule and path is left out; the rest are sent.
+    func syncExpected() async {
         #if !PREVIEW
         let key = "ExpectedFindings" as CFString
         let domain = "dev.loosekeys.desktop" as CFString
         var entries: [[String: String]] = []
         if CFPreferencesAppValueIsForced(key, domain),
-           let listed = CFPreferencesCopyAppValue(key, domain) as? [[String: String]] {
-            entries = listed
+           let listed = CFPreferencesCopyAppValue(key, domain) as? [Any] {
+            entries = listed.compactMap { entry in
+                guard let entry = entry as? [String: Any],
+                      let rule = entry["rule"] as? String,
+                      let path = entry["path"] as? String else { return nil }
+                return ["rule": rule, "path": path]
+            }
         }
-        Task { try? await engine.send("set_expected", ["entries": entries]) }
+        try? await engine.send("set_expected", ["entries": entries])
         #endif
     }
 
     /// The helper may have found something while the window was in the background.
     func becameActive() {
-        syncExpected()
+        Task { await syncExpected() }
         // Notifications may have been allowed or blocked in System Settings
         // meanwhile. While macOS is asking, its answer is on the way.
         if !active, !awaitingPermission {

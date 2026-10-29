@@ -658,12 +658,24 @@ fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reaso
 }
 
 /// The organization's expected findings, as the window read them from a
-/// forced preference. The engine checks each entry again before saving it.
-fn set_expected(app: &App, entries: Vec<review::Expected>) -> Answer<()> {
+/// forced preference. An entry of another shape is dropped on its own, so
+/// one typo neither keeps the old list in force nor empties the new one.
+/// The engine checks each entry again before saving it, and saves nothing
+/// for a list that changes nothing, since the window sends it each time
+/// the app comes to the front.
+fn set_expected(app: &App, entries: Vec<serde_json::Value>) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Private state is unavailable.".into());
     }
-    update_state(app, |state| state.set_expected(entries))
+    let list: Vec<review::Expected> = entries
+        .into_iter()
+        .filter_map(|entry| serde_json::from_value(entry).ok())
+        .collect();
+    let changes = app.review.lock().unwrap().expected_changes(&list);
+    if !changes {
+        return Ok(());
+    }
+    update_state(app, |state| state.set_expected(list))
 }
 
 /// Stop checking the folder that holds this item. The front end names an
@@ -3529,5 +3541,70 @@ mod tests {
             ask(&app, "set_expected", r#"{"entries":[]}"#)["error"],
             "Private state is unavailable."
         );
+    }
+
+    /// An admin's typo in one entry drops that entry, not the list: the
+    /// others still apply, and a list of nothing usable replaces the old one.
+    #[test]
+    fn a_malformed_entry_is_dropped_without_touching_the_others() {
+        let notes = Notes::new("malformed-entry", &token('A'));
+        let app = App::open(Ok(notes.0.clone()));
+        app.ready();
+        update_state(&app, |state| notes.save(state, &notes.scan())).unwrap();
+        let row = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
+        let good = json!({ "rule": row["rule"], "path": row["path"] });
+        let state_of =
+            |app: &App| ask(app, "pending_review", "{}")["ok"]["items"][0]["state"].clone();
+        let mixed = json!({ "entries": [
+            { "rule": "key.ssh.private", "Path": "~/x" },
+            { "rule": 7, "path": "~/y" },
+            "~/z",
+            good,
+        ] });
+        assert_eq!(
+            ask(&app, "set_expected", &mixed.to_string()),
+            json!({ "ok": null })
+        );
+        assert_eq!(state_of(&app), "set-aside");
+        let typo = json!({ "entries": [{ "rule": "key.ssh.private", "Path": "~/x" }] });
+        assert_eq!(
+            ask(&app, "set_expected", &typo.to_string()),
+            json!({ "ok": null })
+        );
+        assert_eq!(state_of(&app), "open");
+    }
+
+    /// The window sends the list each time the app comes to the front; a
+    /// list that changes nothing must not rewrite the state file.
+    #[test]
+    fn an_unchanged_list_does_not_rewrite_the_state() {
+        use std::os::unix::fs::MetadataExt;
+        let notes = Notes::new("unchanged-list", &token('A'));
+        let app = App::open(Ok(notes.0.clone()));
+        app.ready();
+        update_state(&app, |state| notes.save(state, &notes.scan())).unwrap();
+        let row = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
+        let entries = json!({ "entries": [{ "rule": row["rule"], "path": row["path"] }] });
+        let file = notes.0.join(review::STATE_DIR).join("state.json");
+        let inode = || std::fs::metadata(&file).unwrap().ino();
+        assert_eq!(
+            ask(&app, "set_expected", &entries.to_string()),
+            json!({ "ok": null })
+        );
+        let written = inode();
+        assert_eq!(
+            ask(&app, "set_expected", &entries.to_string()),
+            json!({ "ok": null })
+        );
+        assert_eq!(
+            inode(),
+            written,
+            "the state was rewritten for an unchanged list"
+        );
+        assert_eq!(
+            ask(&app, "set_expected", r#"{"entries":[]}"#),
+            json!({ "ok": null })
+        );
+        assert_ne!(inode(), written, "a changed list is saved");
     }
 }
