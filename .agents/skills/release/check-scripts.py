@@ -54,6 +54,12 @@ class ReleaseScripts(unittest.TestCase):
             self.assertEqual((root / "Cargo.toml").read_text(), original)
 
     def test_bump_preserves_readme_version_line_format(self):
+        # A UTF-8 locale sorts README.md after gui/, which C does not.
+        for locale in ("C", "en_US.UTF-8"):
+            with self.subTest(locale=locale):
+                self.bump_fixture(locale)
+
+    def bump_fixture(self, locale):
         with tempfile.TemporaryDirectory(prefix=f"release-readme-{os.getpid()}-") as folder:
             root = Path(folder)
             repo = root / "repo"
@@ -79,7 +85,8 @@ class ReleaseScripts(unittest.TestCase):
             work = root / "work"
             run("git", "worktree", "add", str(work))
             result = subprocess.run(["sh", str(HERE / "bump.sh"), "0.2.1"],
-                                    cwd=work, capture_output=True, text=True)
+                                    cwd=work, capture_output=True, text=True,
+                                    env=dict(os.environ, LC_ALL=locale))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "README.md").read_text(), "Version 0.2.1 · MIT licensed\n")
 

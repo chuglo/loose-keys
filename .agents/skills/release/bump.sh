@@ -19,7 +19,7 @@ sed -i '' "s/^Version $O\\([ ,].*\\)\$/Version $NEW\\1/" README.md
 sed -i '' "s#<string>$O</string>#<string>$NEW</string>#g" gui/macos/Info.plist
 cargo metadata --offline --format-version 1 > /dev/null  # rewrites Cargo.lock
 
-changed=$(git diff --name-only | sort | tr '\n' ' ')
+changed=$(git diff --name-only | LC_ALL=C sort | tr '\n' ' ')
 want='Cargo.lock Cargo.toml README.md gui/Cargo.toml gui/macos/Info.plist '
 [ "$changed" = "$want" ] || { printf 'expected changes in %sgot %s\n' "$want" "$changed" >&2; exit 1; }
 if git grep -n -F "$OLD" -- Cargo.toml gui/Cargo.toml README.md gui/macos/Info.plist; then
