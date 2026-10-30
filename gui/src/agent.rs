@@ -528,6 +528,12 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 ready.push(p);
             }
         }
+        // A path whose wait is over says only how often it changed lately.
+        // Forgetting it loses no change: it is checked at once if it changes
+        // again. So only the paths still waiting their turn count here.
+        if checked.len() > 4 * INBOX_MAX {
+            checked.retain(|_, c| now < due(*c));
+        }
         if waiting.len() > INBOX_MAX || checked.len() > 4 * INBOX_MAX {
             waiting.clear();
             checked.clear();
@@ -1475,6 +1481,42 @@ mod tests {
             }
         });
         assert!(!walked, "batches of repository changes became a full pass");
+        f.stop();
+    }
+
+    /// Another project writing thousands of files, a few minutes on end:
+    /// every path checked was remembered, to space out the checks of a file
+    /// that keeps changing, and more than the worker keeps became a walk of
+    /// the whole home, though each had been checked and none was lost.
+    #[test]
+    fn many_paths_checked_once_are_not_a_full_pass() {
+        // Skipped, so each is remembered without anything read for it, and
+        // checked again at once, so none is still waiting its turn.
+        let mut f = Fixture::tuned(
+            "checked-once",
+            &[],
+            |state| {
+                state.skipped.push(review::Skip {
+                    path: "~/Busy".into(),
+                    added: String::new(),
+                })
+            },
+            |agent| agent.recheck_after = Duration::ZERO,
+        );
+        f.first_pass();
+        let walked = walked(&mut f, |f| {
+            for round in 0..6 {
+                let batch: Vec<String> = (0..INBOX_MAX - 500)
+                    .map(|n| format!("Busy/{round}/{n}.json"))
+                    .collect();
+                f.changes(&batch.iter().map(String::as_str).collect::<Vec<_>>());
+                change_listed(f, &format!("round-{round}.csv"));
+            }
+        });
+        assert!(
+            !walked,
+            "paths that had all been checked became a full pass"
+        );
         f.stop();
     }
 

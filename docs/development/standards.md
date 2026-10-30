@@ -335,6 +335,14 @@ checks two folders that together exceed one check's entries without a full
 pass; the existing tests still show a folder too large for any check finished
 by a full pass. Not verified: how long a real start's replay takes.
 
+The worker remembers when each path was last checked, to space out the checks
+of a file that keeps changing. Past 20,000 such paths it forgets those whose
+wait is over, which loses no change, and asks for a full pass only if the paths
+still waiting their turn are that many. Before, another project writing about
+a thousand files every ten seconds filled it within minutes and started a walk
+of the whole home each time. Verification: a helper test checks 27,000 paths
+once each without a full pass.
+
 ## Secrets
 
 - A value does not leave the function that matched it. A matcher returns
