@@ -13,7 +13,7 @@ For a detailed point-in-time report, click **Scan Now**. The sidebar lists
 what is worth reviewing, the sign-ins that are stored, and the places that
 could not be checked. Select a finding to see what it is, why it matters and
 what to do. **Export** saves the full report or a counts-only file, and copies
-the text summary. Opening the app turns on neither automatic scanning nor
+the text summary. Opening the app does not turn on automatic scanning or
 notifications.
 
 The app follows the language macOS uses for it: English or Spanish, with
@@ -29,8 +29,9 @@ prompt later. Full Disk Access is not needed.
 
 The app never writes over a file. If you choose to replace one when saving,
 the app writes the new file beside it and then moves the old one to the Trash.
-File names are shown in escaped form, and the app acts ("Copy Path", "Show in
-Finder") only on plain names. A copied path stays on this Mac's clipboard.
+File names with unusual characters are shown escaped, and **Copy Path** and
+**Show in Finder** work only on plain names. A copied path stays on this Mac's
+clipboard.
 
 Worth Reviewing has one item for a credential, however many rules or files
 found it. The saved report and the copied summary list each finding, so their
@@ -48,11 +49,11 @@ four reasons:
 
 Use Command-click to select several findings, Shift-click to select a range,
 or Command-A while the table has focus to select all visible findings.
-The inspector's **Set Aside…** applies the chosen reason to selected findings
-that are not fixed. Set Aside also supports selecting several findings to
-**Move to Worth Reviewing**. File actions require a single selection.
-Decisions are saved one at a time: if one fails, earlier saves remain and the
-list refreshes before showing the error; later items are not changed.
+The inspector's **Set Aside…** applies the chosen reason to every selected
+finding that is not fixed. In Set Aside, you can also select several findings
+and choose **Move to Worth Reviewing**. File actions need a single selection.
+Each choice is saved in turn. If one fails, the ones before it stay saved, the
+list refreshes and shows the error, and the rest are left as they were.
 
 The first three cover matching copies wherever they are stored. If a password
 or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
@@ -60,10 +61,10 @@ or Key**, changed text appears there if it is flagged again. A finding set
 aside under the earlier combined reason, for testing or no longer working,
 stays set aside and is shown as a previous choice.
 
-**Keeping It Here on Purpose** is about one place. The same credential turning
-up elsewhere is still reported. It survives rotating the value in place, and
-ends if the file becomes readable by others, if a different kind of credential
-appears there, or after six months.
+**Keeping It Here on Purpose** covers one file. The same credential turning
+up elsewhere is still reported. It still applies if you change the value in
+that file, and ends if the file becomes readable by others, if a different kind
+of credential appears there, or after six months.
 
 **Expected by your organization** appears when a managed setting from your
 organization lists the finding's rule and file. It covers only that file; a
@@ -80,9 +81,10 @@ credential, the other copies remain in Worth Reviewing.
 
 Setting an item aside never stops it being found or counted in scan results,
 saved reports or copied summaries. The counts under the window's title still
-include it ("3 to review, 5 set aside"). A folder can be left out (**Stop
-Checking** and the folder's name); it then appears in every summary as not
-checked, and Not Checked can include it again. Known sign-in files in it, and
+include it ("3 to review, 5 set aside"). To leave a folder out, choose **Stop
+Checking** followed by the folder's name. It then appears in every summary as
+not checked, and **Include Again** in Not Checked brings it back. Known sign-in
+files in it, and
 the files directly in an AI tool's own folder, are still read by a scan and by
 the weekly pass, though not when they change. Nothing inside a scanned folder
 can silence the scanner: there is no ignore file or inline comment, by design.
@@ -152,8 +154,8 @@ Settings or Overview opens the saved paths and reasons in **Not Checked**.
 Opening this list does not run another scan. It is dated to the last completed
 automatic full pass; later file or permission changes do not rewrite that
 result. Manual-scan details are listed separately, and saved reports still
-contain only the manual scan. The automatic list retains up to 4096 path/reason
-entries within 512 KiB and says when it is incomplete. Older versions saved
+contain only the manual scan. The automatic list keeps up to 4096 paths with
+their reasons, within 512 KiB, and says when it is incomplete. Older versions saved
 only the count; their details become available after the next automatic full
 pass.
 
@@ -212,14 +214,14 @@ helper refused.
   home directory, regardless of extension (including renamed files);
 - unencrypted Bitwarden JSON exports of a personal vault that hold login
   passwords;
-- Docker registry passwords stored inline in `~/.docker/config.json`;
+- Docker registry passwords stored in `~/.docker/config.json`;
 - AWS access keys in `~/.aws/credentials`;
 - HTTP(S) username/password URLs in `~/.git-credentials`;
 - `user:password` pairs, and tokens in a known issuer format, inside remote
   URLs in each repository's `.git/config` (nothing else in a `.git` folder is
   read);
-- GitHub CLI inline `oauth_token` fields in `~/.config/gh/hosts.yml`;
-- npm inline auth/token/password fields in `~/.npmrc`;
+- GitHub CLI `oauth_token` fields in `~/.config/gh/hosts.yml`;
+- npm auth, token and password fields in `~/.npmrc`;
 - service tokens in about 90 known issuer formats (AWS, GitHub, GitLab, OpenAI,
   Anthropic, Stripe, Slack, npm, PyPI, Cloudflare, Vercel and more) in the first
   4 KiB of any file, and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars`,
@@ -229,7 +231,7 @@ helper refused.
   Continue, Copilot, Cline, Roo Code, Windsurf, OpenCode and Goose keep session
   transcripts and logs, and VS Code's workspace storage, are read in full for
   tokens, up to 256 MiB per file (`--list-rules` has each folder);
-- variables named like secrets with literal values in `.env*` and shell files;
+- variables named like secrets and set to a value in `.env*` and shell files;
 - cloud and infrastructure: Google service-account key files anywhere, kubeconfig
   credentials in `~/.kube` and in a kubeconfig saved anywhere else, secrets in
   Terraform state files (`*.tfstate`), passwords in dbt and Snowflake client
@@ -264,7 +266,7 @@ helper refused.
 
 `loose-keys --list-rules` prints every rule and where it looks.
 
-Each finding has a risk level and numbered steps to remove the exposure. The
+Each finding has a risk level and numbered steps for dealing with it. The
 summary also says what a finding concerns, such as the AWS profile or registry
 host; the JSON report leaves that out and names only the kind of token. Not
 covered: browser cookies and sessions, Safari, Notes, the Keychain, images and
