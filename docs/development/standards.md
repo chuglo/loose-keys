@@ -325,6 +325,16 @@ checks the mapping and that a known file linked into a folder passed over is
 found by a change of that folder. Not verified: the event volume of a real
 build against the installed helper.
 
+A path a change check leaves unfinished asks for a full pass only when it was
+the first the check began, with the check's time and entries to itself. One
+begun after other paths had used part of them is reported with the paths not
+begun and checked again in a later round. Before, the long batch a helper
+replays when it starts nearly always ran out of time partway, and the path it
+was on then started a walk of the whole home. Verification: a helper test
+checks two folders that together exceed one check's entries without a full
+pass; the existing tests still show a folder too large for any check finished
+by a full pass. Not verified: how long a real start's replay takes.
+
 ## Secrets
 
 - A value does not leave the function that matched it. A matcher returns

@@ -413,11 +413,13 @@ pub struct Unreached {
     /// A cancel came before the path was reached or while it was checked:
     /// the check can be made again as it was.
     pub cancelled: Vec<PathBuf>,
-    /// Not begun, because the paths before it used up the check's time, the
-    /// findings one scan keeps or, for a folder to walk, its entry budget.
-    /// Checked without them it may well be finished.
+    /// Not begun, or left unfinished after it was begun, because the paths
+    /// before it used up or shared the check's time, the findings one scan
+    /// keeps or, for a folder to walk, its entry budget. Checked without them
+    /// it may well be finished.
     pub out_of_budget: Vec<PathBuf>,
-    /// Begun, and left unfinished by one of those three limits. Not by a
+    /// Begun first, with the whole check to itself, and left unfinished by
+    /// one of those three limits. Not by a
     /// limit a full pass reaches at the same place: how deep folders are
     /// read, how many entries of one folder or one tree of records, how many
     /// tokens of one record, or how long one record may take. Nor is a
@@ -1225,6 +1227,8 @@ impl Scan {
         let s = self;
         let home = &s.home.clone();
         let mut unreached = Unreached::default();
+        // Whether a path before this one began to use the check's limits.
+        let mut shared = false;
         // Judged below the home only: the names above it are not the scan's.
         let excluded = |p: &Path| {
             p.strip_prefix(home).is_ok_and(|below| {
@@ -1315,12 +1319,13 @@ impl Scan {
                 let cancelled = s.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst));
                 if cancelled {
                     unreached.cancelled.push(p.clone());
-                } else if begun {
+                } else if begun && !shared {
                     unreached.cut_short.push(p.clone());
                 } else {
                     unreached.out_of_budget.push(p.clone());
                 }
             }
+            shared = true;
         }
         unreached
     }
@@ -4318,8 +4323,11 @@ mod tests {
             let (listed, found, left) = checked(&f.0, &paths, limits(entries), false);
             assert_eq!(listed, entries, "more entries listed than the check had");
             assert_eq!(found.1, limited);
-            assert_eq!(left.cut_short, paths.map(|p| f.0.join(p)));
-            assert!(left.cancelled.is_empty() && left.out_of_budget.is_empty());
+            // The first path had the check to itself; the second only what
+            // the first left of it, so a check of its own may finish it.
+            assert_eq!(left.cut_short, [f.0.join(paths[0])]);
+            assert_eq!(left.out_of_budget, [f.0.join(paths[1])]);
+            assert!(left.cancelled.is_empty());
         }
         // More names than any scan lists of one folder: said as a scan says
         // it, and nothing a full pass would finish.

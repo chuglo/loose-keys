@@ -1692,6 +1692,30 @@ mod tests {
         f.stop();
     }
 
+    /// A folder begun after the one before it had used most of what one check
+    /// may list was taken for a folder no check can finish, and asked for a
+    /// walk of the whole home. As the helper starts and replays a long batch,
+    /// that was most starts. Checked on its own, it is finished.
+    #[test]
+    fn a_folder_the_one_before_it_left_unfinished_is_checked_again_not_walked() {
+        let mut f = Fixture::tuned("shared", &[], |_| {}, |agent| agent.changes.entries = 40);
+        f.first_pass();
+        let walked = walked(&mut f, |f| {
+            for folder in ["A", "B"] {
+                for n in 0..30 {
+                    export(&f.home, &format!("{folder}/export-{n}.csv"));
+                }
+            }
+            f.changes(&["A", "B"]);
+            f.wait("both folders", |s| s.items.len() >= 60);
+        });
+        assert!(
+            !walked,
+            "a folder cut short by the one before it became a full pass"
+        );
+        f.stop();
+    }
+
     /// Whether a place is on the list, fixed or not.
     fn listed(state: &Review, path: &str) -> bool {
         state.items.iter().any(|i| i.path == path)
