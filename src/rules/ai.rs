@@ -9,15 +9,15 @@ pub const MCP_SECRET: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Secret written into an MCP server config",
-    explanation: "An MCP server entry passes a literal key, token or password in its environment, headers or arguments. Its validity and permissions were not checked.",
-    reason: Some("Programs with access to this configuration can copy its stored credentials. Copies of the configuration may also retain them."),
+    explanation: "An MCP server entry in this file has a key, token or password written out in full. Loose Keys did not check whether it still works or what it can access.",
+    reason: Some("Any program that can read this file can copy the credential."),
     next_step: Some("Revoke the key at its service and stop storing it in the config. Removing the entry does not revoke it."),
     advice: Advice {
         steps: &[
-            "Revoke or roll the key at the service this MCP server connects to.",
+            "Revoke or replace the key at the service this MCP server connects to.",
             "If the server supports sign-in (OAuth), use that instead of a key: remove the key and let the tool prompt you.",
-            "Otherwise pass the key by reference, not by value. Start the server through a wrapper that reads it from the Keychain, for example: security find-generic-password -s <name> -w",
-            "Remove the literal value from this file, and check that the file was never committed or synced.",
+            "Otherwise keep the key out of the config: start the server through a wrapper that reads it from the Keychain, for example: security find-generic-password -s <name> -w",
+            "Remove the value from this file, and check that the file was never committed or synced.",
         ],
         link: None,
     },
@@ -261,7 +261,7 @@ pub const AI_TOOL_LOGIN: Rule = Rule {
     kind: "inventory",
     severity: "medium",
     title: "AI coding tool sign-in stored in a file",
-    explanation: "An AI coding tool keeps its sign-in token or API key in this file as plain text. This is how the tool stores it; validity and permissions were not checked.",
+    explanation: "An AI coding tool keeps its sign-in token or API key in this file as plain text. That is how the tool works. Loose Keys did not check whether it still works or what it can access.",
     reason: None,
     next_step: Some("Sign out of tools you no longer use, which removes the stored token."),
     advice: Advice {
@@ -301,7 +301,7 @@ pub const AI_TOOL_LOGIN: Rule = Rule {
 pub const OAUTH_TOKENS: Rule = Rule {
     id: "dev.oauth.token-file",
     title: "OAuth sign-in tokens stored in a file",
-    explanation: "This file holds an OAuth access or refresh token as plain text, the way mcp-remote keeps the sign-in to each remote MCP server in ~/.mcp-auth. This is how such tools store a sign-in; validity and permissions were not checked.",
+    explanation: "This file holds an OAuth sign-in token as plain text. Tools like mcp-remote keep sign-ins this way, in ~/.mcp-auth. Loose Keys did not check whether it still works or what it can access.",
     next_step: Some("Remove connections you no longer use, which removes the stored token."),
     advice: Advice {
         steps: &[

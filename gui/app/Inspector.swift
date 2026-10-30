@@ -21,7 +21,7 @@ struct Inspector: View {
                             }
                         }
                     } else {
-                        Text("It is fixed here, so there is nothing to set aside.")
+                        Text("These are fixed, so there is nothing to set aside.")
                     }
                 }
                 .disabled(model.decidingSelection)
@@ -64,7 +64,7 @@ private struct ReviewInspector: View {
                     }
                 }
                 if item.status == "fixed" {
-                    Text("This file was checked again and no longer matches. That does not prove the credential was revoked, or that no other copy exists.")
+                    Text("Loose Keys no longer finds this in the file. That does not mean the credential was revoked, or that no other copy exists.")
                         .foregroundStyle(.secondary)
                 }
                 // At the top, so it is in view without scrolling past what to do.
@@ -75,7 +75,7 @@ private struct ReviewInspector: View {
 
             if item.status == "set-aside" {
                 Section {
-                    let summary = reason?.summary ?? String(localized: "Set aside by you",
+                    let summary = reason?.summary ?? String(localized: "You set this aside",
                                                             comment: "Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know.")
                     if let at = item.setAsideAt {
                         LabeledContent(summary, value: localDay(at))
@@ -120,7 +120,7 @@ private struct ReviewInspector: View {
             if item.status != "set-aside" {
                 Section {
                     Text(item.nextStep.map(EngineText.shown)
-                         ?? String(localized: "Confirm why this file is stored here before you change it.",
+                         ?? String(localized: "Find out why this file is here before you change it.",
                                    comment: "Inspector, under What to Do, for a finding whose rule gives no next step."))
                     StepList(steps: item.steps ?? [])
                     if let link = item.link {
@@ -129,7 +129,7 @@ private struct ReviewInspector: View {
                 } header: {
                     Text("What to Do")
                 } footer: {
-                    Text("If this belongs to work or you are unsure, ask IT before changing it. This app does not change files or revoke credentials.")
+                    Text("If this is for work, or you are not sure, ask IT before changing it. Loose Keys does not change files or revoke anything for you.")
                 }
             }
 
@@ -138,7 +138,7 @@ private struct ReviewInspector: View {
                     Section("Folder") {
                         if folderSkipped(folder) {
                             // A folder's name is whatever its maker chose, so it is shown as plain text.
-                            Text(verbatim: String(localized: "\(folder) is no longer checked. Not Checked lists it, and can include it again.",
+                            Text(verbatim: String(localized: "Scans will skip \(folder). You can include it again from Not Checked.",
                                                   comment: "Inspector, Folder section. %@ is a folder's path, shown as it is. Not Checked is the page's name."))
                                 .foregroundStyle(.secondary)
                         } else {
@@ -155,7 +155,7 @@ private struct ReviewInspector: View {
 
             // What to do comes first. The reasons and the record stay one press away.
             Section {
-                Button(model.inspectorWhy ? "Hide Why It Is Here" : "Show Why It Is Here") {
+                Button(model.inspectorWhy ? "Hide Explanation" : "Show Explanation") {
                     model.inspectorWhy.toggle()
                 }
                 if model.inspectorWhy {
@@ -251,7 +251,7 @@ private struct StoredInspector: View {
 
 /// A file's path, with the two things a person does with it.
 /// Said in place of Show in Finder and Copy Path, which the engine would refuse.
-private let unusualName = String(localized: "This name has unusual characters, so the app does not act on it.",
+private let unusualName = String(localized: "This name has unusual characters, so Loose Keys will not open or copy it.",
                                  comment: "Inspector, under a file's path, in place of Show in Finder and Copy Path.")
 
 /// A file's path, and the line in it when the rule gives one. The path is

@@ -8,12 +8,12 @@ pub const DOCKER_AUTH: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Docker registry password in the config file",
-    explanation: "A nonempty inline auth field was found. Docker stores this as base64, which is encoding, not encryption; validity and effective file access have not been checked.",
+    explanation: "This file has a saved registry sign-in. Docker stores it in base64, which anyone can decode. Loose Keys did not check whether it still works.",
     reason: Some("Docker on macOS can keep this in the Keychain instead."),
-    next_step: Some("Move the sign-in to the Keychain. Removing an inline entry does not revoke the credential; change it at the registry."),
+    next_step: Some("Move the sign-in to the Keychain. Removing it from the file does not revoke it; change it at the registry."),
     advice: Advice {
         steps: &[
-            "Sign out of each registry listed in the file, which removes the inline entry: docker logout <registry>",
+            "Sign out of each registry listed in the file, which removes its entry: docker logout <registry>",
             "Set \"credsStore\": \"osxkeychain\" in ~/.docker/config.json. Docker Desktop does this by default.",
             "Sign in again with 'docker login'. Use a personal access token, not your account password.",
             "At the registry, revoke the old token or change the password that was stored here.",

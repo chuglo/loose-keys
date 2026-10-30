@@ -9,13 +9,13 @@ pub const GCP_SERVICE_ACCOUNT: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Google Cloud service account key file",
-    explanation: "A JSON file with a service account's private key was found. The key's validity and permissions were not checked.",
+    explanation: "This JSON file holds a service account's private key. Loose Keys did not check whether the key still works or what it can access.",
     reason: Some("A service account key does not expire by default and works from any computer. These files are often left in Downloads after being created."),
     next_step: Some("Delete the key in Google Cloud, not just this file. Use sign-in or impersonation instead of a downloaded key."),
     advice: Advice {
         steps: &[
             "In the Google Cloud console, open IAM & Admin > Service Accounts, choose the account named here, and open its Keys tab.",
-            "Delete the key. If something still uses it, switch that to 'gcloud auth application-default login' with service account impersonation, or to workload identity, first.",
+            "If something still uses the key, first switch it to 'gcloud auth application-default login' with service account impersonation, or to workload identity. Then delete the key.",
             "Delete this file and empty the Trash. Look for other copies in Downloads and project folders.",
         ],
         link: Some("https://console.cloud.google.com/iam-admin/serviceaccounts"),
@@ -60,12 +60,12 @@ pub const KUBE_CREDENTIALS: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Kubernetes credential stored in kubeconfig",
-    explanation: "A token, password or client key is written directly in the kubeconfig file. Whether it still works, and on which cluster, was not checked.",
-    reason: Some("Inline kubeconfig credentials are long-lived and work from any computer that can reach the cluster."),
-    next_step: Some("Replace inline credentials with a sign-in plugin that fetches short-lived ones. Removing the entry does not revoke it on the cluster."),
+    explanation: "A token, password or client key is written directly in the kubeconfig file. Loose Keys did not check whether it still works, or on which cluster.",
+    reason: Some("Credentials written into a kubeconfig last a long time and work from any computer that can reach the cluster."),
+    next_step: Some("Replace them with a sign-in plugin that fetches short-lived credentials. Removing the entry does not revoke it on the cluster."),
     advice: Advice {
         steps: &[
-            "See which users hold inline credentials: kubectl config view (values are hidden unless you add --raw).",
+            "See which users have credentials stored in the file: kubectl config view (values are hidden unless you add --raw).",
             "Recreate each entry with the provider's sign-in plugin, which stores no secret: 'aws eks update-kubeconfig', 'gcloud container clusters get-credentials' or 'az aks get-credentials' with kubelogin.",
             "Remove users you no longer need: kubectl config delete-user <name>",
             "On the cluster, delete the service account token or rotate the client certificate that was stored here.",
@@ -124,7 +124,7 @@ pub const GCLOUD_LOGIN: Rule = Rule {
     kind: "inventory",
     severity: "medium",
     title: "Google Cloud sign-in stored by gcloud",
-    explanation: "gcloud keeps a refresh token for application-default sign-in in this file. This is how the tool works; the token's validity and permissions were not checked.",
+    explanation: "gcloud keeps a refresh token for application-default sign-in in this file. That is normal for gcloud. Loose Keys did not check whether the token still works or what it can access.",
     reason: None,
     next_step: Some("Sign out when you stop using gcloud, which revokes the token."),
     advice: Advice {
@@ -191,7 +191,7 @@ fn gcloud_store_hits(bytes: &[u8]) -> Hits {
 pub const AZURE_LOGIN: Rule = Rule {
     id: "dev.azure.stored-login",
     title: "Azure sign-in stored by the Azure CLI",
-    explanation: "On macOS the Azure CLI keeps its refresh tokens in this file as plain text. This is how the tool works; the tokens' validity and permissions were not checked.",
+    explanation: "On macOS the Azure CLI keeps its refresh tokens in this file as plain text. That is normal for the Azure CLI. Loose Keys did not check whether the tokens still work or what they can access.",
     next_step: Some("Sign out when you stop using the Azure CLI."),
     advice: Advice {
         steps: &[
@@ -218,7 +218,7 @@ fn azure_hits(bytes: &[u8]) -> Hits {
 pub const TERRAFORM_TOKEN: Rule = Rule {
     id: "dev.terraform.inline-token",
     title: "Terraform Cloud token stored in a file",
-    explanation: "Terraform keeps its API token for HCP Terraform or Terraform Enterprise in this file as plain text. The token's validity and permissions were not checked.",
+    explanation: "Terraform keeps its API token for HCP Terraform or Terraform Enterprise in this file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("A Terraform user token does not expire by default and can run plans that change infrastructure."),
     next_step: Some("Sign out to remove the token, and revoke it in your Terraform account. Deleting the file does not revoke it."),
     advice: Advice {
@@ -256,7 +256,7 @@ pub const VAULT_TOKEN: Rule = Rule {
     id: "dev.vault.token",
     severity: "medium",
     title: "Vault token stored in a file",
-    explanation: "The Vault CLI keeps its current token in this file as plain text. The token's validity, lifetime and policies were not checked.",
+    explanation: "The Vault CLI keeps its current token in this file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("A Vault token can read whatever secrets its policies allow until it expires or is revoked."),
     next_step: Some("Revoke the token when you are done with Vault. Deleting the file does not revoke it."),
     advice: Advice {
@@ -310,12 +310,12 @@ fn kubeconfig_head(head: &[u8]) -> bool {
 pub const TERRAFORM_STATE: Rule = Rule {
     id: "dev.terraform.state-secret",
     title: "Secret stored in a Terraform state file",
-    explanation: "Terraform keeps what it created in this state file as plain JSON, including passwords and keys that providers return. The values were not read beyond ruling out empty ones and placeholders.",
+    explanation: "Terraform keeps what it created in this state file as plain JSON, including passwords and keys that providers return. Loose Keys only checked that the values are not empty or placeholders.",
     reason: Some("State files hold working database passwords and cloud keys, and they stay in project folders long after the work is done."),
-    next_step: Some("Rotate what the state names, and move the state to a remote backend. Deleting the file does not revoke anything."),
+    next_step: Some("Change the passwords and keys in the state, and move the state to a remote backend. Deleting the file does not revoke anything."),
     advice: Advice {
         steps: &[
-            "Rotate the password or key of each resource named here at its service.",
+            "For each resource named here, change its password or key at the service.",
             "Store state remotely (HCP Terraform, or an encrypted bucket with locking) so no copy stays on this Mac: add a backend block and run 'terraform init -migrate-state'.",
             "Delete the local state file and its .backup copy once the remote state works.",
         ],

@@ -176,7 +176,7 @@ pub type Still = Vec<(Option<String>, Option<String>)>;
 
 /// Said to a press on a row that was drawn for something else.
 const CHANGED: &str =
-    "That review item has changed since it was shown. Nothing was done; look at it again.";
+    "That item changed after it was shown, so nothing was done. Look at it again.";
 
 fn rank(severity: &str) -> usize {
     ["high", "medium", "low"]
@@ -472,7 +472,7 @@ impl Review {
             .items
             .iter()
             .find(|i| i.id == id)
-            .ok_or("That review item is no longer available.")?
+            .ok_or("That item is no longer in the list.")?
             .clone();
         self.forget(&item);
         self.returned
@@ -896,7 +896,7 @@ fn folder(parent: &File, name: &CStr, make: bool) -> Result<Option<File>, String
         && unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0
         && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists
     {
-        return Err("Cannot create local review storage.".into());
+        return Err("Could not create the review list.".into());
     }
     // SAFETY: an open folder and a NUL-terminated name. O_NOFOLLOW refuses a
     // link, and O_DIRECTORY anything that is not a folder.
@@ -911,7 +911,7 @@ fn folder(parent: &File, name: &CStr, make: bool) -> Result<Option<File>, String
         return if !make && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
             Ok(None)
         } else {
-            Err("Cannot open local review storage.".into())
+            Err("Could not open the review list.".into())
         };
     }
     // SAFETY: `fd` was just opened and is owned by nothing else.
@@ -959,7 +959,7 @@ fn private_file(dir: &File, name: &CStr) -> bool {
 impl Store {
     fn lock(&self, kind: libc::c_int) -> Result<Locked<'_>, String> {
         if unsafe { libc::flock(self.dir.as_raw_fd(), kind) } != 0 {
-            return Err("Cannot lock local review storage.".into());
+            return Err("Could not get access to the review list.".into());
         }
         Ok(Locked(&self.dir))
     }
@@ -1007,14 +1007,14 @@ impl Store {
         for name in STATE_DIR.split('/') {
             let name = CString::new(name).expect("STATE_DIR holds no NUL");
             let next = folder(dir.as_ref().unwrap_or(&home), &name, true)?
-                .ok_or("Cannot create local review storage.")?;
+                .ok_or("Could not create the review list.")?;
             dir = Some(next);
         }
         let dir = dir.expect("STATE_DIR names a folder");
         let meta = dir.metadata().map_err(|e| e.to_string())?;
         // SAFETY: geteuid has no preconditions and cannot fail.
         if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
-            return Err("Local review storage must be private and owned by this user.".into());
+            return Err("The review list's folder must be private and belong to you.".into());
         }
         let store = Self {
             dir,
@@ -1043,7 +1043,7 @@ impl Store {
         // SAFETY: `old` is an open folder for the whole call; its lock is
         // released when it is closed.
         if unsafe { libc::flock(old.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err("Cannot lock local review storage.".into());
+            return Err("Could not get access to the review list.".into());
         }
         let state = c"state.json";
         if present(&self.dir, state) || !private_file(&old, state) {
@@ -1060,7 +1060,7 @@ impl Store {
             )
         };
         if moved != 0 {
-            return Err("Cannot move local review storage to its new folder.".into());
+            return Err("Could not move the review list to its new folder.".into());
         }
         // SAFETY: an open folder and a NUL-terminated name. Removal fails,
         // and is left, if anything else is in the folder.
@@ -1081,7 +1081,7 @@ impl Store {
             return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
                 Ok(Review::default())
             } else {
-                Err("Cannot read local review storage.".into())
+                Err("Could not read the review list.".into())
             };
         }
         let file = unsafe { File::from_raw_fd(fd) };
@@ -1093,7 +1093,8 @@ impl Store {
             || m.len() > STORE_BYTES as u64
         {
             return Err(
-                "Local review storage is not a private regular file within the size limit.".into(),
+                "The review list file is not private, is the wrong kind of file, or is too large."
+                    .into(),
             );
         }
         let mut json = String::new();
@@ -1101,7 +1102,7 @@ impl Store {
             .read_to_string(&mut json)
             .map_err(|e| e.to_string())?;
         let review: Review = serde_json::from_str(&json)
-            .map_err(|_| "Local review storage could not be decoded.")?;
+            .map_err(|_| "The review list file is damaged or in an unknown format.")?;
         if review.items.len() > 4096
             || (!review.key.is_empty() && review.key.len() != 32)
             || (review.key.is_empty() && review.items.iter().any(|i| i.fingerprint.is_some()))
@@ -1112,7 +1113,7 @@ impl Store {
                 .is_some_and(|p| !p.within_bounds())
             || review.attempts > 3
         {
-            return Err("Local review storage exceeds monitoring bounds.".into());
+            return Err("The review list is too large for automatic scanning.".into());
         }
         Ok(review)
     }
@@ -1125,11 +1126,11 @@ impl Store {
                 .as_ref()
                 .is_some_and(|p| !p.within_bounds())
         {
-            return Err("Local review storage reached its item limit.".into());
+            return Err("The review list has reached its item limit.".into());
         }
         let json = serde_json::to_vec(review).map_err(|e| e.to_string())?;
         if json.len() > STORE_BYTES {
-            return Err("Local review storage reached its size limit.".into());
+            return Err("The review list has reached its size limit.".into());
         }
         let name = CString::new("state.tmp").unwrap();
         let dest = CString::new("state.json").unwrap();
@@ -1144,21 +1145,29 @@ impl Store {
         };
         if stale >= 0 {
             let file = unsafe { File::from_raw_fd(stale) };
-            let meta = file
-                .metadata()
-                .map_err(|_| "Cannot inspect interrupted review storage.")?;
+            let meta = file.metadata().map_err(|_| {
+                "A save was interrupted, and Loose Keys could not check what it left behind."
+            })?;
             if !meta.is_file()
                 || meta.uid() != unsafe { libc::geteuid() }
                 || meta.mode() & 0o077 != 0
                 || meta.nlink() != 1
             {
-                return Err("Interrupted review storage is not a private regular file.".into());
+                return Err(
+                    "A save was interrupted and left a file Loose Keys cannot trust.".into(),
+                );
             }
             if unsafe { libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-                return Err("Cannot recover interrupted review storage.".into());
+                return Err(
+                    "A save was interrupted, and Loose Keys could not recover the review list."
+                        .into(),
+                );
             }
         } else if std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound {
-            return Err("Cannot inspect interrupted review storage.".into());
+            return Err(
+                "A save was interrupted, and Loose Keys could not check what it left behind."
+                    .into(),
+            );
         }
         let fd = unsafe {
             libc::openat(
@@ -1169,7 +1178,7 @@ impl Store {
             )
         };
         if fd < 0 {
-            return Err("Cannot save local review storage.".into());
+            return Err("Could not save the review list.".into());
         }
         let mut file = unsafe { File::from_raw_fd(fd) };
         let result = file
@@ -1195,7 +1204,7 @@ impl Store {
                 libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0);
             }
         }
-        result.map_err(|_| "Cannot save local review storage.".into())
+        result.map_err(|_| "Could not save the review list.".into())
     }
 }
 
@@ -1227,7 +1236,7 @@ mod tests {
                     path: (*path).into(),
                     title: "Synthetic file",
                     explanation: "Synthetic reason.",
-                    next_step: Some("Confirm why this file is stored here before you change it."),
+                    next_step: Some("Find out why this file is here before you change it."),
                     ..Finding::default()
                 })
                 .collect(),

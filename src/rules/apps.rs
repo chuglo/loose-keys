@@ -9,14 +9,14 @@ pub const TELEGRAM_SESSION: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Telegram session stored on this Mac",
-    explanation: "Telegram Desktop keeps its signed-in session in this folder. Nothing in it was read; the folder being there is the finding.",
-    reason: Some("A copied session may let someone access the account without signing in again. The scanner does not check whether a local passcode protects it."),
+    explanation: "Telegram Desktop keeps its signed-in session in this folder. Loose Keys found the folder but did not open it.",
+    reason: Some("Someone with a copy of this folder may be able to use your account without signing in. Loose Keys did not check whether a local passcode protects it."),
     next_step: Some("Set a local passcode in Telegram, and check which devices are signed in."),
     advice: Advice {
         steps: &[
             "In Telegram, open Settings > Privacy and Security > Local Passcode and set one. The stored session is then encrypted with it.",
             "In Settings > Devices (Active Sessions), end any session you do not recognize.",
-            "Turn on Two-Step Verification to protect new sign-ins. If this session may have been copied, terminate it from a trusted device; enabling Two-Step Verification does not terminate existing sessions.",
+            "Turn on Two-Step Verification to protect new sign-ins. It does not end sessions that are already signed in, so if this one may have been copied, end it from a device you trust.",
         ],
         link: None,
     },
@@ -39,13 +39,13 @@ pub const DBEAVER_PASSWORDS: Rule = Rule {
     id: "app.dbeaver.saved-passwords",
     category: "developer-cloud",
     title: "Database passwords saved by DBeaver",
-    explanation: "This is a known location for DBeaver saved credentials. The file was not read, so its contents and encryption settings were not checked.",
-    reason: Some("Copied credential files may expose database access. Protection depends on the DBeaver version and security settings."),
+    explanation: "DBeaver keeps saved database passwords in this file. Loose Keys did not open it, so it does not know what is inside or how it is protected.",
+    reason: Some("A copy of this file may give access to your databases, depending on your DBeaver version and settings."),
     next_step: Some("Change the saved database passwords, and set a master password in DBeaver or stop saving them."),
     advice: Advice {
         steps: &[
             "For shared or production databases saved here, change the password on the server.",
-            "Check the credential-storage protections available in your DBeaver version, or stop saving passwords on each connection.",
+            "Check how your DBeaver version protects saved passwords, or stop saving them for each connection.",
             "Remove connections you no longer use.",
         ],
         link: None,
@@ -63,9 +63,9 @@ pub const KEEPASS_DATABASE: Rule = Rule {
     kind: "inventory",
     severity: "low",
     title: "KeePass password database",
-    explanation: "The file header matches a KeePass password database. Its contents were not decrypted, and its password or key-file protection was not checked.",
+    explanation: "The start of this file looks like a KeePass password database. Loose Keys did not open it or check how it is protected.",
     reason: None,
-    next_step: Some("Check that the master password is long and used nowhere else. Stealers copy these files and guess weak master passwords offline."),
+    next_step: Some("Check that the master password is long and used nowhere else. Malware copies these files and guesses weak master passwords offline."),
     advice: Advice {
         steps: &[
             "Use a master password of several random words, used nowhere else.",
@@ -92,8 +92,8 @@ pub const FILEZILLA_PASSWORD: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Server password saved by FileZilla",
-    explanation: "A saved password field was found in a FileZilla configuration. Base64 encoding does not protect a password. The value was checked for presence, not decoded or tested against a server.",
-    reason: Some("A program able to read this file may be able to reuse the saved credentials. Their validity was not checked."),
+    explanation: "This FileZilla config has a saved password. FileZilla stores it in base64, which anyone can decode. Loose Keys did not decode it or try it on a server.",
+    reason: Some("Any program that can read this file may be able to reuse the saved passwords."),
     next_step: Some("Change the saved passwords at each server, then protect or stop saving them in FileZilla."),
     advice: Advice {
         steps: &[
@@ -150,8 +150,8 @@ fn filezilla_hits(bytes: &[u8]) -> Hits {
 pub const VPN_PROFILE_KEY: Rule = Rule {
     id: "app.openvpn.embedded-key",
     title: "VPN profile with its private key inside",
-    explanation: "This OpenVPN profile contains a private-key block. Whether the key is valid, encrypted or sufficient to connect to the VPN was not checked.",
-    reason: Some("Stealers collect .ovpn files. A copied profile with an embedded key gives access to the network behind the VPN unless a separate password or code is also required."),
+    explanation: "This OpenVPN profile has a private key inside. Loose Keys did not check whether the key is valid, encrypted, or enough on its own to connect.",
+    reason: Some("Password-stealing malware collects .ovpn files. A copied profile with a key inside gives access to the network behind the VPN, unless a separate password or code is also required."),
     next_step: Some("Ask whoever runs the VPN to revoke this profile's certificate and issue a new one, and keep the new profile out of Downloads."),
     advice: Advice {
         steps: &[
@@ -203,8 +203,8 @@ pub const PASSWORD_NOTE: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Possible passwords in a text note",
-    explanation: "This text file has lines that look like saved passwords, such as 'password: ...'. The values were not read beyond ruling out placeholders, and they may be notes about something else.",
-    reason: Some("Infostealers collect small text files from Desktop, Documents and Downloads because people keep passwords in them."),
+    explanation: "This text file has lines that look like saved passwords, such as 'password: ...'. Loose Keys only checked that they are not placeholders. They may be notes about something else.",
+    reason: Some("Password-stealing malware collects small text files from Desktop, Documents and Downloads, because people keep passwords in them."),
     next_step: Some("Move these passwords into a password manager and delete the note."),
     advice: Advice {
         steps: &[
@@ -278,8 +278,8 @@ fn password_lines(text: &str) -> Vec<usize> {
 pub const RCLONE_SECRET: Rule = Rule {
     id: "app.rclone.stored-secret",
     title: "Storage password or key saved by rclone",
-    explanation: "A password or key field was found in an rclone configuration. Obscured passwords can be recovered by rclone. The scanner checked for stored values but did not test access to a remote.",
-    reason: Some("A copied configuration may allow access to its remotes while the stored credentials remain valid."),
+    explanation: "This rclone config has a saved password or key. rclone only obscures passwords, and anyone with rclone can reveal them. Loose Keys did not try them.",
+    reason: Some("A copy of this file can reach the same storage until the passwords or keys are changed."),
     next_step: Some("Set a password on the rclone config, and change what was stored here if the file may have been copied."),
     advice: Advice {
         steps: &[
@@ -313,7 +313,7 @@ pub const RCLONE_LOGIN: Rule = Rule {
     kind: "inventory",
     severity: "medium",
     title: "Cloud storage sign-in stored by rclone",
-    explanation: "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. This is how the tool stores it; validity and permissions were not checked.",
+    explanation: "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. That is normal for rclone. Loose Keys did not check whether it still works or what it can access.",
     reason: None,
     next_step: Some("Set a password on the rclone config to encrypt these tokens."),
     matcher: Matcher::Whole {

@@ -8,7 +8,7 @@ pub const SSH_KEY: Rule = Rule {
     kind: "inventory",
     severity: "low",
     title: "Possible private key",
-    explanation: "A private-key header was found. The key has not been validated or tested for access; a passphrase can make a copied key harder to use.",
+    explanation: "The start of this file looks like a private key. Loose Keys did not check whether the key works anywhere.",
     reason: None,
     next_step: None,
     advice: Advice::NONE,
@@ -24,8 +24,8 @@ pub const SSH_KEY_NO_PASSPHRASE: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Private key with no passphrase",
-    reason: Some("The key has no passphrase, so a copy of this file works as it is. The header does not show that the key is valid or has current authorization."),
-    next_step: Some("If this key has only ever been in ~/.ssh on this Mac, adding a passphrase protects it from now on. If it has been anywhere else, such as a synced folder, a repository, an email or a backup, or you're not sure, replace it: create a new key with a passphrase, add it where the old one is trusted, then remove the old one from each of those places. Deleting the file or adding a passphrase does not stop a copy made earlier from working."),
+    reason: Some("The key has no passphrase, so anyone with a copy of this file can use it. Loose Keys did not check whether the key is still trusted anywhere."),
+    next_step: Some("If this key has only ever been in ~/.ssh on this Mac, adding a passphrase protects it from now on. If it has ever been anywhere else (a synced folder, a repository, an email, a backup), or you are not sure, replace it. Create a new key with a passphrase, add it wherever the old one is trusted, then remove the old one from those places. Deleting the file or adding a passphrase does not stop a copy made earlier from working."),
     advice: Advice {
         steps: &[
             "If it is an SSH key you use, add a passphrase: ssh-keygen -p -f <key file>. Don't run this on a key another program reads, such as a web server's HTTPS key: it rewrites the file in SSH's own format.",
@@ -49,8 +49,8 @@ pub const SSH_KEY_NO_PASSPHRASE: Rule = Rule {
 pub const GPG_KEY_UNPROTECTED: Rule = Rule {
     id: "key.gpg.private",
     title: "GnuPG private key with no passphrase",
-    explanation: "This GnuPG private key is stored without a passphrase. It was not tested or used.",
-    reason: Some("A copy of this file can sign and decrypt as you. Keys used to sign commits or releases are a target of supply-chain malware."),
+    explanation: "This GnuPG private key has no passphrase. Loose Keys did not test it.",
+    reason: Some("A copy of this file can sign and decrypt as you. Malware that spreads through packages goes after keys used to sign commits or releases."),
     next_step: Some("Add a passphrase. If the key may have been copied, revoke it and publish the revocation."),
     advice: Advice {
         steps: &[
@@ -74,7 +74,7 @@ pub const GPG_KEY_UNPROTECTED: Rule = Rule {
 pub const GPG_KEY: Rule = Rule {
     id: "key.gpg.private",
     title: "GnuPG private key",
-    explanation: "A GnuPG private key protected by a passphrase. It was not tested or used.",
+    explanation: "This GnuPG private key is protected by a passphrase. Loose Keys did not test it.",
     targets: &[Target::Dir(".gnupg/private-keys-v1.d")],
     matcher: Matcher::Head(gpg_protected),
     samples: &[

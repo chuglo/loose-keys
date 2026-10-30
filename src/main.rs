@@ -8,32 +8,32 @@ const USAGE: &str = "usage: loose-keys scan [--select DIR ...] [--exclude DIR ..
                                [--fail-on-open LEVEL]
        loose-keys --list-rules
 
-Scans your home folder for sign-in material an infostealer could take:
-password exports and notes, private keys, service tokens, cloud and developer
-credentials, secrets in AI tool configs and AI agent session records, passwords
-and cards saved in browsers, crypto wallets and recovery phrases. Each finding
-says how to remove the exposure.
-Nothing leaves this Mac. Nothing is changed. Secret values are never shown.
+Looks through your home folder for passwords, keys and tokens that
+password-stealing malware could take. That includes password exports and notes,
+private keys, cloud and developer tokens, secrets in AI tools and their session
+records, passwords and cards saved in browsers, and crypto wallets and recovery
+phrases. Each finding says what to do about it.
+Loose Keys works offline, changes nothing and never shows secret values.
 
   --export PATH   write the JSON report to PATH (new file, owner-only)
   --export -      write the JSON report to stdout instead of the summary
   --feedback PATH write counts only to PATH (new file, owner-only; no paths or values)
   --feedback -    write counts only to stdout instead of the summary
   --device-id NAME
-                  with --feedback: add this name for the Mac (such as its serial
-                  number) and the time of the scan. For device-management runs;
-                  the counts carry neither otherwise.
-  --select DIR    add a folder or mounted drive for recursive discovery (repeatable)
-  --exclude DIR   do not look inside this folder (repeatable; always listed in the
-                  report; known sign-in files such as ~/.aws/credentials are still checked)
+                  with --feedback: also record this name for the Mac (such as its
+                  serial number) and the time of the scan, for device management.
+                  Without it, the counts include neither.
+  --select DIR    also scan this folder or mounted drive and everything in it (repeatable)
+  --exclude DIR   skip this folder (repeatable). The report always lists it, and
+                  known sign-in files such as ~/.aws/credentials are still checked.
   --limits        also print what this scan cannot detect
   --fail-on-open LEVEL
                   exit with 3 if anything worth reviewing is at this risk level or
                   above (high, medium or low). For device-management checks.
 
 Choose --export or --feedback, not both. A full report contains file paths,
-and a counts file shows which kinds of credentials you have: look at either
-before sharing it.
+and a counts file shows which kinds of credentials you have. Check either one
+before you share it.
 
 Exit codes: 0 scan complete, 1 scan partial (something could not be checked), 2 error.
 These never depend on what was found, unless --fail-on-open is given: then 3 means

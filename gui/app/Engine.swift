@@ -56,13 +56,13 @@ final class LiveEngine: Engine {
     func call(_ command: String, _ args: [String: Any]) throws -> Data {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
         guard let raw = ch_call(command, json) else {
-            throw EngineError(message: String(localized: "The scanner did not answer.",
+            throw EngineError(message: String(localized: "Loose Keys stopped responding. Try again.",
                                               comment: "In an alert: the engine linked into the app returned nothing for a request."))
         }
         defer { ch_free(raw) }
         let reply = try JSONSerialization.jsonObject(with: Data(String(cString: raw).utf8))
         guard let reply = reply as? [String: Any] else {
-            throw EngineError(message: String(localized: "The scanner's answer could not be read.",
+            throw EngineError(message: String(localized: "Something went wrong inside Loose Keys. Try again.",
                                               comment: "In an alert: the engine's answer to a request was not in the form the window expects."))
         }
         if let error = reply["error"] as? String {

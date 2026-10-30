@@ -8,7 +8,7 @@ struct ReviewTable: View {
         if let error = model.reviewProblem {
             // Never "nothing to review" for a list that could not be read, saved or got.
             ContentUnavailableView {
-                Label("Review List Unavailable", systemImage: "exclamationmark.triangle")
+                Label("Cannot Open Worth Reviewing", systemImage: "exclamationmark.triangle")
             } description: {
                 // The engine keeps its own failure until the app is opened
                 // again, when it reads the list afresh. A request of this
@@ -18,7 +18,7 @@ struct ReviewTable: View {
                 Text(verbatim: model.results == nil
                      ? String(localized: "\(error) Quit and reopen the app to try again.",
                               comment: "Worth Reviewing, when the list of findings could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS.")
-                     : String(localized: "\(error) Save the report to see the last scan's findings, and quit and reopen the app to try again.",
+                     : String(localized: "\(error) Quit and reopen the app to try again. Save the report to see the last scan's findings.",
                               comment: "Worth Reviewing, when the list of findings could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS."))
             }
         } else if model.review == nil {
@@ -88,14 +88,14 @@ extension ReviewTable {
     fileprivate var empty: (title: String, symbol: String, text: String) {
         if model.pane == .setAside {
             return (String(localized: "No Items Set Aside", comment: "The Set Aside page's heading when it lists nothing."), "archivebox",
-                    String(localized: "Findings you set aside appear here, with your reason and an option to return them to review.",
+                    String(localized: "Findings you set aside appear here.",
                            comment: "The Set Aside page, empty."))
         }
         if model.setAsideCount > 0 {
             // Without a manual scan, describe the automatic pass's coverage.
             let rest: String
             if model.results != nil {
-                rest = String(localized: "Not Checked lists any places the scan could not read.",
+                rest = String(localized: "Places the scan could not read are in Not Checked.",
                               comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Not Checked is the page's name.")
             } else if let monitor = model.monitor, monitor.enabled, monitor.health.fullPass == nil {
                 rest = String(localized: "New findings show up here as Loose Keys checks your files.",
@@ -108,13 +108,13 @@ extension ReviewTable {
                     : String(localized: "\(unread) places could not be read. See Not Checked for details.",
                               comment: "Worth Reviewing, empty because every finding is set aside, after automatic scanning could not read some places.")
             } else {
-                rest = String(localized: "Scan this Mac to check it now.",
-                              comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so.")
+                rest = String(localized: "Use Scan Now to look again.",
+                              comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Scan Now is a button's name.")
             }
             // Two whole sentences, the second chosen above.
             return (String(localized: "No Items Waiting for Review", comment: "Worth Reviewing's heading when every finding is set aside."), "tray",
-                    String(localized: "Your set-aside findings are in Set Aside and are still counted.",
-                           comment: "Worth Reviewing, empty because every finding is set aside. Set Aside is the page's name. Another sentence follows.")
+                    String(localized: "You set aside everything the scan found.",
+                           comment: "Worth Reviewing, empty because every finding is set aside. Another sentence follows.")
                         + " " + rest)
         }
         guard let results = model.results else {
@@ -142,11 +142,11 @@ extension ReviewTable {
                    String(localized: "Scan this Mac to look for saved passwords, keys and tokens.",
                           comment: "Worth Reviewing, empty because nothing has been scanned yet."))
                 : (String(localized: "Nothing to Review", comment: "Worth Reviewing, empty: no finding needs the person's attention. Never a claim that the Mac is safe."), "tray",
-                   String(localized: "Earlier automatic scans found nothing that needs your attention. Scan this Mac to check it now.",
+                   String(localized: "Past automatic scans found nothing to review. Use Scan Now to look again.",
                           comment: "Worth Reviewing, empty while automatic scanning is off, after it once ran."))
         }
         if results.review > 0 {
-            return (String(localized: "Findings Not Listed", comment: "Worth Reviewing, empty although the last scan found something."), "exclamationmark.triangle",
+            return (String(localized: "Cannot Show Findings", comment: "Worth Reviewing, empty although the last scan found something."), "exclamationmark.triangle",
                     String(localized: "The last scan found \(results.review) findings, but they are not in this list. Scan again, or save the report to see them.",
                            comment: "Worth Reviewing, empty although the last scan counted this many findings."))
         }
@@ -154,10 +154,10 @@ extension ReviewTable {
         // includes the folders macOS protects, so most scans are.
         return results.status == "complete"
             ? (String(localized: "Nothing to Review", comment: "Worth Reviewing, empty: no finding needs the person's attention. Never a claim that the Mac is safe."), "checkmark.circle",
-               String(localized: "The last scan found nothing that needs your attention. That is not proof this Mac is safe.",
+               String(localized: "The last scan found nothing to review. That does not mean this Mac is safe.",
                       comment: "Worth Reviewing, empty after a scan that read every place it was asked to."))
-            : (String(localized: "Nothing Found in What Was Checked", comment: "Worth Reviewing, empty after a scan that could not read some places."), "eye.slash",
-               String(localized: "The last scan could not check everything, and found nothing that needs your attention in what it read. Not Checked lists what it missed.",
+            : (String(localized: "Nothing Found", comment: "Worth Reviewing, empty after a scan that could not read some places."), "eye.slash",
+               String(localized: "The last scan found nothing to review, but some places could not be checked. See Not Checked.",
                       comment: "Worth Reviewing, empty after a scan that could not read some places. Not Checked is the page's name."))
     }
 }
@@ -170,7 +170,7 @@ struct StoredTable: View {
             ContentUnavailableView {
                 Label("No Scan Yet", systemImage: "key")
             } description: {
-                Text("Stored sign-ins are listed after a scan. They are normal, but malware can copy them.")
+                Text("After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them.")
             }
         } else {
             Table(model.storedRows, selection: $model.selectedStored, sortOrder: $model.storedSort) {
@@ -207,17 +207,17 @@ struct GapsView: View {
         Group {
             if gaps.isEmpty && skipped.isEmpty && !unread && !model.hasAutomaticCoverage && model.automaticCoverageError == nil {
                 ContentUnavailableView {
-                    Label(model.results == nil ? "No Scan Yet" : "Everything Was Checked", systemImage: "eye.slash")
+                    Label(model.results == nil ? "No Scan Yet" : "Nothing Skipped", systemImage: "eye.slash")
                 } description: {
                     Text(model.results == nil
-                         ? "Places macOS or the scan could not read are listed here after a scan."
-                         : "The last scan read every place it was asked to.")
+                         ? "After a scan, places Loose Keys could not read appear here."
+                         : "Loose Keys read every place in the last scan.")
                 }
             } else {
                 Form {
                     if let error = model.automaticCoverageError {
                         Section("Last Automatic Scan") {
-                            Text("Automatic scan details could not be refreshed. Any details below are from the last successful read.")
+                            Text("Could not update these details, so they may be out of date.")
                             Text(EngineText.shown(error)).foregroundStyle(.secondary)
                             Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
                         }
@@ -227,13 +227,13 @@ struct GapsView: View {
                             if let date = health.fullPass {
                                 Text(localTime(date)).foregroundStyle(.secondary)
                             }
-                            Text("These details are from automatic scanning of your home folder. Added folders and drives are not included.")
+                            Text("Automatic scans do not include added folders and drives.")
                             if let automatic = health.unreadGaps {
                                 if automatic.isEmpty && health.unreadTruncated != true {
-                                    Text("No unread places were recorded in this automatic scan.")
+                                    Text("Nothing was skipped in this automatic scan.")
                                 }
                                 if health.unreadTruncated == true {
-                                    Text("The saved list reached its limit. More places could not be checked than are listed here.")
+                                    Text("This list is full, so it does not show every place Loose Keys could not check.")
                                 }
                                 ForEach(automatic) { gap in
                                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -245,7 +245,7 @@ struct GapsView: View {
                                     }
                                 }
                             } else {
-                                Text("This automatic scan saved a count but no list. Details will be available after the next automatic full scan.")
+                                Text("Details will appear after the next full automatic scan.")
                             }
                         }
                     }
@@ -259,14 +259,14 @@ struct GapsView: View {
                         }
                         if model.results != nil || !model.hasAutomaticCoverage {
                             Text(!gaps.isEmpty
-                             ? "These places could not be checked, so anything in them was not found. The scan is incomplete because of them."
+                             ? "These places could not be read, so the scan may have missed something in them."
                              : model.results == nil
-                             ? "Places macOS or the scan could not read are listed here after a scan."
-                             : "The last scan read every place it was asked to, except the folders you left out.")
+                             ? "After a scan, places Loose Keys could not read appear here."
+                             : "Loose Keys read every place in the last scan, apart from the folders you left out.")
                             .foregroundStyle(.secondary)
                         }
                         if unread {
-                            Text("The folders you left out could not be read, so they are not listed here.")
+                            Text("The list of folders you left out could not be read.")
                         }
                     }
                     ForEach(gaps) { gap in
@@ -297,9 +297,9 @@ struct GapsView: View {
                                 }
                             }
                         } header: {
-                            Text("Not Checked at Your Request")
+                            Text("Folders You Left Out")
                         } footer: {
-                            Text("These folders are not read, so anything in them is not found.")
+                            Text("Scans skip these folders.")
                         }
                     }
                 }

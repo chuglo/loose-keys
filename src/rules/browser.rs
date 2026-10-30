@@ -26,16 +26,16 @@ pub const CHROMIUM_LOGINS: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Passwords saved in a browser",
-    explanation: "This browser profile has saved passwords. They are encrypted with a key in your login keychain, so reading them needs your Mac password. Only the number of saved logins was read.",
-    reason: Some("Infostealers such as Atomic (AMOS) show a fake system prompt to get the Mac password, then decrypt every password saved in the browser at once."),
-    next_step: Some("Move saved passwords to a password manager and clear them from the browser. Deleting them here does not change the passwords themselves."),
+    explanation: "This browser profile has saved passwords. They are encrypted with a key in your login keychain, so reading them needs your Mac password. Loose Keys only counted them.",
+    reason: Some("Password-stealing malware such as Atomic (AMOS) shows a fake system prompt to get the Mac password, then decrypts every password saved in the browser at once."),
+    next_step: Some("Move saved passwords to a password manager and clear them from the browser. Deleting them from the browser does not change the passwords themselves."),
     advice: Advice {
         steps: &[
-            "Choose where passwords will live instead: the Passwords app built into macOS, or a password manager such as 1Password or Bitwarden. Both keep items locked until you unlock them.",
+            "Choose where passwords will live instead: the Passwords app built into macOS, or a password manager such as 1Password or Bitwarden. Both keep your passwords locked.",
             "In the browser, open the password settings (chrome://password-manager/settings in Chrome, Brave, Edge and Arc) and export your passwords.",
             "Import the exported file into the password manager, check that the logins arrived, then delete the exported file and empty the Trash.",
             "Back in the browser's password settings, delete all saved passwords and turn off 'Offer to save passwords'.",
-            "Stealers copy signed-in sessions too, which skip passwords and two-step codes. Sign out of bank and email sites when you finish, and after any infection use each site's 'sign out everywhere'.",
+            "Password-stealing malware also copies signed-in sessions, which let it into your accounts without a password or two-step code. Sign out of bank and email sites when you finish, and after any infection use each site's 'sign out everywhere'.",
             "Never type your Mac password into a prompt that appears right after you open a download or paste a command into Terminal.",
         ],
         link: None,
@@ -166,14 +166,14 @@ pub(super) fn sqlite_table_rows(db: &[u8], table: &[u8]) -> Option<Rows> {
 pub const CHROMIUM_CARDS: Rule = Rule {
     id: "browser.chromium.saved-cards",
     title: "Payment cards saved in a browser",
-    explanation: "This browser profile has saved payment cards. The card numbers are encrypted with a key in your login keychain, so reading them needs your Mac password. Only the number of saved cards was read.",
-    reason: Some("Infostealers get the Mac password with a fake system prompt, then decrypt every card saved in the browser."),
-    next_step: Some("Remove saved cards from the browser and pay with Apple Pay or a password manager instead."),
+    explanation: "This browser profile has saved payment cards. The card numbers are encrypted with a key in your login keychain, so reading them needs your Mac password. Loose Keys only counted them.",
+    reason: Some("Password-stealing malware gets the Mac password with a fake system prompt, then decrypts every card saved in the browser."),
+    next_step: Some("Remove saved cards from the browser. Use Apple Pay, or keep cards in a password manager."),
     advice: Advice {
         steps: &[
             "In the browser, open the payment settings (chrome://settings/payments in Chrome, Brave, Edge and Arc) and remove each saved card.",
             "Turn off 'Save and fill payment methods'.",
-            "Pay with Apple Pay where you can, or keep cards in a password manager, which stays locked until you unlock it.",
+            "Pay with Apple Pay where you can, or keep cards in a password manager, which keeps them locked.",
         ],
         link: None,
     },
@@ -202,8 +202,8 @@ fn card_hits(bytes: &[u8]) -> Hits {
 
 pub const FIREFOX_LOGINS: Rule = Rule {
     id: "browser.firefox.saved-logins",
-    explanation: "This Firefox profile has saved passwords. Unless a primary password is set, the key that decrypts them is stored next to them in the same folder. Only the number of saved logins was read.",
-    reason: Some("Without a primary password, any program able to read the profile folder can decrypt every saved password. Infostealers collect this folder."),
+    explanation: "This Firefox profile has saved passwords. Unless a primary password is set, the key that decrypts them is stored next to them in the same folder. Loose Keys only counted them.",
+    reason: Some("Without a primary password, any program that can read the profile folder can decrypt every saved password. Password-stealing malware collects this folder."),
     advice: Advice {
         steps: &[
             "Choose where passwords will live instead: the Passwords app built into macOS, or a password manager such as 1Password or Bitwarden.",

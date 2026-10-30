@@ -52,7 +52,7 @@ struct SettingsView: View {
             }
             .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
             if let unread = monitor.health.unread, unread > 0 {
-                Button("Show Unread Places") { model.showUnreadPlaces() }
+                Button("Show Places Not Checked") { model.showUnreadPlaces() }
             }
             if monitor.enabled, let helper = helperProblem(monitor) {
                 LabeledContent {
@@ -141,9 +141,9 @@ struct SettingsView: View {
                 .disabled(model.monitorFailure != nil)
             if monitor.enabled, monitor.menuBar {
                 if monitor.appLogin == 3 {
-                    Text("Allow Loose Keys in Login Items to show it at login.").foregroundStyle(.secondary)
+                    Text("Turn on Loose Keys in Login Items to show the icon at login.").foregroundStyle(.secondary)
                 } else if monitor.appLogin == 1 || monitor.appLogin == 4 {
-                    Text("Not in Login Items: shown only while the app is open.").foregroundStyle(.secondary)
+                    Text("Shown only while the app is open, because Loose Keys is not in Login Items.").foregroundStyle(.secondary)
                 }
             }
         }
@@ -158,10 +158,10 @@ struct SettingsView: View {
             return String(localized: "Off in System Settings",
                           comment: "Settings, the state of notifications (a plural noun): turned off for this app in System Settings.")
         case "unavailable outside an app bundle":
-            return String(localized: "Open the app from its bundle to allow",
+            return String(localized: "Only available when Loose Keys runs as an app",
                           comment: "Settings, the state of notifications: macOS allows them only to an app opened from its bundle.")
         case "request failed":
-            return String(localized: "macOS could not ask. Try again.",
+            return String(localized: "macOS could not show the request. Try again.",
                           comment: "The state of notifications: macOS could not ask the person whether to allow them.")
         case "checking":
             return String(localized: "Checking…", comment: "Settings, the state of notifications while the app asks macOS whether they are allowed.")
@@ -176,12 +176,12 @@ struct BackgroundCheckDetails: View {
     let health: HelperHealth
 
     var body: some View {
-        LabeledContent("Last Recorded Check", value: health.lastScan.map { localTime($0) }
-                       ?? String(localized: "No check recorded yet", comment: "Check details, beside Last Recorded Check: the helper has recorded no check."))
-        LabeledContent("Last Completed Full Scan", value: health.fullPass.map { localTime($0) }
-                       ?? String(localized: "Not completed yet", comment: "Check details, beside Last Completed Full Scan: no full scan by the helper has finished."))
+        LabeledContent("Last Check", value: health.lastScan.map { localTime($0) }
+                       ?? String(localized: "No checks yet", comment: "Check details, beside Last Check: the helper has recorded no check."))
+        LabeledContent("Last Full Scan", value: health.fullPass.map { localTime($0) }
+                       ?? String(localized: "Not completed yet", comment: "Check details, beside Last Full Scan: no full scan by the helper has finished."))
         if let left = health.left, left > 0 {
-            Text(String(localized: "At least \(left) folders left in the current full scan.",
+            Text(String(localized: "At least \(left) folders left to check in this full scan.",
                         comment: "Check details: how many folders the helper's current full scan has still to read, at the least."))
                 .foregroundStyle(.secondary)
         }

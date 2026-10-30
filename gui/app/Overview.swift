@@ -28,7 +28,7 @@ struct OverviewView: View {
                                 .disabled(model.places?.home == nil)
                         } label: {
                             Text("One-Time Scan")
-                            Text("Check now for a detailed report, including places that could not be read.")
+                            Text("Check once and get a full report.")
                         }
                     }
                 }
@@ -60,7 +60,7 @@ struct OverviewView: View {
                     .font(.title.weight(.semibold))
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 8)
-                Text("Loose Keys checks your files for supported passwords, keys, tokens and other sign-in material, and says how to remove each exposure.")
+                Text("Loose Keys looks for passwords, keys and tokens left in your files, and tells you how to clean them up.")
                     .font(.title3)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -81,7 +81,7 @@ struct OverviewView: View {
                 }
                 .controlSize(.large)
                 .frame(width: 260)
-                Text("macOS may ask for folder access. You can deny it and continue.")
+                Text("macOS may ask for access to some folders. You can say no and still scan.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -93,7 +93,7 @@ struct OverviewView: View {
                         .padding(.top, 12)
                 }
                 Label {
-                    Text("Scan Automatically checks your files whenever they change, even when the app is closed.")
+                    Text("Automatic scans run whenever your files change, even when the app is closed.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "lock.shield")
@@ -122,7 +122,7 @@ struct OverviewView: View {
         } header: {
             Text("Scanning")
         } footer: {
-            Text("A scan stops by itself after 30 seconds, once the file it is reading is finished. What it did not reach is listed under Not Checked.")
+            Text("Scans stop after 30 seconds. Anything they did not get to appears in Not Checked.")
         }
     }
 
@@ -130,7 +130,7 @@ struct OverviewView: View {
     /// gives one, is shown in the window's language.
     private func cannotScan(_ reason: String?) -> String {
         guard let reason else {
-            return String(localized: "Cannot scan: the home folder was not found.", comment: "Overview, when there is no home folder to scan.")
+            return String(localized: "Cannot scan: Loose Keys could not find the home folder.", comment: "Overview, when there is no home folder to scan.")
         }
         return String(localized: "Cannot scan: \(EngineText.shown(reason)).",
                       comment: "Overview, when there is no home folder to scan. %@ is the engine's reason, such as that HOME is not set to an absolute path.")
@@ -142,7 +142,7 @@ struct OverviewView: View {
             return String(localized: "Starting…", comment: "Overview, while a scan starts and before it says how far it has got.")
         }
         let phase = progress.phase == "targeted-checks"
-            ? String(localized: "Checking known sign-in locations.", comment: "Overview, while a scan reads the places where apps are known to keep sign-ins. A sentence of progress follows.")
+            ? String(localized: "Checking places where apps keep sign-ins.", comment: "Overview, while a scan reads the places where apps are known to keep sign-ins. A sentence of progress follows.")
             : progress.phase == "finished"
             ? String(localized: "Preparing results.", comment: "Overview, while a scan that has read everything prepares its results. A sentence of progress follows.")
             : String(localized: "Looking through folders.", comment: "Overview, while a scan looks through folders. A sentence of progress follows.")
@@ -163,17 +163,17 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(results.status == "complete"
                      ? "Scanned \(localTime(results.generatedAt))."
-                     : "Scanned \(localTime(results.generatedAt)). Some places could not be checked; see Not Checked.")
+                     : "Scanned \(localTime(results.generatedAt)). Some places could not be checked.")
                 // What the counts cover, which Places to Check may no longer be.
                 Text(verbatim: String(localized: "Included: \(results.roots.joined(separator: ", ")).",
                                       comment: "Overview, under the last scan's counts. %@ is the list of folders the scan covered, separated by commas, shown as they are."))
                 let skipped = model.review?.skipped?.count ?? 0
                 if skipped > 0 {
-                    Text(String(localized: "\(skipped) folders are left out at your request; see Not Checked.",
-                                comment: "Overview, under the last scan's counts: how many folders the person chose to stop checking. Not Checked is the page's name."))
+                    Text(String(localized: "You left out \(skipped) folders.",
+                                comment: "Overview, under the last scan's counts: how many folders the person chose to stop checking."))
                 }
                 if model.reviewProblem != nil {
-                    Text("The review list could not be read or saved, so Worth Reviewing shows the scan's own count.")
+                    Text("Loose Keys could not open its saved list, so the Worth Reviewing count is from the last scan.")
                 }
                 if let note = model.findingsNote {
                     Text(note)
@@ -268,10 +268,10 @@ struct OverviewView: View {
                                         comment: "Overview and Settings, under the state of automatic scanning: how many places the helper's last full pass could not read."))
                         }
                         if let unread = monitor.health.unread, unread > 0 {
-                            Button("Show Unread Places") { model.showUnreadPlaces() }
+                            Button("Show Places Not Checked") { model.showUnreadPlaces() }
                         }
                         if monitor.login == 3 {
-                            Text("Approve the helper in System Settings > General > Login Items.")
+                            Text("Approve Loose Keys in System Settings > General > Login Items.")
                         } else if monitor.login != 2 || monitor.health.running == false {
                             Text("Open Settings to restart the helper.")
                         }
@@ -293,11 +293,11 @@ struct OverviewView: View {
                             Text("Notifications")
                             switch model.review?.permission {
                             case "denied":
-                                Text("Off for Loose Keys. Turn them on in System Settings to hear about new findings when the app is closed.")
+                                Text("They are off. Turn them on in System Settings to hear about new findings while the app is closed.")
                             case "request failed":
-                                Text("macOS could not ask. Try again.")
+                                Text("macOS could not show the request. Try again.")
                             default:
-                                Text("Hear about new findings when the app is closed. Alerts never name a file or credential.")
+                                Text("Get notified about new findings while the app is closed. Notifications never name a file or credential.")
                             }
                         }
                     }
@@ -307,7 +307,7 @@ struct OverviewView: View {
                 Label(EngineText.shown(error), systemImage: "exclamationmark.triangle").foregroundStyle(.red)
             }
             if let problem = model.reviewProblem {
-                Label(String(localized: "Review List Unavailable: \(problem)",
+                Label(String(localized: "Cannot Open Worth Reviewing: \(problem)",
                              comment: "Overview, when the list of findings could not be read or saved. %@ is the reason, one or more sentences from the engine or macOS."),
                       systemImage: "exclamationmark.triangle")
             } else if model.review != nil, model.results == nil || model.phase == .scanning {
@@ -316,7 +316,7 @@ struct OverviewView: View {
             }
         } footer: {
             HStack(alignment: .firstTextBaseline) {
-                Text("Files are only read, never changed.")
+                Text("Loose Keys only reads files. It never changes them.")
                 Spacer()
                 SettingsLink { Text("Settings…") }
             }

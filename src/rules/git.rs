@@ -7,10 +7,10 @@ pub const GIT_CREDENTIALS: Rule = Rule {
     category: "developer-cloud",
     kind: "review",
     severity: "high",
-    title: "Possible Git plaintext credential",
-    explanation: "A URL with inline username and password fields was found in Git's plaintext credential file. The credential's validity and authorization were not checked.",
-    reason: Some("Programs able to read this file may obtain the inline credential."),
-    next_step: Some("Let Git keep this in the Keychain instead. Deleting an inline entry does not revoke the credential; revoke it at the host."),
+    title: "Possible Git password stored as plain text",
+    explanation: "Git's plain-text credential file has a URL with a username and password in it. Loose Keys did not check whether they still work.",
+    reason: Some("Any program that can read this file can copy the password."),
+    next_step: Some("Let Git keep this in the Keychain instead. Deleting the line does not revoke the password; revoke it at the host."),
     advice: Advice {
         steps: &[
             "Tell Git to use the macOS Keychain: git config --global credential.helper osxkeychain",

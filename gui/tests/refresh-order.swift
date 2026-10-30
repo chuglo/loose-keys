@@ -1089,11 +1089,11 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
 @MainActor func menuBarSaysOnlyWhatTheListSays() async {
     let bench = Bench()
     let model = bench.model
-    check(model.menuBarMark == .unknown && model.menuBarLine == "Reading Worth Reviewing…",
+    check(model.menuBarMark == .unknown && model.menuBarLine == "Loading Worth Reviewing…",
           "menu bar: before the list is read it says so")
     let failed = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
     await bench.answer(failed, refused)
-    check(model.menuBarMark == .problem && model.menuBarLine == "Worth Reviewing could not be read",
+    check(model.menuBarMark == .problem && model.menuBarLine == "Could not load Worth Reviewing",
           "menu bar: a list that could not be read is a problem, not nothing")
     let one = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(one, .success(reviewList(1)))

@@ -10,16 +10,16 @@ pub const WALLET_EXTENSION: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Crypto wallet extension in a browser",
-    explanation: "A crypto wallet extension keeps its encrypted vault in this browser profile. Nothing in it was read; the folder being there is the finding.",
+    explanation: "A crypto wallet extension keeps its encrypted vault in this browser profile. Loose Keys found the folder but did not open it.",
     reason: Some("Malware can copy wallet extension data and try to guess its password offline, or use a fake prompt to steal the password."),
     next_step: Some("Keep only small amounts in a browser wallet, and never keep its recovery phrase on this Mac."),
     advice: Advice {
         steps: &[
-            "For funds you keep offline, generate a new wallet on a hardware device and transfer the funds to it. Importing an exposed recovery phrase does not protect it.",
-            "Give the extension a long password used nowhere else. The stolen vault is only as strong as that password.",
+            "For funds you want to keep safe, create a new wallet on a hardware device and move the funds to it. Do not import the old recovery phrase into it: that phrase may already be copied.",
+            "Give the extension a long password used nowhere else. If the vault is copied, that password is all that protects it.",
             "Check that the recovery phrase is not saved in a note, a text file or a screenshot on this Mac.",
             "If you no longer use this wallet, remove the extension after confirming you hold the recovery phrase offline.",
-            "Do not enter a recovery phrase in an unexpected prompt. For a recovery you initiated, follow the wallet vendor's instructions on a trusted device.",
+            "Never type a recovery phrase into a prompt you did not expect. If you are restoring a wallet yourself, follow the wallet maker's instructions on a device you trust.",
         ],
         link: None,
     },
@@ -51,8 +51,8 @@ pub const RECOVERY_PHRASE: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Possible wallet recovery phrase in a file",
-    explanation: "This file starts with a run of 12 or more words from the standard list wallets use for recovery phrases. Whether they form a valid phrase, or a wallet with funds, was not checked.",
-    reason: Some("A valid recovery phrase can restore a wallet and authorize spending. Some wallets also require a separate recovery passphrase; the scanner does not check for one."),
+    explanation: "This file starts with 12 or more words from the list wallets use for recovery phrases. Loose Keys did not check whether they make a valid phrase or a wallet with funds.",
+    reason: Some("A valid recovery phrase can restore a wallet and spend from it. Some wallets also need a separate passphrase, which Loose Keys does not look for."),
     next_step: Some("Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now."),
     advice: Advice {
         steps: &[
@@ -168,14 +168,14 @@ fn public_example(words: &[usize], list: &[&str]) -> bool {
 pub const DESKTOP_WALLET: Rule = Rule {
     id: "wallet.desktop.data",
     title: "Desktop crypto wallet data",
-    explanation: "A desktop crypto wallet keeps its data here. Nothing in it was read; the folder or file being there is the finding.",
-    reason: Some("Infostealers copy desktop wallet folders and guess the password offline. Some also replace the wallet app with a fake that asks for the recovery phrase."),
+    explanation: "A desktop crypto wallet keeps its data here. Loose Keys found it but did not open it.",
+    reason: Some("Password-stealing malware copies desktop wallet folders and guesses the password offline. Some versions also replace the wallet app with a fake that asks for the recovery phrase."),
     next_step: Some("Use a hardware wallet for funds you cannot afford to lose, and never type a recovery phrase into an app on this Mac."),
     advice: Advice {
         steps: &[
             "Move funds you cannot afford to lose to a hardware wallet.",
             "Give this wallet a long password used nowhere else, and make sure its recovery phrase is not stored on this Mac.",
-            "Install and update the wallet app only from its official site or the App Store. Stop at an unexpected recovery-phrase prompt and verify why it appeared.",
+            "Install and update the wallet app only from its official site or the App Store. If it asks for your recovery phrase out of the blue, stop and find out why.",
             "If you no longer use this wallet, move any funds out, then delete the app and this data.",
         ],
         link: None,

@@ -7,11 +7,11 @@
 
 "Add Folder or Drive…" = "Agregar carpeta o disco…";
 
-"Approve the helper in System Settings > General > Login Items." = "Aprueba el proceso auxiliar en Configuración del Sistema > General > Elementos de inicio.";
+"Approve Loose Keys in System Settings > General > Login Items." = "Aprueba Loose Keys en Configuración del Sistema > General > Elementos de inicio.";
 
 "Open System Settings" = "Abrir Configuración del Sistema";
 
-"Off for Loose Keys. Turn them on in System Settings to hear about new findings when the app is closed." = "Desactivadas para Loose Keys. Actívalas en Configuración del Sistema para enterarte de los nuevos hallazgos cuando la app esté cerrada.";
+"They are off. Turn them on in System Settings to hear about new findings while the app is closed." = "Están desactivadas. Actívalas en Configuración del Sistema para enterarte de nuevos hallazgos mientras la app está cerrada.";
 
 "Settings…" = "Configuración…";
 
@@ -25,6 +25,9 @@
 
 "Open Settings to restart the helper." = "Abre Configuración para reiniciar el proceso auxiliar.";
 
-"Allow Loose Keys in Login Items to show it at login." = "Permite Loose Keys en Elementos de inicio para que aparezca al iniciar sesión.";
+"Turn on Loose Keys in Login Items to show the icon at login." = "Activa Loose Keys en Elementos de inicio para que el ícono aparezca al iniciar sesión.";
 
-"Not in Login Items: shown only while the app is open." = "No está en Elementos de inicio: solo aparece mientras la app está abierta.";
+"Shown only while the app is open, because Loose Keys is not in Login Items." = "Solo se muestra mientras la app está abierta, porque Loose Keys no está en Elementos de inicio.";
+
+/* In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave. */
+"Loose Keys could not move the old report to the Trash, so it saved the new one next to it as %@. %@" = "Loose Keys no pudo mover el informe anterior al basurero, así que guardó el nuevo a su lado como %@. %@";

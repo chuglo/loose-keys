@@ -1,10 +1,10 @@
 /* The folder-access reasons macOS shows, in Spanish. */
 
 /* macOS shows this in its folder-access prompt for Loose Keys. */
-"NSDesktopFolderUsageDescription" = "Loose Keys comprueba los archivos de tu Escritorio en busca de contraseñas, claves y otros datos de inicio de sesión expuestos. Todo se queda en tu Mac.";
+"NSDesktopFolderUsageDescription" = "Loose Keys busca contraseñas y claves que hayan quedado en los archivos de tu Escritorio.";
 
 /* macOS shows this in its folder-access prompt for Loose Keys. */
-"NSDocumentsFolderUsageDescription" = "Loose Keys comprueba los archivos de tu carpeta Documentos en busca de contraseñas, claves y otros datos de inicio de sesión expuestos. Todo se queda en tu Mac.";
+"NSDocumentsFolderUsageDescription" = "Loose Keys busca contraseñas y claves que hayan quedado en los archivos de tu carpeta Documentos.";
 
 /* macOS shows this in its folder-access prompt for Loose Keys. */
-"NSDownloadsFolderUsageDescription" = "Loose Keys comprueba los archivos de tu carpeta Descargas en busca de contraseñas, claves y otros datos de inicio de sesión expuestos. Todo se queda en tu Mac.";
+"NSDownloadsFolderUsageDescription" = "Loose Keys busca contraseñas y claves que hayan quedado en los archivos de tu carpeta Descargas.";

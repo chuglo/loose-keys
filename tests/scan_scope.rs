@@ -504,7 +504,9 @@ fn findings_distinguish_indicators_from_actual_access_or_revocation() {
         .unwrap();
     let reason = key["reason"].as_str().unwrap();
     assert!(
-        reason.contains("authorization") && reason.contains("mode bits") && reason.contains("ACL")
+        reason.contains("still trusted")
+            && reason.contains("other users")
+            && reason.contains("unless a folder above it or an access list")
     );
     assert!(!r.to_string().contains("works immediately"));
 }
@@ -1542,7 +1544,7 @@ fn a_skipped_folder_is_not_read_and_is_always_listed() {
         serde_json::json!(["~/corpus"])
     );
     let text = String::from_utf8(f.run(&["--exclude", corpus.to_str().unwrap()]).stdout).unwrap();
-    assert!(text.contains("Not checked at your request: \"~/corpus\""));
+    assert!(text.contains("You left out: \"~/corpus\""));
     // The counts say that a folder was skipped, and not which.
     let counts = f.run(&["--exclude", corpus.to_str().unwrap(), "--feedback", "-"]);
     let counts = String::from_utf8(counts.stdout).unwrap();

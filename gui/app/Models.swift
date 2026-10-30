@@ -296,28 +296,28 @@ struct SetAsideReason: Identifiable {
                                      comment: "Menu item under Set Aside…: why the person sets the finding aside. What was found is not a password or key."),
                        summary: String(localized: "Not a password or key",
                                        comment: "Inspector, Set Aside section: the reason the person gave for setting the finding aside."),
-                       returns: String(localized: "Applies to all copies of the flagged text. If that text changes and is flagged again, it will appear in Worth Reviewing.",
+                       returns: String(localized: "Covers every copy of this text. If the text changes, it comes back to Worth Reviewing.",
                                        comment: "Inspector details for a finding set aside as not a password or key: what the choice covers and when the finding comes back.")),
         SetAsideReason(id: "testing",
                        label: String(localized: "Used Only for Testing",
                                      comment: "Menu item under Set Aside…: why the person sets the finding aside. The password or key found is only used for testing."),
                        summary: String(localized: "Used only for testing",
                                        comment: "Inspector, Set Aside section: the reason the person gave for setting the finding aside (the password or key)."),
-                       returns: String(localized: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing.",
+                       returns: String(localized: "Covers every copy of this password or key. If you replace it, the new one shows up in Worth Reviewing.",
                                        comment: "Inspector details for a finding set aside as a test credential, or as one that no longer works: what the choice covers and when it comes back.")),
         SetAsideReason(id: "no-longer-works",
                        label: String(localized: "No Longer Works",
                                      comment: "Menu item under Set Aside…: why the person sets the finding aside. The password or key found no longer works."),
                        summary: String(localized: "No longer works",
                                        comment: "Inspector, Set Aside section: the reason the person gave for setting the finding aside (the password or key)."),
-                       returns: String(localized: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing.",
+                       returns: String(localized: "Covers every copy of this password or key. If you replace it, the new one shows up in Worth Reviewing.",
                                        comment: "Inspector details for a finding set aside as a test credential, or as one that no longer works: what the choice covers and when it comes back.")),
         SetAsideReason(id: "kept",
-                       label: String(localized: "Keeping It Here Intentionally",
+                       label: String(localized: "Keeping It Here on Purpose",
                                      comment: "Menu item under Set Aside…: why the person sets the finding aside. The credential is real and stays in this file on purpose."),
-                       summary: String(localized: "Keeping it here intentionally",
+                       summary: String(localized: "Keeping it here on purpose",
                                        comment: "Inspector, Set Aside section: the reason the person gave for setting the finding aside (the person keeps the credential here)."),
-                       returns: String(localized: "Applies only to this location. Returns to review if the file becomes readable by others, a different kind of credential appears here, or after six months.",
+                       returns: String(localized: "Covers this file only. It comes back for review in six months, or sooner if other users can read the file or a different kind of credential shows up in it.",
                                        comment: "Inspector details for a credential the person keeps here on purpose: what the choice covers and when it comes back.")),
     ]
 
@@ -329,7 +329,7 @@ struct SetAsideReason: Identifiable {
                       comment: "The reason an older version of the app recorded for a set-aside finding: a test credential, or one that no longer works."),
         summary: String(localized: "Testing or no longer working (previous choice)",
                         comment: "Inspector, Set Aside section: the reason an older version of the app recorded for setting the finding aside."),
-        returns: String(localized: "Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing.",
+        returns: String(localized: "Covers every copy of this password or key. If you replace it, the new one shows up in Worth Reviewing.",
                         comment: "Inspector details for a finding set aside as a test credential, or as one that no longer works: what the choice covers and when it comes back."))
 
     // Set by the organization's managed settings, never chosen here: shown,
@@ -340,7 +340,7 @@ struct SetAsideReason: Identifiable {
                       comment: "The reason an organization's settings give for a set-aside finding; not offered in the menu."),
         summary: String(localized: "Expected by your organization",
                         comment: "Inspector, Set Aside section: the finding is on the list the person's organization set."),
-        returns: String(localized: "Your organization's settings list this file as expected here. Move to Worth Reviewing to review it anyway.",
+        returns: String(localized: "Your organization expects this file to be here. To review it anyway, choose Move to Worth Reviewing.",
                         comment: "Inspector details for a finding the organization's settings list as expected: what the choice covers and how to review it anyway."))
 
 }

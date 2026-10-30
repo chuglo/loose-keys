@@ -118,8 +118,8 @@ const EXTRA: &[(&str, &str, &str)] = &[
 
 /// What scan.rs adds to a finding's reason when others may read its file:
 /// after the rule's reason, or alone when the rule has none.
-const MODE_NOTE: &str = "Group/other read mode bits are set; effective access is unknown \
-     because parent directories and ACLs were not assessed.";
+const MODE_NOTE: &str = "The file's permissions let other users on this Mac read it, \
+     unless a folder above it or an access list blocks them.";
 
 /// Text the scanner builds as it runs, as the window receives it, and the
 /// code in that file that builds it, exactly as it is written there. Each

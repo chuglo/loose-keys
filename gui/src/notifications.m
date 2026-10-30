@@ -57,7 +57,7 @@ static BOOL shouldOpenReview(NSString *identifier, NSString *action) {
 static UNNotificationRequest *reviewRequest(void) {
     UNMutableNotificationContent *content = [UNMutableNotificationContent new];
     content.title = @"Loose Keys";
-    content.body = NSLocalizedString(@"Potential local credential exposure found. Review safe next steps. This does not prove theft.",
+    content.body = NSLocalizedString(@"Found what looks like a password or key in a file. Open Loose Keys to see what to do.",
         @"Notification body, sent by the background helper when it finds something new to review.");
     content.categoryIdentifier = @"credential-review";
     // No userInfo, paths, accounts, counts, secrets, attachments, or sound.

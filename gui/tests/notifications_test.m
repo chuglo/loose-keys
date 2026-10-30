@@ -30,7 +30,7 @@ int main(void) {
         UNNotificationRequest *request = reviewRequest();
         UNNotificationContent *content = request.content;
         assert([content.title isEqualToString:@"Loose Keys"]);
-        assert([content.body isEqualToString:@"Potential local credential exposure found. Review safe next steps. This does not prove theft."]);
+        assert([content.body isEqualToString:@"Found what looks like a password or key in a file. Open Loose Keys to see what to do."]);
         assert([request.identifier isEqualToString:@"credential-review"]);
         assert([content.categoryIdentifier isEqualToString:@"credential-review"]);
         assert(content.userInfo.count == 0);

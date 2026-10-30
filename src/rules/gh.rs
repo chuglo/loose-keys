@@ -5,14 +5,14 @@ use super::*;
 
 pub const GH_TOKEN: Rule = Rule {
     id: "dev.gh.inline-token",
-    title: "Possible GitHub CLI inline token",
+    title: "Possible GitHub CLI token stored as plain text",
     severity: "medium",
-    explanation: "GitHub CLI's sign-in token is stored as plain text in its hosts file instead of the Keychain. The token's validity and permissions were not checked.",
+    explanation: "GitHub CLI's sign-in token is stored as plain text in its hosts file instead of the Keychain. Loose Keys did not check whether it still works or what it can access.",
     next_step: Some("Sign in again so GitHub CLI stores the token in the Keychain. Removing the line does not revoke the token."),
     advice: Advice {
         steps: &[
             "Sign out, which also removes the stored token: gh auth logout",
-            "Sign in again: gh auth login. It uses the system credential store when available but can fall back to a plain-text file. Use gh auth status to check the storage location.",
+            "Sign in again: gh auth login. It uses the Keychain when it can, but may fall back to a plain-text file; gh auth status shows which.",
             "In GitHub Settings > Applications > Authorized OAuth Apps, revoke 'GitHub CLI' if the old token may have been copied.",
         ],
         link: Some("https://github.com/settings/applications"),

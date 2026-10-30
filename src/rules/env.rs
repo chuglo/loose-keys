@@ -7,9 +7,9 @@ pub const ENV_SECRET: Rule = Rule {
     category: "developer-cloud",
     kind: "review",
     severity: "medium",
-    title: "Secret assigned in a plain-text settings file",
-    explanation: "A variable whose name says it holds a password, key or token is set to a literal value. The value was not inspected beyond ruling out placeholders, and it may be a local or test value.",
-    reason: Some("Supply-chain malware and infostealers collect .env and shell files because they hold working credentials in plain text."),
+    title: "Password or key in a plain-text settings file",
+    explanation: "A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value is not a placeholder. It may be a local or test value.",
+    reason: Some("Malware often collects .env and shell files, because they hold working passwords and keys in plain text."),
     next_step: Some("Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file."),
     advice: Advice {
         steps: &[

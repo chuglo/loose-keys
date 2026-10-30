@@ -35,19 +35,19 @@
 "background.active" = "Activo";
 
 /* The menu bar menu's first line when the list could not be read. Worth Reviewing is the list's name in the sidebar. [AppModel.swift:379] */
-"Worth Reviewing could not be read" = "No se pudo leer Para revisar";
+"Could not load Worth Reviewing" = "No se pudo cargar Para revisar";
 
 /* The menu bar menu's first line while the list is being read. Worth Reviewing is the list's name in the sidebar. [AppModel.swift:382] */
-"Reading Worth Reviewing…" = "Leyendo Para revisar…";
+"Loading Worth Reviewing…" = "Cargando Para revisar…";
 
 /* The menu bar menu's second line: the state of automatic scanning, as Settings shows it. [AppModel.swift:390] */
 "Automatic scanning: %@" = "Análisis automático: %@";
 
 /* Last part of the Worth Reviewing subtitle, after the counts and a comma: the list had no room for some findings. [AppModel.swift:408] */
-"list full, so some findings were left out" = "lista llena, así que algunos hallazgos quedaron fuera";
+"list full, so some findings are missing" = "lista llena, así que faltan algunos hallazgos";
 
 /* In an alert after a scan. %@ is the reason, one or more sentences from the engine or macOS. [AppModel.swift:643] */
-"The scan finished, but its findings could not be listed. %@ Save the report to see them." = "El análisis terminó, pero no se pudieron listar sus hallazgos. %@ Guarda el informe para verlos.";
+"The scan finished, but Loose Keys could not show its findings. %@ Save the report to see them." = "El análisis terminó, pero Loose Keys no pudo mostrar sus hallazgos. %@ Guarda el informe para verlos.";
 
 /* The button of the panel that chooses a folder or drive to include in scans. [AppModel.swift:668] */
 "Add" = "Añadir";
@@ -71,13 +71,13 @@
 "Counts only. No paths or file names." = "Solo los recuentos. Sin rutas ni nombres de archivo.";
 
 /* At the top of the save panel for Save Report…: what the saved file holds. [AppModel.swift:822] */
-"Every finding and file path. Review before sharing." = "Cada hallazgo y cada ruta de archivo. Revísalo antes de compartirlo.";
+"Every finding and file path. Review before sharing." = "Todos los hallazgos y rutas de archivo. Revísalo antes de compartirlo.";
 
 /* Shown for a moment under the window title after a save. %@ is the name of the file the person chose. [AppModel.swift:827] */
 "Saved %@" = "Se guardó %@";
 
 /* In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave. [AppModel.swift:848] */
-"The new report is saved as %@, beside the one you chose to replace. %@" = "El nuevo informe está guardado como %@, junto al que elegiste reemplazar. %@";
+"Loose Keys could not move the old report to the Trash, so it saved the new one next to it as %@. %@" = "Loose Keys no pudo mover el informe anterior a la papelera, así que guardó el nuevo a su lado como %@. %@";
 
 /* Shown for a moment under the window title after Copy Summary. [AppModel.swift:857] */
 "Summary copied" = "Resumen copiado";
@@ -89,10 +89,10 @@
 "Could not request notification permission: %@" = "No se pudo solicitar el permiso de notificaciones: %@";
 
 /* In an alert: the engine linked into the app returned nothing for a request. [Engine.swift:59] */
-"The scanner did not answer." = "El analizador no respondió.";
+"Loose Keys stopped responding. Try again." = "Loose Keys dejó de responder. Inténtalo de nuevo.";
 
 /* In an alert: the engine's answer to a request was not in the form the window expects. [Engine.swift:65] */
-"The scanner's answer could not be read." = "No se pudo leer la respuesta del analizador.";
+"Something went wrong inside Loose Keys. Try again." = "Algo falló dentro de Loose Keys. Inténtalo de nuevo.";
 
 /* [Inspector.swift:14] */
 "No Selection" = "Sin selección";
@@ -104,10 +104,10 @@
 "Details of a selected finding appear here." = "Los detalles del hallazgo seleccionado aparecen aquí.";
 
 /* [Inspector.swift:47] */
-"This file was checked again and no longer matches. That does not prove the credential was revoked, or that no other copy exists." = "Este archivo se volvió a comprobar y ya no coincide. Eso no demuestra que la credencial se haya revocado ni que no exista otra copia.";
+"Loose Keys no longer finds this in the file. That does not mean the credential was revoked, or that no other copy exists." = "Loose Keys ya no lo encuentra en el archivo. Eso no significa que la credencial se haya revocado ni que no exista otra copia.";
 
 /* Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know. [Inspector.swift:54] */
-"Set aside by you" = "Dejado a un lado por ti";
+"You set this aside" = "Lo dejaste a un lado";
 
 /* [Inspector.swift:56] */
 "Move to Worth Reviewing" = "Mover a Para revisar";
@@ -125,7 +125,7 @@
 "%@ (set aside here)" = "%@ (dejado a un lado aquí)";
 
 /* Inspector, under What to Do, for a finding whose rule gives no next step. [Inspector.swift:93] */
-"Confirm why this file is stored here before you change it." = "Comprueba por qué este archivo está guardado aquí antes de cambiarlo.";
+"Find out why this file is here before you change it." = "Averigua por qué está aquí este archivo antes de cambiarlo.";
 
 /* [Inspector.swift:97] */
 "Open the Page to Revoke It" = "Abrir la página para revocarlo";
@@ -134,22 +134,22 @@
 "What to Do" = "Qué hacer";
 
 /* [Inspector.swift:102] */
-"If this belongs to work or you are unsure, ask IT before changing it. This app does not change files or revoke credentials." = "Si esto es del trabajo o tienes dudas, consulta con el departamento de TI antes de cambiarlo. Esta app no cambia archivos ni revoca credenciales.";
+"If this is for work, or you are not sure, ask IT before changing it. Loose Keys does not change files or revoke anything for you." = "Si esto es del trabajo o tienes dudas, consulta con el departamento de TI antes de cambiarlo. Loose Keys no cambia archivos ni revoca nada por ti.";
 
 /* [Inspector.swift:111] */
 "Folder" = "Carpeta";
 
 /* Inspector, Folder section. %@ is a folder's path, shown as it is. Not Checked is the page's name. [Inspector.swift:114] */
-"%@ is no longer checked. Not Checked lists it, and can include it again." = "%@ ya no se comprueba. Aparece en Sin comprobar, desde donde puedes volver a incluirla.";
+"Scans will skip %@. You can include it again from Not Checked." = "Los análisis omitirán %@. Puedes volver a incluir esta carpeta desde Sin comprobar.";
 
 /* Inspector, Folder section: a button that leaves a folder out of scans. %@ is the folder's path, shown as it is. [Inspector.swift:121] */
 "Stop Checking %@" = "Dejar de comprobar %@";
 
 /* [Inspector.swift:131] */
-"Hide Why It Is Here" = "Ocultar por qué está aquí";
+"Hide Explanation" = "Ocultar explicación";
 
 /* [Inspector.swift:131] */
-"Show Why It Is Here" = "Mostrar por qué está aquí";
+"Show Explanation" = "Mostrar explicación";
 
 /* [Inspector.swift:138, Overview.swift:247] */
 "Hide Details" = "Ocultar detalles";
@@ -170,7 +170,7 @@
 "Set Aside…" = "Dejar a un lado…";
 
 /* [Inspector.swift:184] */
-"It is fixed here, so there is nothing to set aside." = "Está corregido aquí, así que no hay nada que dejar a un lado.";
+"These are fixed, so there is nothing to set aside." = "Ya están corregidos, así que no hay nada que dejar a un lado.";
 
 /* [Inspector.swift:211] */
 "What It Is" = "Qué es";
@@ -182,7 +182,7 @@
 "Open the Page to Manage It" = "Abrir la página para gestionarlo";
 
 /* Inspector, under a file's path, in place of Show in Finder and Copy Path. [Inspector.swift:231] */
-"This name has unusual characters, so the app does not act on it." = "Este nombre tiene caracteres poco comunes, así que la app no actúa sobre él.";
+"This name has unusual characters, so Loose Keys will not open or copy it." = "Este nombre tiene caracteres poco comunes, así que Loose Keys no lo abre ni lo copia.";
 
 /* Inspector: a file's path and a line number in it. %@ is the path, shown as it is. [Inspector.swift:238] */
 "%@, line %lld" = "%@, línea %lld";
@@ -194,13 +194,13 @@
 "Copy Path" = "Copiar ruta";
 
 /* [Lists.swift:11] */
-"Review List Unavailable" = "Lista de revisión no disponible";
+"Cannot Open Worth Reviewing" = "No se puede abrir Para revisar";
 
 /* Worth Reviewing, when the list of findings could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS. [Lists.swift:19] */
 "%@ Quit and reopen the app to try again." = "%@ Sal de la app y vuelve a abrirla para intentarlo de nuevo.";
 
 /* Worth Reviewing, when the list of findings could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS. [Lists.swift:21] */
-"%@ Save the report to see the last scan's findings, and quit and reopen the app to try again." = "%@ Guarda el informe para ver los hallazgos del último análisis; para intentarlo de nuevo, sal de la app y vuelve a abrirla.";
+"%@ Quit and reopen the app to try again. Save the report to see the last scan's findings." = "%@ Sal de la app y vuelve a abrirla para intentarlo de nuevo. Guarda el informe para ver los hallazgos del último análisis.";
 
 /* [Lists.swift:28] */
 "Reading the List" = "Leyendo la lista";
@@ -218,22 +218,22 @@
 "No Items Set Aside" = "No hay elementos dejados a un lado";
 
 /* The Set Aside page, empty. [Lists.swift:86] */
-"Findings you set aside appear here, with your reason and an option to return them to review." = "Los hallazgos que dejes a un lado aparecen aquí, con tu motivo y una opción para devolverlos a la revisión.";
+"Findings you set aside appear here." = "Aquí aparecen los hallazgos que dejes a un lado.";
 
 /* Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Not Checked is the page's name. [Lists.swift:94] */
-"Not Checked lists any places the scan could not read." = "En Sin comprobar aparece cualquier lugar que el análisis no haya podido leer.";
+"Places the scan could not read are in Not Checked." = "Los lugares que el análisis no pudo leer están en Sin comprobar.";
 
 /* Worth Reviewing, empty because every finding is set aside, while automatic scanning has not yet read every file once. [Lists.swift:97] */
 "New findings show up here as Loose Keys checks your files." = "Los nuevos hallazgos aparecen aquí a medida que Loose Keys comprueba tus archivos.";
 
 /* Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. [Lists.swift:103] */
-"Scan this Mac to check it now." = "Analiza tu Mac para hacer una comprobación ahora.";
+"Use Scan Now to look again." = "Usa Analizar ahora para volver a buscar.";
 
 /* Worth Reviewing's heading when every finding is set aside. [Lists.swift:107] */
 "No Items Waiting for Review" = "No hay elementos pendientes de revisión";
 
 /* Worth Reviewing, empty because every finding is set aside. Set Aside is the page's name. Another sentence follows. [Lists.swift:108] */
-"Your set-aside findings are in Set Aside and are still counted." = "Los hallazgos que dejaste a un lado están en Dejado a un lado y se siguen contando.";
+"You set aside everything the scan found." = "Dejaste a un lado todo lo que encontró el análisis.";
 
 /* Worth Reviewing, empty while automatic scanning has not yet read every file once. [Lists.swift:116] */
 "No Findings Yet" = "Aún no hay hallazgos";
@@ -257,52 +257,52 @@
 "Nothing to Review" = "Nada que revisar";
 
 /* Worth Reviewing, empty while automatic scanning is off, after it once ran. [Lists.swift:134] */
-"Earlier automatic scans found nothing that needs your attention. Scan this Mac to check it now." = "Los análisis automáticos anteriores no encontraron nada que requiera tu atención. Analiza tu Mac para hacer una comprobación ahora.";
+"Past automatic scans found nothing to review. Use Scan Now to look again." = "Los análisis automáticos anteriores no encontraron nada que revisar. Usa Analizar ahora para volver a buscar.";
 
 /* Worth Reviewing, empty although the last scan found something. [Lists.swift:138] */
-"Findings Not Listed" = "Hallazgos no listados";
+"Cannot Show Findings" = "No se pueden mostrar los hallazgos";
 
 /* Worth Reviewing, empty after a scan that read every place it was asked to. [Lists.swift:146] */
-"The last scan found nothing that needs your attention. That is not proof this Mac is safe." = "El último análisis no encontró nada que requiera tu atención. Eso no demuestra que tu Mac esté a salvo.";
+"The last scan found nothing to review. That does not mean this Mac is safe." = "El último análisis no encontró nada que revisar. Eso no significa que tu Mac esté a salvo.";
 
 /* Worth Reviewing, empty after a scan that could not read some places. [Lists.swift:148] */
-"Nothing Found in What Was Checked" = "No se encontró nada en lo que se comprobó";
+"Nothing Found" = "No se encontró nada";
 
 /* Worth Reviewing, empty after a scan that could not read some places. Not Checked is the page's name. [Lists.swift:149] */
-"The last scan could not check everything, and found nothing that needs your attention in what it read. Not Checked lists what it missed." = "El último análisis no pudo comprobarlo todo y, en lo que leyó, no encontró nada que requiera tu atención. En Sin comprobar aparece lo que no pudo leer.";
+"The last scan found nothing to review, but some places could not be checked. See Not Checked." = "El último análisis no encontró nada que revisar, pero no pudo comprobar algunos lugares. Consulta Sin comprobar.";
 
 /* [Lists.swift:162] */
-"Stored sign-ins are listed after a scan. They are normal, but malware can copy them." = "Las credenciales guardadas aparecen después de un análisis. Son normales, pero el malware puede copiarlas.";
+"After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them." = "Después de un análisis, aquí verás las credenciales que guardan tus apps. Es normal, pero el malware puede copiarlas.";
 
 /* [Lists.swift:166] */
 "Sign-in" = "Credencial";
 
 /* [Lists.swift:198] */
-"Everything Was Checked" = "Se comprobó todo";
+"Nothing Skipped" = "No se omitió nada";
 
 /* [Lists.swift:201, Lists.swift:210] */
-"Places macOS or the scan could not read are listed here after a scan." = "Los lugares que macOS o el análisis no pudieron leer aparecen aquí después de un análisis.";
+"After a scan, places Loose Keys could not read appear here." = "Después de un análisis, aquí aparecen los lugares que Loose Keys no pudo leer.";
 
 /* [Lists.swift:202] */
-"The last scan read every place it was asked to." = "El último análisis leyó todos los lugares que se le pidió leer.";
+"Loose Keys read every place in the last scan." = "En el último análisis, Loose Keys pudo leer todos los lugares.";
 
 /* [Lists.swift:208] */
-"These places could not be checked, so anything in them was not found. The scan is incomplete because of them." = "Estos lugares no se pudieron comprobar, así que no se encontró lo que pudiera haber en ellos. El análisis está incompleto debido a ellos.";
+"These places could not be read, so the scan may have missed something in them." = "Estos lugares no se pudieron leer, así que el análisis puede haber pasado algo por alto en ellos.";
 
 /* [Lists.swift:211] */
-"The last scan read every place it was asked to, except the folders you left out." = "El último análisis leyó todos los lugares que se le pidió leer, excepto las carpetas que dejaste fuera.";
+"Loose Keys read every place in the last scan, apart from the folders you left out." = "En el último análisis, Loose Keys pudo leer todos los lugares, salvo las carpetas que dejaste fuera.";
 
 /* [Lists.swift:214] */
-"The folders you left out could not be read, so they are not listed here." = "No se pudieron leer las carpetas que dejaste fuera, así que no aparecen aquí.";
+"The list of folders you left out could not be read." = "No se pudo leer la lista de carpetas que dejaste fuera.";
 
 /* [Lists.swift:239] */
 "Include Again" = "Volver a incluir";
 
 /* [Lists.swift:245] */
-"Not Checked at Your Request" = "Sin comprobar a petición tuya";
+"Folders You Left Out" = "Carpetas que dejaste fuera";
 
 /* [Lists.swift:247] */
-"These folders are not read, so anything in them is not found." = "Estas carpetas no se leen, así que lo que haya en ellas no se encuentra.";
+"Scans skip these folders." = "Los análisis omiten estas carpetas.";
 
 /* [MainView.swift:21] */
 "Filter" = "Filtrar";
@@ -365,13 +365,13 @@
 "Loose Keys, items to review" = "Loose Keys, elementos por revisar";
 
 /* What VoiceOver says for the menu bar icon when the list of findings is full and left some out. Loose Keys is the app's name. [MenuBar.swift:12] */
-"Loose Keys, review list full" = "Loose Keys, lista de revisión llena";
+"Loose Keys, Worth Reviewing is full" = "Loose Keys, la lista Para revisar está llena";
 
 /* What VoiceOver says for the menu bar icon when the list of findings could not be read. Loose Keys is the app's name. [MenuBar.swift:15] */
-"Loose Keys, review list could not be read" = "Loose Keys, no se pudo leer la lista de revisión";
+"Loose Keys, cannot open Worth Reviewing" = "Loose Keys, no se puede abrir Para revisar";
 
 /* What VoiceOver says for the menu bar icon while the list of findings is being read. Loose Keys is the app's name. [MenuBar.swift:18] */
-"Loose Keys, reading review list" = "Loose Keys, leyendo la lista de revisión";
+"Loose Keys, loading Worth Reviewing" = "Loose Keys, cargando Para revisar";
 
 /* [MenuBar.swift:90] */
 "Open Loose Keys" = "Abrir Loose Keys";
@@ -389,7 +389,7 @@
 "Not a password or key" = "No es una contraseña ni una clave";
 
 /* Inspector details for a finding set aside as not a password or key: what the choice covers and when the finding comes back. [Models.swift:289] */
-"Applies to all copies of the flagged text. If that text changes and is flagged again, it will appear in Worth Reviewing." = "Se aplica a todas las copias del texto marcado. Si ese texto cambia y se vuelve a marcar, aparecerá en Para revisar.";
+"Covers every copy of this text. If the text changes, it comes back to Worth Reviewing." = "Se aplica a todas las copias de este texto. Si el texto cambia, vuelve a Para revisar.";
 
 /* Menu item under Set Aside…: why the person sets the finding aside. The password or key found is only used for testing. [Models.swift:292] */
 "Used Only for Testing" = "Solo se usa para pruebas";
@@ -398,7 +398,7 @@
 "Used only for testing" = "Solo se usa para pruebas";
 
 /* Inspector details for a finding set aside as a test credential, or as one that no longer works: what the choice covers and when it comes back. [Models.swift:296, Models.swift:303, Models.swift:322] */
-"Applies to all copies of this password or key. If it is replaced, the new one will appear in Worth Reviewing." = "Se aplica a todas las copias de esta contraseña o clave. Si se sustituye, la nueva aparecerá en Para revisar.";
+"Covers every copy of this password or key. If you replace it, the new one shows up in Worth Reviewing." = "Se aplica a todas las copias de esta contraseña o clave. Si la sustituyes, la nueva aparecerá en Para revisar.";
 
 /* Menu item under Set Aside…: why the person sets the finding aside. The password or key found no longer works. [Models.swift:299] */
 "No Longer Works" = "Ya no funciona";
@@ -407,22 +407,22 @@
 "No longer works" = "Ya no funciona";
 
 /* Menu item under Set Aside…: why the person sets the finding aside. The credential is real and stays in this file on purpose. [Models.swift:306] */
-"Keeping It Here Intentionally" = "Se mantiene aquí a propósito";
+"Keeping It Here on Purpose" = "Lo dejo aquí a propósito";
 
 /* Inspector, Set Aside section: the reason the person gave for setting the finding aside (the person keeps the credential here). [Models.swift:308] */
-"Keeping it here intentionally" = "Se mantiene aquí a propósito";
+"Keeping it here on purpose" = "Lo dejo aquí a propósito";
 
 /* Inspector details for a credential the person keeps here on purpose: what the choice covers and when it comes back. [Models.swift:310] */
-"Applies only to this location. Returns to review if the file becomes readable by others, a different kind of credential appears here, or after six months." = "Se aplica solo a esta ubicación. Vuelve a estar pendiente de revisión si el archivo pasa a ser legible por otros, si aparece aquí otro tipo de credencial o al cabo de seis meses.";
+"Covers this file only. It comes back for review in six months, or sooner if other users can read the file or a different kind of credential shows up in it." = "Solo se aplica a este archivo. Vuelve a Para revisar dentro de seis meses, o antes si otros usuarios pueden leer el archivo o aparece en él otro tipo de credencial.";
 
 /* The reason an organization's settings give for a set-aside finding; not offered in the menu. [Models.swift:337] */
-"Expected by Your Organization" = "Previsto por tu organización";
+"Expected by Your Organization" = "Lo espera tu organización";
 
 /* Inspector, Set Aside section: the finding is on the list the person's organization set. [Models.swift:339] */
-"Expected by your organization" = "Previsto por tu organización";
+"Expected by your organization" = "Lo espera tu organización";
 
 /* Inspector details for a finding the organization's settings list as expected: what the choice covers and how to review it anyway. [Models.swift:341] */
-"Your organization's settings list this file as expected here. Move to Worth Reviewing to review it anyway." = "La configuración de tu organización indica que este archivo es de esperar aquí. Usa Mover a Para revisar para revisarlo de todos modos.";
+"Your organization expects this file to be here. To review it anyway, choose Move to Worth Reviewing." = "Tu organización espera que este archivo esté aquí. Para revisarlo de todos modos, elige Mover a Para revisar.";
 
 /* The reason an older version of the app recorded for a set-aside finding: a test credential, or one that no longer works. [Models.swift:318] */
 "Testing or No Longer Working (Previous Choice)" = "Se usa para pruebas o ya no funciona (elección anterior)";
@@ -461,22 +461,22 @@
 "One-Time Scan" = "Análisis puntual";
 
 /* [Overview.swift:31] */
-"Check now for a detailed report, including places that could not be read." = "Comprueba ahora y obtén un informe detallado, incluidos los lugares que no se pudieron leer.";
+"Check once and get a full report." = "Comprueba una vez y obtén un informe completo.";
 
 /* [Overview.swift:59] */
 "Find Passwords and Keys Left in Files" = "Encuentra contraseñas y claves que quedaron en archivos";
 
 /* [Overview.swift:63] */
-"Loose Keys checks your files for supported passwords, keys, tokens and other sign-in material, and says how to remove each exposure." = "Loose Keys busca en tus archivos los tipos de contraseñas, claves, tokens y otros datos de inicio de sesión que reconoce, y te dice cómo eliminar cada exposición.";
+"Loose Keys looks for passwords, keys and tokens left in your files, and tells you how to clean them up." = "Loose Keys busca contraseñas, claves y tokens que hayan quedado en tus archivos, y te dice qué hacer con ellos.";
 
 /* [Overview.swift:73, Settings.swift:40] */
 "Scan Automatically" = "Analizar automáticamente";
 
 /* [Overview.swift:84] */
-"macOS may ask for folder access. You can deny it and continue." = "Es posible que macOS pida acceso a carpetas. Puedes denegarlo y continuar.";
+"macOS may ask for access to some folders. You can say no and still scan." = "Puede que macOS pida acceso a algunas carpetas. Puedes rechazarlo y analizar igualmente.";
 
 /* [Overview.swift:96] */
-"Scan Automatically checks your files whenever they change, even when the app is closed." = "Analizar automáticamente comprueba tus archivos cada vez que cambian, incluso con la app cerrada.";
+"Automatic scans run whenever your files change, even when the app is closed." = "Los análisis automáticos se ejecutan cada vez que cambian tus archivos, incluso con la app cerrada.";
 
 /* [Overview.swift:121] */
 "Stop Scan" = "Detener análisis";
@@ -485,10 +485,10 @@
 "Scanning" = "Analizando";
 
 /* [Overview.swift:125] */
-"A scan stops by itself after 30 seconds, once the file it is reading is finished. What it did not reach is listed under Not Checked." = "Un análisis se detiene por sí solo tras 30 segundos, en cuanto termina de leer el archivo en curso. Lo que no llegó a leer aparece en Sin comprobar.";
+"Scans stop after 30 seconds. Anything they did not get to appears in Not Checked." = "Los análisis se detienen a los 30 segundos. Lo que no lleguen a comprobar aparece en Sin comprobar.";
 
 /* Overview, when there is no home folder to scan. [Overview.swift:133] */
-"Cannot scan: the home folder was not found." = "No se puede analizar: no se encontró la carpeta de inicio.";
+"Cannot scan: Loose Keys could not find the home folder." = "No se puede analizar: Loose Keys no encontró la carpeta de inicio.";
 
 /* Overview, when there is no home folder to scan. %@ is the engine's reason, such as that HOME is not set to an absolute path. [Overview.swift:135] */
 "Cannot scan: %@." = "No se puede analizar: %@.";
@@ -497,7 +497,7 @@
 "Starting…" = "Iniciando…";
 
 /* Overview, while a scan reads the places where apps are known to keep sign-ins. A sentence of progress follows. [Overview.swift:145] */
-"Checking known sign-in locations." = "Comprobando las ubicaciones conocidas de datos de inicio de sesión.";
+"Checking places where apps keep sign-ins." = "Comprobando los lugares donde las apps guardan inicios de sesión.";
 
 /* Overview, while a scan that has read everything prepares its results. A sentence of progress follows. [Overview.swift:147] */
 "Preparing results." = "Preparando los resultados.";
@@ -515,13 +515,13 @@
 "Scanned %@." = "Fecha del análisis: %@";
 
 /* [Overview.swift:166] */
-"Scanned %@. Some places could not be checked; see Not Checked." = "Fecha del análisis: %@ — no se pudieron comprobar algunos lugares; consulta Sin comprobar.";
+"Scanned %@. Some places could not be checked." = "Fecha del análisis: %@. No se pudieron comprobar algunos lugares.";
 
 /* Overview, under the last scan's counts. %@ is the list of folders the scan covered, separated by commas, shown as they are. [Overview.swift:168] */
 "Included: %@." = "Lugares incluidos: %@.";
 
 /* [Overview.swift:176] */
-"The review list could not be read or saved, so Worth Reviewing shows the scan's own count." = "No se pudo leer o guardar la lista de revisión, así que Para revisar muestra el recuento del propio análisis.";
+"Loose Keys could not open its saved list, so the Worth Reviewing count is from the last scan." = "Loose Keys no pudo abrir su lista guardada, así que la cifra de Para revisar es la del último análisis.";
 
 /* [Overview.swift:207] */
 "Always included" = "Se incluye siempre";
@@ -557,7 +557,7 @@
 "Checking existing files…" = "Comprobando los archivos existentes…";
 
 /* [Overview.swift:268] */
-"Approve the helper in System Settings > General > Login Items." = "Aprueba el proceso auxiliar en Ajustes del Sistema > General > Ítems de inicio.";
+"Approve Loose Keys in System Settings > General > Login Items." = "Aprueba Loose Keys en Ajustes del Sistema > General > Ítems de inicio.";
 
 /* [Overview.swift:270] */
 "Open Settings to restart the helper." = "Abre Ajustes para reiniciar el proceso auxiliar.";
@@ -572,19 +572,19 @@
 "Notifications" = "Notificaciones";
 
 /* [Overview.swift:290] */
-"Off for Loose Keys. Turn them on in System Settings to hear about new findings when the app is closed." = "Desactivadas para Loose Keys. Actívalas en Ajustes del Sistema para enterarte de los nuevos hallazgos cuando la app esté cerrada.";
+"They are off. Turn them on in System Settings to hear about new findings while the app is closed." = "Están desactivadas. Actívalas en Ajustes del Sistema para enterarte de nuevos hallazgos mientras la app está cerrada.";
 
 /* The state of notifications: macOS could not ask the person whether to allow them. [Overview.swift:292, Settings.swift:158] */
-"macOS could not ask. Try again." = "macOS no pudo preguntar. Inténtalo de nuevo.";
+"macOS could not show the request. Try again." = "macOS no pudo mostrar la solicitud. Inténtalo de nuevo.";
 
 /* [Overview.swift:294] */
-"Hear about new findings when the app is closed. Alerts never name a file or credential." = "Entérate de los nuevos hallazgos cuando la app esté cerrada. Las alertas nunca nombran un archivo ni una credencial.";
+"Get notified about new findings while the app is closed. Notifications never name a file or credential." = "Recibe avisos de nuevos hallazgos mientras la app está cerrada. Las notificaciones nunca nombran un archivo ni una credencial.";
 
 /* Overview, when the list of findings could not be read or saved. %@ is the reason, one or more sentences from the engine or macOS. [Overview.swift:304] */
-"Review List Unavailable: %@" = "Lista de revisión no disponible: %@";
+"Cannot Open Worth Reviewing: %@" = "No se puede abrir Para revisar: %@";
 
 /* [Overview.swift:313] */
-"Files are only read, never changed." = "Los archivos solo se leen, nunca se modifican.";
+"Loose Keys only reads files. It never changes them." = "Loose Keys solo lee archivos. Nunca los cambia.";
 
 /* [Settings.swift:14] */
 "Automatic scanning is not available." = "El análisis automático no está disponible.";
@@ -644,10 +644,10 @@
 "Show in Menu Bar" = "Mostrar en la barra de menús";
 
 /* [Settings.swift:138] */
-"Allow Loose Keys in Login Items to show it at login." = "Permite Loose Keys en Ítems de inicio para que aparezca al iniciar sesión.";
+"Turn on Loose Keys in Login Items to show the icon at login." = "Activa Loose Keys en Ítems de inicio para que el icono aparezca al iniciar sesión.";
 
 /* [Settings.swift:140] */
-"Not in Login Items: shown only while the app is open." = "No está en Ítems de inicio: solo aparece mientras la app está abierta.";
+"Shown only while the app is open, because Loose Keys is not in Login Items." = "Solo se muestra mientras la app está abierta, porque Loose Keys no está en Ítems de inicio.";
 
 /* Settings, the state of notifications (a plural noun): macOS allows them. [Settings.swift:149] */
 "notifications.allowed" = "Permitidas";
@@ -656,7 +656,7 @@
 "Off in System Settings" = "Desactivadas en Ajustes del Sistema";
 
 /* Settings, the state of notifications: macOS allows them only to an app opened from its bundle. [Settings.swift:155] */
-"Open the app from its bundle to allow" = "Abre la app desde su paquete para permitirlas";
+"Only available when Loose Keys runs as an app" = "Solo disponible cuando Loose Keys se ejecuta como app";
 
 /* Settings, the state of notifications while the app asks macOS whether they are allowed. [Settings.swift:161] */
 "Checking…" = "Comprobando…";
@@ -665,39 +665,39 @@
 "Not asked yet" = "Aún sin preguntar";
 
 /* [Settings.swift:173] */
-"Last Recorded Check" = "Última comprobación registrada";
+"Last Check" = "Última comprobación";
 
 /* Check details, beside Last Recorded Check: the helper has recorded no check. [Settings.swift:174] */
-"No check recorded yet" = "Aún no hay comprobaciones registradas";
+"No checks yet" = "Aún no hay comprobaciones";
 
 /* [Settings.swift:175] */
-"Last Completed Full Scan" = "Último análisis completo finalizado";
+"Last Full Scan" = "Último análisis completo";
 
 /* Check details, beside Last Completed Full Scan: no full scan by the helper has finished. [Settings.swift:176] */
 "Not completed yet" = "Aún sin finalizar";
 
 /* Notification body, sent by the background helper when it finds something new to review. [notifications.m (shown by macOS as a notification)] */
-"Potential local credential exposure found. Review safe next steps. This does not prove theft." = "Se encontró una posible exposición local de credenciales. Revisa los próximos pasos seguros. Esto no demuestra un robo.";
+"Found what looks like a password or key in a file. Open Loose Keys to see what to do." = "Hay algo que parece una contraseña o clave en un archivo. Abre Loose Keys para ver qué hacer.";
 
 /* Notification button that opens the app's review list. [notifications.m (shown by macOS as a notification)] */
 "Review" = "Revisar";
 
-"Show Unread Places" = "Mostrar lugares no leídos";
+"Show Places Not Checked" = "Mostrar lugares sin comprobar";
 
 "Last Automatic Scan" = "Último análisis automático";
 
 "Last Manual Scan" = "Último análisis manual";
 
-"These details are from automatic scanning of your home folder. Added folders and drives are not included." = "Estos detalles corresponden al análisis automático de tu carpeta de inicio. No incluyen las carpetas y unidades añadidas.";
+"Automatic scans do not include added folders and drives." = "Los análisis automáticos no incluyen las carpetas ni los discos añadidos.";
 
 
-"No unread places were recorded in this automatic scan." = "No se registraron lugares sin leer en este análisis automático.";
+"Nothing was skipped in this automatic scan." = "En este análisis automático no se omitió nada.";
 
-"The saved list reached its limit. More places could not be checked than are listed here." = "La lista guardada alcanzó su límite. No se pudieron comprobar más lugares de los que aparecen aquí.";
+"This list is full, so it does not show every place Loose Keys could not check." = "Esta lista está llena, así que no muestra todos los lugares que Loose Keys no pudo comprobar.";
 
-"This automatic scan saved a count but no list. Details will be available after the next automatic full scan." = "Este análisis automático guardó un recuento, pero no una lista. Los detalles estarán disponibles después del próximo análisis automático completo.";
+"Details will appear after the next full automatic scan." = "Los detalles aparecerán después del próximo análisis automático completo.";
 
-"Automatic scan details could not be refreshed. Any details below are from the last successful read." = "No se pudieron actualizar los detalles del análisis automático. Los detalles que aparecen abajo corresponden a la última lectura correcta.";
+"Could not update these details, so they may be out of date." = "No se pudieron actualizar estos detalles, así que pueden estar desactualizados.";
 "Loading Details…" = "Cargando detalles…";
 
 "See Not Checked for details." = "Consulta los detalles en Sin comprobar.";

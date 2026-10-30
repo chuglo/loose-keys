@@ -68,7 +68,7 @@ pub struct Coverage {
     pub limitations: &'static str,
 }
 
-pub const LIMITATIONS: &str = "Discovery reads the first 4 KiB of regular files regardless of extension for CSV password-export headers, private-key headers, plaintext Bitwarden JSON exports, KeePass databases, Google service-account keys, kubeconfigs, wallet recovery phrases and service tokens in a known issuer format. Later tokens are found only in files read whole (1 MiB max): .env*, *.env, shell files, .git/config, MCP configs, .txt/.rtf notes, .ovpn profiles. Terraform state: named or sensitive values only. AI agent folders (Claude Code, Codex, others) are read in full for tokens, 16 levels deep, up to 256 MiB and 50 tokens per file. Other token formats and secrets with no format are not found. Known locations (see --list-rules) include ~/.ssh, ~/.aws/credentials, ~/.git-credentials, ~/.config/gh/hosts.yml, ~/.npmrc and other developer, cloud and AI tool files; saved-login and saved-card counts in Chromium- and Firefox-family profiles; and the presence of listed wallet extensions, desktop wallet folders and Telegram Desktop's session, reported without being read. Parsers read simple literal fields only, not full YAML/INI, custom locations, references or credential helpers; malformed or oversized candidates produce gaps. Not checked: browser cookies and sessions, Safari, Notes and Keychain items, images, password-manager vaults. No archives or decryption. Links met in discovery, special files, container metadata and Contacts settings are skipped; a link at a known location is followed only inside the home; cloud-only files are not downloaded. Exclusions match path suffixes; a selected root overrides its own. Limits: 64 levels, 10000 entries per directory, 100000 per root, breadth-first, Library, Movies, Music and Pictures last; omitted entries or matches produce gaps. Headers, formats, presence and mode bits do not prove valid credentials or effective access. Nothing is executed or verified online. Deleting files does not revoke credentials. No findings is not a clean bill of health.";
+pub const LIMITATIONS: &str = "Loose Keys reads the first 4 KiB of every regular file, regardless of extension, for CSV password exports, private-key headers, unencrypted Bitwarden JSON exports, KeePass databases, Google service account keys, kubeconfigs, wallet recovery phrases and service tokens in a known format. Tokens further in are found only in files read whole, up to 1 MiB: .env*, *.env, shell files, .git/config, MCP configs, .txt and .rtf notes, .ovpn profiles. In Terraform state it reads only named or sensitive values. AI agent folders (Claude Code, Codex, others) are read whole for tokens, 16 levels deep, up to 256 MiB and 50 tokens per file. It misses other token formats and secrets with no format. Known locations (see --list-rules) include ~/.ssh, ~/.aws/credentials, ~/.git-credentials, ~/.config/gh/hosts.yml, ~/.npmrc and other developer, cloud and AI tool files; counts of saved logins and cards in Chromium and Firefox profiles; and, unopened, listed wallet extensions, desktop wallet folders and Telegram Desktop's session. It reads simple fields only, not full YAML or INI, custom locations, references or credential helpers; unparsable or oversized files are listed as not checked. It skips browser cookies and sessions, Safari, Notes, Keychain items, images and password manager vaults. No archives are opened and nothing is decrypted. Searches skip links, special files, container metadata and Contacts settings; it follows a link at a known location only inside the home folder, and does not download cloud-only files. Exclusions match path endings; a selected folder is scanned even if one matches it. Limits: 64 levels, 10000 entries per folder and 100000 per root, breadth-first, Library, Movies, Music and Pictures last; anything left out is listed as not checked. A match, or a file others may read, does not prove a credential works or that anyone can read it. It runs nothing and works offline. Deleting a file does not revoke a credential. Finding nothing does not mean this Mac is safe.";
 
 #[derive(Serialize)]
 pub struct Report {
@@ -247,7 +247,7 @@ fn gap_label(reason: &str) -> &str {
         "too-large" => "Too large to check",
         "cloud-only-file" => "Cloud-only, not downloaded",
         "scan-limit" => "Scan limit reached",
-        "symlink" => "Link leading outside the home folder, not followed",
+        "symlink" => "Not followed: link outside the home folder",
         other => other,
     }
 }
@@ -373,7 +373,7 @@ fn push_gaps(s: &mut String, r: &Report) {
 pub fn to_text(r: &Report, limits: bool) -> String {
     let review = r.findings.iter().filter(|f| f.kind == "review").count();
     let mut s = format!(
-        "loose-keys {} - scan {}\n{} worth reviewing, {} stored sign-in material, {} not checked\n",
+        "loose-keys {} - scan {}\nWorth reviewing: {}. Stored sign-ins: {}. Not checked: {}.\n",
         r.tool_version,
         r.status,
         review,
@@ -381,7 +381,7 @@ pub fn to_text(r: &Report, limits: bool) -> String {
         r.not_checked.len()
     );
     push_findings(&mut s, r, "review", "WORTH REVIEWING");
-    push_findings(&mut s, r, "inventory", "STORED SIGN-IN MATERIAL");
+    push_findings(&mut s, r, "inventory", "STORED SIGN-INS");
     push_gaps(&mut s, r);
     s.push('\n');
     if let Some(c) = &r.coverage {
@@ -399,16 +399,13 @@ pub fn to_text(r: &Report, limits: bool) -> String {
         );
         // Never left out: a folder skipped on request is not a clean folder.
         for skipped in &c.excluded_by_user {
-            s.push_str(&format!(
-                "Not checked at your request: \"{}\"\n",
-                escape(skipped)
-            ));
+            s.push_str(&format!("You left out: \"{}\"\n", escape(skipped)));
         }
     }
     wrap(
         &mut s,
-        "Not assessed: ",
-        "              ",
+        "Not covered: ",
+        "             ",
         "browser cookies and sessions, Safari, Notes, Keychain items, images.",
     );
     match &r.coverage {
@@ -417,7 +414,7 @@ pub fn to_text(r: &Report, limits: bool) -> String {
             wrap(&mut s, "", "", c.limitations);
         }
         _ => s.push_str(
-            "No findings does not mean safe. Add --limits to see what is not detected.\n",
+            "Loose Keys cannot find everything, so a short or empty list does not mean this Mac is safe. Add --limits to see what it cannot detect.\n",
         ),
     }
     s
@@ -584,13 +581,13 @@ mod tests {
             not_checked: (0..7).map(|i| gap(&format!("~/gap{i}"))).collect(),
         };
         let t = to_text(&r, false);
-        assert!(t.contains("2 worth reviewing, 0 stored sign-in material, 7 not checked"));
+        assert!(t.contains("Worth reviewing: 2. Stored sign-ins: 0. Not checked: 7."));
         assert_eq!(t.matches("Explained once.").count(), 1);
         assert!(t.contains(
             "1. [HIGH] Possible password export file\n   \"~/a.csv\"\n   \"~/b\\u{1b}.csv\""
         ));
         assert_eq!(t.matches("     2. Delete the file.").count(), 1);
-        assert!(!t.contains("STORED SIGN-IN MATERIAL ("));
+        assert!(!t.contains("STORED SIGN-INS ("));
         assert!(t.contains("Access denied by macOS (7)") && t.contains("...and 2 more"));
         assert!(!t.contains('\u{1b}'));
     }

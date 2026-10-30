@@ -8,8 +8,8 @@ pub const AWS_KEYS: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "AWS access keys stored in a file",
-    explanation: "A nonempty AWS secret-access-key field was found. Its validity, lifetime and authorization have not been checked.",
-    reason: Some("Static AWS access keys do not expire and work from any computer. Programs able to read this file can copy them."),
+    explanation: "This file has an AWS secret access key. Loose Keys did not check whether it still works or what it can access.",
+    reason: Some("Static AWS access keys do not expire and work from any computer. Any program that can read this file can copy them."),
     next_step: Some("Replace static keys with short-lived sign-in. Deleting this file does not revoke keys; deactivate them in IAM."),
     advice: Advice {
         steps: &[

@@ -1,7 +1,7 @@
 /* Latin American Spanish where it differs from es.lproj, mostly the names
    macOS uses. The build adds these over es.lproj/Engine.strings. */
 
-"Delete exports you no longer need, including Trash and synced copies. Deleting a file does not revoke credentials; change exposed passwords separately." = "Elimina las exportaciones que ya no necesites, incluidas las copias en el basurero y las sincronizadas. Eliminar un archivo no revoca las credenciales; cambia por separado las contraseñas expuestas.";
+"Delete exports you no longer need, including copies in the Trash and in synced folders. Deleting a file does not revoke the passwords in it, so change any that were exposed." = "Elimina las exportaciones que ya no necesites, incluidas las copias del basurero y de las carpetas sincronizadas. Eliminar un archivo no revoca las contraseñas que contiene, así que cambia las que quedaron expuestas.";
 
 "Delete the file, then empty the Trash. Look for other copies in Downloads, Desktop and iCloud Drive." = "Elimina el archivo y luego vacía el basurero. Busca otras copias en Descargas, Escritorio y iCloud Drive.";
 

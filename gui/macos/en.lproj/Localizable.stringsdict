@@ -34,10 +34,10 @@
 			<string>%lld fixed</string>
 		</dict>
 	</dict>
-	<key>%lld folders are left out at your request; see Not Checked.</key>
+	<key>You left out %lld folders.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@folders@ left out at your request; see Not Checked.</string>
+		<string>You left out %#@folders@.</string>
 		<key>folders</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>
@@ -45,9 +45,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>lld</string>
 			<key>one</key>
-			<string>%lld folder is</string>
+			<string>%lld folder</string>
 			<key>other</key>
-			<string>%lld folders are</string>
+			<string>%lld folders</string>
 		</dict>
 	</dict>
 	<key>%lld folders left out</key>
@@ -253,10 +253,10 @@
 			<string>%lld to review</string>
 		</dict>
 	</dict>
-	<key>At least %lld folders left in the current full scan.</key>
+	<key>At least %lld folders left to check in this full scan.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>At least %#@folders@ left in the current full scan.</string>
+		<string>At least %#@folders@ left to check in this full scan.</string>
 		<key>folders</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>
@@ -317,10 +317,10 @@
 			<string>%lld places</string>
 		</dict>
 	</dict>
-	<key>The saved report and the copied summary count %lld findings. The list has %lld items and is full, so findings it has no room for are left out: save the report to see them all. Also, a credential found by more than one rule, or in more than one file, is one item.</key>
+	<key>The scan found %lld findings, but the list is full at %lld items. Save the report to see them all.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>The saved report and the copied summary count %1$#@findings@. The list has %2$#@items@ and is full, so findings it has no room for are left out: save the report to see them all. Also, a credential found by more than one rule, or in more than one file, is one item.</string>
+		<string>The scan found %1$#@findings@, but the list is full at %2$#@items@. Save the report to see them all.</string>
 		<key>findings</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>
@@ -344,10 +344,10 @@
 			<string>%2$lld items</string>
 		</dict>
 	</dict>
-	<key>The saved report and the copied summary count %lld findings. The list has %lld items, because a credential found by more than one rule, or in more than one file, is one item.</key>
+	<key>The scan found %lld findings, shown as %lld items because a credential in several places is listed once.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>The saved report and the copied summary count %1$#@findings@. The list has %2$#@items@, because a credential found by more than one rule, or in more than one file, is one item.</string>
+		<string>The scan found %1$#@findings@, shown as %2$#@items@ because a credential in several places is listed once.</string>
 		<key>findings</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>

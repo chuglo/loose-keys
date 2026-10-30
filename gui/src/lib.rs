@@ -254,7 +254,7 @@ fn monitor_status(app: &App) -> MonitorView {
         health: health(&r.agent),
         error: app.storage_error.lock().unwrap().clone().or_else(|| {
             r.full.then(|| {
-                "The review list is full, so some findings were left out. Fix some items, then scan again.".to_string()
+                "Worth Reviewing is full, so some findings are not in it. Fix some items, then scan again.".to_string()
             })
         }),
         pending_delivery: r.items.iter().any(|i| r.alerting(i, now())),
@@ -301,10 +301,13 @@ fn set_monitoring_with_login(
     set_app_login: impl FnMut(bool) -> u8,
 ) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
-        return Err("Monitoring cannot start while private state is unavailable.".into());
+        return Err(
+            "Automatic scanning cannot start because Loose Keys could not open its saved data."
+                .into(),
+        );
     }
     if scan::is_root() {
-        return Err("Automatic monitoring is not available as root.".into());
+        return Err("Automatic scanning is not available when running as root.".into());
     }
     let one_change = app.app_login.lock().unwrap();
     let (was_enabled, menu_bar) = update_state(app, |state| {
@@ -378,7 +381,8 @@ fn set_menu_bar_with_login(
 ) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err(
-            "The menu bar setting cannot be saved while private state is unavailable.".into(),
+            "The menu bar setting cannot be saved because Loose Keys could not open its saved data."
+                .into(),
         );
     }
     let one_change = app.app_login.lock().unwrap();
@@ -394,7 +398,7 @@ fn set_menu_bar_with_login(
 
 fn set_login_startup(app: &App, enabled: bool) -> Answer<u8> {
     if enabled && !refresh_state(app).monitoring {
-        return Err("Consent to home monitoring before enabling login startup.".into());
+        return Err("To open Loose Keys at login, first turn on Scan Automatically.".into());
     }
     // SAFETY: takes a bool and touches no memory of ours.
     Ok(unsafe { ch_login_set(enabled) })
@@ -643,7 +647,7 @@ fn pending_review(app: &App) -> ReviewView {
 /// that is no longer what was shown.
 fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reason>) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
-        return Err("Private state is unavailable.".into());
+        return Err("Loose Keys could not open its saved data.".into());
     }
     update_state(app, |state| {
         state.as_shown(id, revision)?;
@@ -665,7 +669,7 @@ fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reaso
 /// the app comes to the front.
 fn set_expected(app: &App, entries: Vec<serde_json::Value>) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
-        return Err("Private state is unavailable.".into());
+        return Err("Loose Keys could not open its saved data.".into());
     }
     let list: Vec<review::Expected> = entries
         .into_iter()
@@ -687,7 +691,7 @@ fn skip_folder(app: &App, id: u64) -> Answer<()> {
             .items
             .iter()
             .find(|i| i.id == id)
-            .ok_or("That review item is no longer available.")?;
+            .ok_or("That item is no longer in the list.")?;
         let folder = folder_of(&item.path).ok_or("The home folder cannot be skipped.")?;
         let real = full_path(folder, Some(&home)).ok_or("That folder's name cannot be used.")?;
         scan::skipped_folder(real.as_os_str(), &home).map_err(|e| format!("Cannot skip: {e}."))?;
@@ -724,7 +728,7 @@ fn skipped_paths(state: &review::Review, home: &Path) -> Vec<PathBuf> {
 
 fn retry_notifications(app: &App) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
-        return Err("Private state is unavailable.".into());
+        return Err("Loose Keys could not open its saved data.".into());
     }
     // The agent sees the state change and tries again.
     update_state(app, |state| {
@@ -1042,7 +1046,7 @@ fn add_place(app: &App, path: &Path) -> Answer<()> {
     if !places.contains(&p) && app.home.as_ref() != Ok(&p) {
         if places.len() >= 8 || p.as_os_str().len() > 4096 {
             return Err(
-                "Use at most eight additional folders with paths within 4096 bytes.".into(),
+                "You can add up to eight folders. Very long folder paths cannot be added.".into(),
             );
         }
         places.push(p);
@@ -1206,13 +1210,13 @@ fn start_scan(app: &App) -> Answer<ResultsView> {
 /// only `prepare_quit` brings that about: nothing here puts the monitor to
 /// sleep, and a pause or withdrawn consent refuses automatic work only.
 const SCAN_BLOCKED: &str =
-    "This app is quitting, so the scan was not started. Open it again to scan.";
+    "Loose Keys is quitting, so the scan did not start. Open it again to scan.";
 
 fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer<ResultsView> {
     let home = app.home.clone().map_err(|e| format!("Cannot scan: {e}."))?;
     if app.store.is_err() {
         return Err(
-            "Private state is unavailable; another instance may be running. Scanning is disabled."
+            "Loose Keys could not open its saved data, maybe because another copy of it is running. Scanning is turned off."
                 .into(),
         );
     }
@@ -1282,7 +1286,7 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
             new
         })
     } else {
-        Err("Local review storage is unavailable.".into())
+        Err("The review list is unavailable.".into())
     };
     let new = saved.unwrap_or(false);
     *app.report.lock().unwrap() = Some(r);
@@ -1313,7 +1317,7 @@ fn save_report(app: &App, path: String, feedback: bool) -> Answer<String> {
     match fsutil::write_export(path, &json, scan::is_root()) {
         Ok(()) => Ok(show(path)),
         Err(e) if e == "file already exists" => Err(
-            "That file already exists. This app never replaces files. Choose a new name.".into(),
+            "A file with that name already exists, and Loose Keys never replaces files. Choose another name.".into(),
         ),
         Err(e) => Err(format!("Could not save: {e}.")),
     }
@@ -1336,15 +1340,16 @@ fn finding_path(app: &App, index: usize, review: bool) -> Answer<PathBuf> {
             .iter()
             .find(|i| i.id == index as u64)
             .and_then(|i| full_path(&i.path, app.home.as_deref().ok()))
-            .ok_or_else(|| "This review item has no usable local path.".into());
+            .ok_or_else(|| "This item has no file on this Mac to open.".into());
     }
     let r = app.report.lock().unwrap();
     let f = r
         .as_ref()
         .and_then(|r| r.findings.get(index))
         .ok_or("That result is no longer shown.")?;
-    full_path(&f.path, app.home.as_deref().ok())
-        .ok_or_else(|| "This name has unusual characters, so the app does not act on it.".into())
+    full_path(&f.path, app.home.as_deref().ok()).ok_or_else(|| {
+        "This name has unusual characters, so Loose Keys will not open or copy it.".into()
+    })
 }
 
 /// The real path of a result, for the front end to copy or to show in the
@@ -1358,9 +1363,9 @@ fn item_path(app: &App, index: usize, review: bool) -> Answer<String> {
     let parent = path.parent().ok_or("no folder")?;
     fsutil::open_directory(parent).map_err(|g| format!("Could not open the folder ({g})."))?;
     // Text that had to be repaired would name some other file.
-    path.into_os_string()
-        .into_string()
-        .map_err(|_| "This name has unusual characters, so the app does not act on it.".into())
+    path.into_os_string().into_string().map_err(|_| {
+        "This name has unusual characters, so Loose Keys will not open or copy it.".into()
+    })
 }
 
 /// One of the fixed issuer pages named in the rules, for the front end to
@@ -1370,7 +1375,7 @@ fn open_link(url: String) -> Answer<String> {
         return Err("Not available when running as root.".into());
     }
     if !rules::known_link(&url) {
-        return Err("That link is not one this app opens.".into());
+        return Err("Loose Keys does not open that link.".into());
     }
     Ok(url)
 }
@@ -1423,28 +1428,27 @@ fn gap_text(reason: &str) -> (&str, &str) {
     match reason {
         "permission-denied" => (
             "Blocked by system permissions",
-            "macOS protects these folders, so the app could not look inside them. \
-             The results do not cover them.",
+            "macOS protects these folders, so Loose Keys could not look inside them.",
         ),
         "unreadable" => (
             "Could not be read",
-            "The system returned an error for these.",
+            "macOS returned an error when Loose Keys tried to read these.",
         ),
         "too-large" => (
             "Too large to check",
-            "Config and JSON files over 1 MiB are not read.",
+            "Loose Keys skips config and JSON files over 1 MiB.",
         ),
         "cloud-only-file" => (
             "Stored only in the cloud",
-            "These files are not on this computer. The app does not download them.",
+            "These files are not on this Mac, and Loose Keys does not download them.",
         ),
         // The heading and the page's opening line say it; the limits are in
         // the usage guide.
         "scan-limit" => ("Only partly checked", ""),
         "symlink" => (
             "Link not followed",
-            "A known sign-in location is a link that leads outside your home folder, \
-             so the app did not read it. Links that stay inside the home folder are followed.",
+            "These sign-in files are links to places outside your home folder. \
+             Loose Keys does not follow such links.",
         ),
         other => (other, ""),
     }
@@ -2124,7 +2128,7 @@ mod tests {
         let skip = ask(&app, "skip_folder", r#"{"id":1}"#);
         std::fs::remove_dir_all(home).unwrap();
         // What the engine would refuse, the list says before a button is drawn.
-        assert_eq!(path["error"], "This review item has no usable local path.");
+        assert_eq!(path["error"], "This item has no file on this Mac to open.");
         assert_eq!(skip["error"], "That folder's name cannot be used.");
         assert_eq!(at(1)["path"], "~/Documents/Contrase\\u{f1}as/claves.csv");
         assert_eq!(at(1)["actionable"], false);
@@ -2190,7 +2194,7 @@ mod tests {
         // A refusal by the command itself is the same kind of answer.
         assert_eq!(
             error("decide_review", r#"{"id":1,"revision":0,"reason":"kept"}"#),
-            "That review item is no longer available."
+            "That item is no longer in the list."
         );
         // Before ch_app_start there is nothing to run a command on.
         let early: Value = serde_json::from_str(&call(None, "places", "{}")).unwrap();
@@ -2248,7 +2252,7 @@ mod tests {
         let app = App::open(Ok(home.clone()));
         assert_eq!(
             ask(&app, "retry_notifications", "{}"),
-            json!({ "error": "Private state is unavailable." })
+            json!({ "error": "Loose Keys could not open its saved data." })
         );
         // A choice is refused too, and what was stored is left as it was.
         assert_eq!(
@@ -2257,7 +2261,7 @@ mod tests {
                 "decide_review",
                 r#"{"id":1,"revision":0,"reason":"kept"}"#
             ),
-            json!({ "error": "Private state is unavailable." })
+            json!({ "error": "Loose Keys could not open its saved data." })
         );
         assert_eq!(
             std::fs::read_to_string(folder.join("state.json")).unwrap(),
@@ -2354,7 +2358,7 @@ mod tests {
         let full = std::fs::read_to_string(&report).unwrap();
         assert!(full.contains("~/Documents/export.csv"));
         const EXISTS: &str =
-            "That file already exists. This app never replaces files. Choose a new name.";
+            "A file with that name already exists, and Loose Keys never replaces files. Choose another name.";
         assert_eq!(save(&report, true)["error"], EXISTS);
         symlink(home.join("elsewhere.json"), home.join("link.json")).unwrap();
         assert_eq!(save(&home.join("link.json"), true)["error"], EXISTS);
@@ -2385,7 +2389,7 @@ mod tests {
         assert_eq!(link(known)["ok"], known);
         assert_eq!(
             link("https://fixture.invalid/")["error"],
-            "That link is not one this app opens."
+            "Loose Keys does not open that link."
         );
 
         // Quitting stops scans; the process itself is the front end's to end.
@@ -2456,7 +2460,7 @@ mod tests {
         assert_eq!(item["state"], "fixed");
         // Reading it again is all: the front end is still handed no such path.
         assert_eq!(item["actionable"], false);
-        assert_eq!(path["error"], "This review item has no usable local path.");
+        assert_eq!(path["error"], "This item has no file on this Mac to open.");
     }
 
     /// A drive that is ejected takes its mount point with it: a file on it
@@ -2605,7 +2609,7 @@ mod tests {
         ch_set_event_handler(None);
         drop(alone);
 
-        const UNREADABLE: &str = "Local review storage could not be decoded.";
+        const UNREADABLE: &str = "The review list file is damaged or in an unknown format.";
         let failed = rx.try_recv().expect("no save was tried during the scan");
         assert_eq!(answer(failed), json!({ "error": UNREADABLE }));
         // The scan went on to its end and found the file.
@@ -3351,7 +3355,7 @@ mod tests {
     #[test]
     fn a_press_on_a_row_drawn_for_another_value_is_refused() {
         const CHANGED: &str =
-            "That review item has changed since it was shown. Nothing was done; look at it again.";
+            "That item changed after it was shown, so nothing was done. Look at it again.";
         let notes = Notes::new("stale-press", &token('A'));
         let app = App::open(Ok(notes.0.clone()));
         app.ready();
@@ -3539,7 +3543,7 @@ mod tests {
         *app.storage_error.lock().unwrap() = Some("gone".into());
         assert_eq!(
             ask(&app, "set_expected", r#"{"entries":[]}"#)["error"],
-            "Private state is unavailable."
+            "Loose Keys could not open its saved data."
         );
     }
 

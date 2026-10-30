@@ -1729,7 +1729,7 @@ impl Scan {
         // A test credential is no more worth reviewing for being readable.
         if shared && !hit.low {
             kind = "review";
-            let mode_note = "Group/other read mode bits are set; effective access is unknown because parent directories and ACLs were not assessed.";
+            let mode_note = "The file's permissions let other users on this Mac read it, unless a folder above it or an access list blocks them.";
             reason = Some(match reason {
                 Some(r) => format!("{r} {mode_note}"),
                 None => mode_note.to_string(),

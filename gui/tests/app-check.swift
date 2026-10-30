@@ -187,8 +187,8 @@ do {
     func setAside() throws {
         try wait("Set Aside menu") { setAsideMenu() != nil }
         try press(setAsideMenu(), "Set Aside…")
-        try wait("set-aside reasons") { reason("Keeping It Here Intentionally") != nil }
-        try press(reason("Keeping It Here Intentionally"), "Keeping It Here Intentionally")
+        try wait("set-aside reasons") { reason("Keeping It Here on Purpose") != nil }
+        try press(reason("Keeping It Here on Purpose"), "Keeping It Here on Purpose")
         try wait("AWS item set aside") { try alive(); try checkLeaks(); return listed(aws) == nil }
     }
     try setAside()
@@ -281,7 +281,7 @@ do {
             }
             let visible = windowElements().flatMap { texts($0) }
             let awsPresent = rows.contains { descendants($0).flatMap { texts($0) }.contains("AWS access keys stored in a file") }
-            let inspectorFixed = visible.contains("It is fixed here, so there is nothing to set aside.")
+            let inspectorFixed = visible.contains("These are fixed, so there is nothing to set aside.")
             rescanEvidence = "AWS row=\(awsPresent), row fixed=\(awsFixed), key open=\(keyStillOpen), inspector fixed=\(inspectorFixed)"
             return awsFixed && keyStillOpen
         }

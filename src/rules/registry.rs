@@ -9,8 +9,8 @@ pub const PYPI_PASSWORD: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "PyPI password or token stored in a file",
-    explanation: "A password or API token is stored in the Python package upload config. Its validity and permissions were not checked.",
-    reason: Some("A PyPI token can publish packages under your name. Supply-chain malware collects this file for that reason."),
+    explanation: "A password or API token is stored in the Python package upload config. Loose Keys did not check whether it still works or what it can access.",
+    reason: Some("A PyPI token can publish packages under your name, which is why malware that spreads through packages collects this file."),
     next_step: Some("Revoke the token and keep the replacement in the Keychain. Removing the line does not revoke it."),
     advice: Advice {
         steps: &[
@@ -92,7 +92,7 @@ fn ini_hits(text: &str, keys: &[&str]) -> Vec<Hit> {
 pub const CARGO_TOKEN: Rule = Rule {
     id: "dev.cargo.inline-token",
     title: "crates.io token stored in a file",
-    explanation: "A registry token is stored in Cargo's credentials file as plain text. Its validity and permissions were not checked.",
+    explanation: "A registry token is stored in Cargo's credentials file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("A crates.io token can publish crates under your name."),
     next_step: Some("Revoke the token and let Cargo keep the replacement in the Keychain. Removing the line does not revoke it."),
     advice: Advice {
@@ -126,7 +126,7 @@ fn cargo_hits(bytes: &[u8]) -> Hits {
 pub const GEM_KEY: Rule = Rule {
     id: "dev.rubygems.inline-key",
     title: "RubyGems API key stored in a file",
-    explanation: "An API key is stored in the RubyGems credentials file as plain text. Its validity and permissions were not checked.",
+    explanation: "An API key is stored in the RubyGems credentials file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("A RubyGems API key can publish gems under your name."),
     next_step: Some("Revoke the key in your RubyGems account. Removing the line does not revoke it."),
     advice: Advice {
@@ -164,7 +164,7 @@ fn gem_hits(bytes: &[u8]) -> Hits {
 pub const NETRC_PASSWORD: Rule = Rule {
     id: "dev.netrc.inline-password",
     title: "Password stored in .netrc",
-    explanation: "A password or token for a network host is stored in ~/.netrc as plain text. Its validity was not checked.",
+    explanation: "A password or token for a network host is stored in ~/.netrc as plain text. Loose Keys did not check whether it still works.",
     reason: Some("Tools such as curl, git and package managers read this file, and so can any other program running as you."),
     next_step: Some("Change the password or revoke the token at the host named here, then keep the replacement in the Keychain."),
     advice: Advice {
@@ -194,7 +194,7 @@ pub const PGPASS_PASSWORD: Rule = Rule {
     id: "dev.postgres.pgpass",
     severity: "medium",
     title: "Database password stored in .pgpass",
-    explanation: "A PostgreSQL password is stored in ~/.pgpass as plain text, which is how psql reads it. Whether it is a local test database or a production one was not checked.",
+    explanation: "psql reads passwords from ~/.pgpass, where they are stored as plain text. Loose Keys did not check whether this one is for a local test database or a production one.",
     reason: Some("Any program running as you can read this file and connect to the databases it lists."),
     next_step: Some("For anything but a local test database, change the password and stop storing it in this file."),
     advice: Advice {
@@ -237,7 +237,7 @@ fn pgpass_hits(bytes: &[u8]) -> Hits {
 pub const MYCNF_PASSWORD: Rule = Rule {
     id: "dev.mysql.mycnf",
     title: "Database password stored in .my.cnf",
-    explanation: "A MySQL password is stored in ~/.my.cnf as plain text. Whether it is a local test database or a production one was not checked.",
+    explanation: "A MySQL password is stored in ~/.my.cnf as plain text. Loose Keys did not check whether it is for a local test database or a production one.",
     targets: &[Target::File(".my.cnf")],
     matcher: Matcher::Whole {
         candidate: any,
@@ -261,7 +261,7 @@ pub const MYCNF_PASSWORD: Rule = Rule {
 pub const WAREHOUSE_PASSWORD: Rule = Rule {
     id: "dev.warehouse.inline-password",
     title: "Data warehouse password stored in a client config",
-    explanation: "A password or token for a data warehouse is written in this dbt or Snowflake client config as plain text. Whether it still works was not checked.",
+    explanation: "A password or token for a data warehouse is written in this dbt or Snowflake client config as plain text. Loose Keys did not check whether it still works.",
     targets: &[
         Target::File(".dbt/profiles.yml"),
         Target::File(".snowsql/config"),

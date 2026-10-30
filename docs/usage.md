@@ -44,7 +44,7 @@ four reasons:
 - **Not a Password or Key**
 - **Used Only for Testing**
 - **No Longer Works**
-- **Keeping It Here Intentionally**
+- **Keeping It Here on Purpose**
 
 Use Command-click to select several findings, Shift-click to select a range,
 or Command-A while the table has focus to select all visible findings.
@@ -60,7 +60,7 @@ or Key**, changed text appears there if it is flagged again. A finding set
 aside under the earlier combined reason, for testing or no longer working,
 stays set aside and is shown as a previous choice.
 
-**Keeping It Here Intentionally** is about one place. The same credential turning
+**Keeping It Here on Purpose** is about one place. The same credential turning
 up elsewhere is still reported. It survives rotating the value in place, and
 ends if the file becomes readable by others, if a different kind of credential
 appears there, or after six months.
@@ -147,7 +147,7 @@ matches. Closing the window quits the app, unless it is in the menu bar, and
 quitting the app does not stop the helper. **Pause Scanning** stops its
 checks; turning **Scan Automatically** off also removes the launchd job.
 
-If automatic scanning could not read some places, **Show Unread Places** in
+If automatic scanning could not read some places, **Show Places Not Checked** in
 Settings or Overview opens the saved paths and reasons in **Not Checked**.
 Opening this list does not run another scan. It is dated to the last completed
 automatic full pass; later file or permission changes do not rewrite that

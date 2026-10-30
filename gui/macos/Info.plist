@@ -14,8 +14,8 @@
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
-  <key>NSDesktopFolderUsageDescription</key><string>Loose Keys checks files on your Desktop for exposed passwords, keys and other sign-in material. Everything stays on this Mac.</string>
-  <key>NSDocumentsFolderUsageDescription</key><string>Loose Keys checks files in Documents for exposed passwords, keys and other sign-in material. Everything stays on this Mac.</string>
-  <key>NSDownloadsFolderUsageDescription</key><string>Loose Keys checks files in Downloads for exposed passwords, keys and other sign-in material. Everything stays on this Mac.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>Loose Keys looks for passwords and keys left in files on your Desktop.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Loose Keys looks for passwords and keys left in files in your Documents folder.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>Loose Keys looks for passwords and keys left in files in your Downloads folder.</string>
 </dict>
 </plist>

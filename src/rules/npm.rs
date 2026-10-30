@@ -5,9 +5,9 @@ use super::*;
 
 pub const NPM_CREDENTIALS: Rule = Rule {
     id: "dev.npm.inline-credentials",
-    title: "Possible npm inline credential",
+    title: "Possible npm token stored in a config file",
     severity: "high",
-    explanation: "A token or password is stored in npm's user config. npm tokens are a common target of supply-chain malware because they can publish packages. Validity and permissions were not checked.",
+    explanation: "A token or password is stored in npm's user config. Malware that spreads through packages often looks for npm tokens, because they can publish packages. Loose Keys did not check whether it still works or what it can access.",
     next_step: Some("Revoke this token and replace it with a narrower one. Removing the line does not revoke it."),
     advice: Advice {
         steps: &[

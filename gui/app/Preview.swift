@@ -93,7 +93,7 @@ final class SampleEngine: Engine {
         case "pending_review": return Data(Self.review.utf8)
         case "decide_review" where Self.saveFails:
             Self.storeFailed = true
-            throw EngineError(message: "Cannot save local review storage.")
+            throw EngineError(message: "Could not save the review list.")
         case "decide_review" where !(args["revision"] is Int):
             // As the engine: a press says which drawing of the row it was made on.
             throw EngineError(message: "The request has no usable \"revision\".")
@@ -153,7 +153,7 @@ final class SampleEngine: Engine {
         let copies = places ?? #"[{"id":\#(id),"path":"\#(path)","line":null,"fixed":false}]"#
         return """
         {"id":\(id),"revision":\(id),"rule":"sample.rule","path":"\(path)","line":null,"title":"\(title)",
-         "explanation":"This file starts with a run of 12 or more words from the standard list wallets use for recovery phrases. Whether they form a valid phrase, or a wallet with funds, was not checked.",
+         "explanation":"This file starts with 12 or more words from the list wallets use for recovery phrases. Loose Keys did not check whether they make a valid phrase or a wallet with funds.",
          "reason":"A recovery phrase is the wallet. Anyone who copies these words can take everything in it, with no password, and stealers collect small text files from Desktop, Documents and Downloads.",
          "next_step":"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now.",
          "severity":"\(severity)","steps":["Write the phrase on paper, or stamp it in metal, and store it somewhere safe away from the computer.","Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots.","If this Mac may have been infected, create a new wallet with a new phrase and move the funds to it."],
@@ -180,13 +180,13 @@ final class SampleEngine: Engine {
 
     private static var everythingSetAside: String {
         """
-        {"items":[\(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open", aside: "kept"))],
+        {"items":[\(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open", aside: "kept"))],
          "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":\(listFull),"route":false,"permission":"\(permission)"}
         """
     }
 
     private static var review: String {
-        let error = storeFailed ? #""Cannot save local review storage.""# : "null"
+        let error = storeFailed ? #""Could not save the review list.""# : "null"
         let tokenAside = kept.contains(4) && kept.contains(9) ? 1 : 0
         let asideCount = decisions.count + tokenAside
         let keptCount = decisions.values.filter { $0 == "kept" }.count + tokenAside
@@ -198,7 +198,7 @@ final class SampleEngine: Engine {
         \(item(3, "Possible password export file", "~/Downloads/passwords.csv", "high", "open")),
         \(tokenInTwoFiles),
         \(item(5, "Passwords saved in a browser", "~/Library/Application Support/Google/Chrome/Default/Login Data", "medium", "open", detail: "214 saved logins")),
-        \(item(6, "Possible npm inline credential", "~/.npmrc", "medium", "open")),
+        \(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open")),
         \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false))
         ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":["~/Movies/Raw"],"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
         """
@@ -216,14 +216,14 @@ final class SampleEngine: Engine {
        "items":[{"index":0,"path":"~/.codex/auth.json","line":null,"subject":"Codex","actionable":true},{"index":1,"path":"~/.claude/.credentials.json","line":null,"subject":"Claude Code","actionable":true},{"index":4,"path":"~/.gemini/oauth_creds.json","line":null,"subject":null,"actionable":true}]},
       {"kind":"inventory","severity":"medium","title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null,
        "items":[{"index":2,"path":"~/.config/gh/hosts.yml","line":null,"subject":"github.com","actionable":true},{"index":3,"path":"~/.config/glab-cli/config.yml","line":null,"subject":null,"actionable":true}]}],
-     "gaps":[{"label":"Access denied by macOS","help":"macOS protects these folders, so the app could not look inside them. The results do not cover them.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
+     "gaps":[{"label":"Access denied by macOS","help":"macOS protects these folders, so Loose Keys could not look inside them.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
      "roots":["~","/Volumes/Backup"],"excluded":["node_modules",".git","target","Caches",".Trash"],
-     "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. No findings is not a clean bill of health."}
+     "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. Finding nothing does not mean this Mac is safe."}
     """
 
     private static var automaticCoverage: String {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
-        let gaps = unread > 0 ? #"[{"label":"Could not be read","help":"The system returned an error for these.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
+        let gaps = unread > 0 ? #"[{"label":"Could not be read","help":"macOS returned an error when Loose Keys tried to read these.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
         return """
         {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
         """
@@ -562,12 +562,12 @@ enum Checks {
         await model.refreshReview()
         await open(.review)
         let early = written()
-        expect(model.results == nil && early.contains("Review List Unavailable")
+        expect(model.results == nil && early.contains("Cannot Open Worth Reviewing")
                && !early.contains { $0.contains("Save the report") },
                "before a scan, a review list that cannot be read does not tell the person to save a report")
         await open(.gaps)
         let blind = written()
-        expect(blind.contains("The folders you left out could not be read, so they are not listed here.") && !blind.contains("Everything Was Checked"),
+        expect(blind.contains("The list of folders you left out could not be read.") && !blind.contains("Nothing Skipped"),
                "with the review list unreadable, Not Checked says the folders left out could not be listed")
         await open(.review)
         SampleEngine.storeFailed = false
@@ -653,17 +653,17 @@ enum Checks {
         await model.refreshReview()
         await open(.review)
         let emptied = await eventually {
-            (written() + everything().flatMap(names)).contains { $0.contains("Your set-aside findings are in Set Aside") }
+            (written() + everything().flatMap(names)).contains { $0.contains("You set aside everything the scan found") }
         }
         expect(model.results == nil && emptied
-               && !(written() + everything().flatMap(names)).contains { $0.contains("Not Checked lists") },
+               && !(written() + everything().flatMap(names)).contains { $0.contains("are in Not Checked") },
                "before a scan, an empty Worth Reviewing with set-aside findings does not point to Not Checked")
         SampleEngine.allSetAside = false
         await model.refreshReview()
         // Before any scan, Not Checked is still where a folder left out is included again.
         await open(.gaps)
         let unscannedGaps = written()
-        expect(model.results == nil && button("Include Again") != nil && unscannedGaps.contains { $0.hasPrefix("These folders are not read") }
+        expect(model.results == nil && button("Include Again") != nil && unscannedGaps.contains { $0.hasPrefix("Scans skip these folders") }
                && !unscannedGaps.contains("No Scan Yet"),
                "before any scan, Not Checked lists the folders left out with Include Again")
         await open(.overview)
@@ -692,13 +692,13 @@ enum Checks {
                "background setup starts the helper without a one-time scan")
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
                "background consent neither runs a manual scan nor asks for notification permission")
-        expect(written().contains("Checking existing files…") && !written().contains("Last Recorded Check"),
+        expect(written().contains("Checking existing files…") && !written().contains("Last Check"),
                "initial checking is visible while diagnostic timestamps start collapsed")
-        await press(button("Show Details"), "expanding Overview check details", until: { written().contains("Last Recorded Check") && written().contains("Last Completed Full Scan") })
-        expect(await eventually { written().contains("Last Recorded Check") && written().contains("Last Completed Full Scan") && written().contains { $0.contains("4 folders left") } },
+        await press(button("Show Details"), "expanding Overview check details", until: { written().contains("Last Check") && written().contains("Last Full Scan") })
+        expect(await eventually { written().contains("Last Check") && written().contains("Last Full Scan") && written().contains { $0.contains("4 folders left") } },
                "Overview check details reveal both diagnostic timestamps")
-        await press(button("Hide Details"), "collapsing Overview check details", until: { !written().contains("Last Recorded Check") })
-        expect(await eventually { !written().contains("Last Recorded Check") }, "Overview check details collapse")
+        await press(button("Hide Details"), "collapsing Overview check details", until: { !written().contains("Last Check") })
+        expect(await eventually { !written().contains("Last Check") }, "Overview check details collapse")
         SampleEngine.completedPass = true
         await model.refreshMonitor()
         expect(await eventually { written().contains(BackgroundState.active.text) && !written().contains("Checking existing files…") },
@@ -813,9 +813,9 @@ enum Checks {
                    "an open finding's inspector shows What to Do")
             let why = EngineText.shown(model.reviewRows[1].explanation)
             expect(!written().contains(why), "why a finding is here starts folded, below what to do")
-            await press(button("Show Why It Is Here"), "unfolding why the finding is here")
+            await press(button("Show Explanation"), "unfolding why the finding is here")
             expect(await eventually { written().contains(why) }, "the inspector unfolds why the finding is here")
-            await press(button("Hide Why It Is Here"), "folding why the finding is here")
+            await press(button("Hide Explanation"), "folding why the finding is here")
             expect(await eventually { !written().contains(why) }, "the inspector folds why the finding is here again")
             let folded = !written().contains("Rule")
             await press(button("Show Details"), "unfolding the finding's details")
@@ -1066,7 +1066,7 @@ enum Checks {
         await model.refreshReview()
         await open(.review)
         let texts = everything().compactMap { value($0, kAXValueAttribute) as? String }
-        expect(texts.contains("Review List Unavailable") && !texts.contains("Nothing to Review")
+        expect(texts.contains("Cannot Open Worth Reviewing") && !texts.contains("Nothing to Review")
                && model.reviewCount == model.results?.review,
                "a review list that cannot be read says so, and the count beside it is the scan's own")
         // The engine keeps the failure until the app is opened again, and
@@ -1160,7 +1160,7 @@ enum Checks {
         model.failure = nil
         await settle(after: "the request for the review list failing")
         let refused = written()
-        expect(refused.contains("Review List Unavailable") && !refused.contains("Nothing to Review")
+        expect(refused.contains("Cannot Open Worth Reviewing") && !refused.contains("Nothing to Review")
                && list() == nil && model.reviewSummary.isEmpty,
                "a review list the window could not get says so, and shows no older list or count in its place")
         // The same from the start: a window that never got the list, then a scan.
@@ -1226,10 +1226,10 @@ enum Checks {
                "Settings shows the state of automatic scanning under its switch")
         expect(written(in: settingsWindow).contains { $0.contains("3 places could not be read") },
                "Settings says how many places the helper's last full pass did not read")
-        expect(!written(in: settingsWindow).contains("Last Recorded Check") && button("Show Check Details", in: settingsWindow) == nil,
+        expect(!written(in: settingsWindow).contains("Last Check") && button("Show Check Details", in: settingsWindow) == nil,
                "Settings leaves check timing to the Overview")
         let scansBeforeDetails = SampleEngine.scanRequests
-        await press(button("Show Unread Places", in: settingsWindow), "opening unread places from Settings")
+        await press(button("Show Places Not Checked", in: settingsWindow), "opening unread places from Settings")
         expect(await eventually { model.pane == .gaps && written().contains("~/Library/SyntheticUnread") },
                "Settings opens the saved automatic-scan paths in Not Checked")
         expect(SampleEngine.scanRequests == scansBeforeDetails,
@@ -1243,7 +1243,7 @@ enum Checks {
                     until: { model.automaticCoverageError == nil })
         SampleEngine.coverageMissing = true
         await model.refreshAutomaticCoverage()
-        expect(await eventually { written().contains("This automatic scan saved a count but no list. Details will be available after the next automatic full scan.") },
+        expect(await eventually { written().contains("Details will appear after the next full automatic scan.") },
                "older automatic results explain their missing details instead of claiming nothing was missed")
         SampleEngine.coverageMissing = false
         await model.refreshAutomaticCoverage()
@@ -1285,11 +1285,11 @@ enum Checks {
         // Settings says when the app is not in Login Items, so not opened at login.
         SampleEngine.appLogin = 3
         await model.refreshMonitor()
-        expect(await eventually { written().contains("Allow Loose Keys in Login Items to show it at login.") },
+        expect(await eventually { written().contains("Turn on Loose Keys in Login Items to show the icon at login.") },
                "Settings says when Login Items needs the person's approval for the app")
         SampleEngine.appLogin = 1
         await model.refreshMonitor()
-        expect(await eventually { written().contains("Not in Login Items: shown only while the app is open.") },
+        expect(await eventually { written().contains("Shown only while the app is open, because Loose Keys is not in Login Items.") },
                "Settings says when the app is not in Login Items")
         SampleEngine.appLogin = nil
         await model.refreshMonitor()
@@ -1343,7 +1343,7 @@ enum Checks {
         SampleEngine.refused = true
         await model.refreshReview(reportFailure: false)
         let problemMarked = await marked(.problem)
-        expect(model.menuBarMark == .problem && model.menuBarLine == "Worth Reviewing could not be read" && problemMarked,
+        expect(model.menuBarMark == .problem && model.menuBarLine == "Could not load Worth Reviewing" && problemMarked,
                "with the review list refused, the menu bar shows a problem, not a count")
         SampleEngine.refused = false
         SampleEngine.storeFailed = true
@@ -1406,7 +1406,7 @@ enum Checks {
         await open(.review)
         let bare = written()
         expect(model.results?.status == "partial" && model.results?.review == 0 && model.review?.items.isEmpty == true
-               && !bare.contains("Nothing to Review") && bare.contains("Nothing Found in What Was Checked"),
+               && !bare.contains("Nothing to Review") && bare.contains("Nothing Found"),
                "a scan that could not check everything and found nothing says so, and does not say there is nothing to review")
         SampleEngine.nothingFound = false
         await press(toolbarButton("Scan Now"), "pressing Scan Now to bring the sample findings back")

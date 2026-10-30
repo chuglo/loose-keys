@@ -332,10 +332,10 @@ final class AppModel: ObservableObject {
         let listed = review.items.filter { $0.status != "fixed" }.count
         guard found > listed else { return nil }
         if review.full == true {
-            return String(localized: "The saved report and the copied summary count \(found) findings. The list has \(listed) items and is full, so findings it has no room for are left out: save the report to see them all. Also, a credential found by more than one rule, or in more than one file, is one item.",
+            return String(localized: "The scan found \(found) findings, but the list is full at \(listed) items. Save the report to see them all.",
                           comment: "Overview, under the last scan's counts, when the Worth Reviewing list is full. The first number counts findings, the second the list's items.")
         }
-        return String(localized: "The saved report and the copied summary count \(found) findings. The list has \(listed) items, because a credential found by more than one rule, or in more than one file, is one item.",
+        return String(localized: "The scan found \(found) findings, shown as \(listed) items because a credential in several places is listed once.",
                       comment: "Overview, under the last scan's counts. The first number counts findings, the second the Worth Reviewing list's items.")
     }
 
@@ -412,10 +412,10 @@ final class AppModel: ObservableObject {
             return String(localized: "\(openCount) loose keys to review, list full",
                           comment: "The menu bar menu's first line: how many findings need attention, when the list is full and left some out.")
         case .problem:
-            return String(localized: "Worth Reviewing could not be read",
+            return String(localized: "Could not load Worth Reviewing",
                           comment: "The menu bar menu's first line when the list could not be read. Worth Reviewing is the list's name in the sidebar.")
         case .unknown:
-            return String(localized: "Reading Worth Reviewing…",
+            return String(localized: "Loading Worth Reviewing…",
                           comment: "The menu bar menu's first line while the list is being read. Worth Reviewing is the list's name in the sidebar.")
         }
     }
@@ -441,7 +441,7 @@ final class AppModel: ObservableObject {
                                 comment: "Part of the Worth Reviewing subtitle, joined to the others by commas: how many findings are no longer in their files."))
         }
         if review?.full == true {
-            parts.append(String(localized: "list full, so some findings were left out",
+            parts.append(String(localized: "list full, so some findings are missing",
                                 comment: "Last part of the Worth Reviewing subtitle, after the counts and a comma: the list had no room for some findings."))
         }
         return parts.joined(separator: ", ")
@@ -741,7 +741,7 @@ final class AppModel: ObservableObject {
                 await refreshReview()
                 phase = .done
                 if let error = reviewProblem {
-                    failure = String(localized: "The scan finished, but its findings could not be listed. \(error) Save the report to see them.",
+                    failure = String(localized: "The scan finished, but Loose Keys could not show its findings. \(error) Save the report to see them.",
                                      comment: "In an alert after a scan. %@ is the reason, one or more sentences from the engine or macOS.")
                 }
             } catch {
@@ -947,7 +947,7 @@ final class AppModel: ObservableObject {
             try files.trashItem(at: url, resultingItemURL: nil)
             try files.moveItem(at: fresh, to: url)
         } catch {
-            throw EngineError(message: String(localized: "The new report is saved as \(fresh.lastPathComponent), beside the one you chose to replace. \(error.localizedDescription)",
+            throw EngineError(message: String(localized: "Loose Keys could not move the old report to the Trash, so it saved the new one next to it as \(fresh.lastPathComponent). \(error.localizedDescription)",
                                               comment: "In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave."))
         }
     }

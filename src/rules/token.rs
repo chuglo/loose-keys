@@ -10,8 +10,8 @@ pub const SERVICE_TOKEN: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Service token stored in a file",
-    explanation: "Text in the format of a service's access token was found. Whether the token is still valid, and what it can do, was not checked.",
-    reason: Some("A token like this usually works from any computer until it is revoked. Programs able to read this file can copy it."),
+    explanation: "This file has text in the format of a service's access token. Loose Keys did not check whether it still works or what it can do.",
+    reason: Some("A token like this usually works from any computer until it is revoked. Any program that can read this file can copy it."),
     next_step: Some("Revoke the token where it was issued, then remove it from this file. Deleting the text does not revoke the token."),
     advice: advice(None),
     targets: &[
@@ -74,14 +74,14 @@ pub const SERVICE_TOKEN: Rule = Rule {
 pub const AGENT_RECORD: Rule = Rule {
     id: "secret.agent-record",
     title: "Service token in an AI agent's records",
-    explanation: "An AI coding agent's session record, log or saved copy contains text in the format of a service's access token. Agents record the commands they run and what those print, so a token used in a session stays on disk afterwards. Validity was not checked.",
+    explanation: "An AI coding agent's session record or log has text in the format of a service's access token. Agents save the commands they run and what those print, so a token used in a session stays on disk. Loose Keys did not check whether it still works.",
     reason: Some("These records are plain files that any program running as you can read, and they are kept long after the session ends."),
     next_step: Some("Revoke the token, then delete the session record that holds it. Deleting the record does not revoke the token."),
     advice: Advice {
         steps: &[
-            "Revoke or roll the token where it was issued. Do this first: it keeps working until then.",
-            "Delete this file if it is an unneeded session record. Review its contents first, use the tool's deletion controls when supported, and check for remaining copies and backups.",
-            "Keep credentials in the Keychain or a password manager and retrieve them at run time. Avoid putting values in prompts or command arguments, and check that commands and debug logs do not print them.",
+            "Revoke or replace the token where it was issued. Do this first: it keeps working until then.",
+            "Delete this file if you no longer need the session record, using the tool's own delete option if it has one. Check for other copies and backups too.",
+            "Keep credentials in the Keychain or a password manager and load them when needed. Do not paste them into prompts or commands, and make sure commands and debug logs do not print them.",
             "Shorten how long the tool keeps session records, if it has a setting for that.",
         ],
         link: None,
@@ -162,7 +162,7 @@ const fn advice(link: Option<&'static str>) -> Advice {
 }
 
 pub const STEPS: &[&str] = &[
-    "Revoke or roll the token where it was issued. Do this first: the old value keeps working until then, wherever it has been copied.",
+    "Revoke or replace the token where it was issued. Do this first: until then, the old token keeps working wherever it was copied.",
     "If something still needs access, issue a replacement with the smallest permissions and the shortest expiry that work.",
     "Keep the replacement out of plain files. Store it in the macOS Keychain or a password manager and load it when needed.",
     "Remove the old value from this file. If it is a shell history file, delete that line.",

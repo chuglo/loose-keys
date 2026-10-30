@@ -10,7 +10,7 @@ pub const CLI_LOGIN: Rule = Rule {
     kind: "inventory",
     severity: "medium",
     title: "Command-line tool sign-in stored in a file",
-    explanation: "A command-line tool keeps its sign-in token in this file as plain text. This is how the tool stores it; validity and permissions were not checked.",
+    explanation: "A command-line tool keeps its sign-in token in this file as plain text. Many tools do this. Loose Keys did not check whether it still works or what it can access.",
     reason: None,
     next_step: Some("Sign out of tools you no longer use, which removes the stored token."),
     advice: Advice {
@@ -151,7 +151,7 @@ pub const AZURE_SERVICE_PRINCIPAL: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Azure service principal secret stored in a file",
-    explanation: "The Azure CLI keeps the secret of a service principal it signed in with in this file as plain text. Validity and permissions were not checked.",
+    explanation: "The Azure CLI signed in as a service principal and keeps its secret in this file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("A service principal secret works from any computer until it expires or is rotated, and often has broad access to a subscription."),
     next_step: Some("Sign out, and rotate the secret in Microsoft Entra. Deleting the file does not revoke it."),
     advice: Advice {
@@ -183,7 +183,7 @@ pub const COMPOSER_AUTH: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Tokens stored in Composer's auth file",
-    explanation: "Composer keeps tokens and passwords for code hosts and package repositories in this file as plain text. Validity and permissions were not checked.",
+    explanation: "Composer keeps tokens and passwords for code hosts and package repositories in this file as plain text. Loose Keys did not check whether they still work or what they can access.",
     reason: Some("These are usually personal access tokens for GitHub or GitLab, which work from any computer until revoked."),
     next_step: Some("Revoke the tokens at each host and replace them with narrower ones. Removing an entry does not revoke it."),
     advice: Advice {
@@ -241,13 +241,13 @@ fn composer_hits(bytes: &[u8]) -> Hits {
 pub const MAVEN_PASSWORD: Rule = Rule {
     id: "dev.maven.settings-password",
     title: "Password stored in Maven settings",
-    explanation: "A repository password or token is written in Maven's settings file as plain text. Validity and permissions were not checked.",
+    explanation: "A repository password or token is written in Maven's settings file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("Repository credentials can publish packages that other people's builds download."),
     next_step: Some("Change the password or revoke the token at the repository, and store the replacement encrypted or outside the file."),
     advice: Advice {
         steps: &[
             "At the repository manager, change this password or revoke this token.",
-            "Reference an environment variable instead of the value: <password>${env.REPO_TOKEN}</password>, supplied when you build.",
+            "Reference an environment variable instead of the value: <password>${env.REPO_TOKEN}</password>, and set REPO_TOKEN when you build.",
             "Or use Maven's password encryption (mvn --encrypt-password), keeping the master password off this Mac's disk if you can.",
         ],
         link: None,
@@ -354,7 +354,7 @@ fn maven_hits(bytes: &[u8]) -> Hits {
 pub const BUNDLER_CREDENTIALS: Rule = Rule {
     id: "dev.bundler.inline-credentials",
     title: "Gem server credentials stored by Bundler",
-    explanation: "Bundler keeps a user name and password or token for a gem server in this file as plain text. Validity and permissions were not checked.",
+    explanation: "Bundler keeps a user name and password or token for a gem server in this file as plain text. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("These credentials let anything running as you download, and often publish, private gems."),
     next_step: Some("Change the password or revoke the token at the gem server, then supply the replacement from the environment."),
     advice: Advice {
@@ -451,7 +451,7 @@ fn bundler_hits(bytes: &[u8]) -> Hits {
 pub const URL_PASSWORD: Rule = Rule {
     id: "dev.url.inline-password",
     title: "Password written inside a URL in a config file",
-    explanation: "A URL in this config file carries a user name and password or token in the form https://user:password@host. Validity and permissions were not checked.",
+    explanation: "A URL in this config file has a user name and password or token written into it, as in https://user:password@host. Loose Keys did not check whether it still works or what it can access.",
     reason: Some("The credential is plain text, and tools print these URLs in logs and error messages."),
     next_step: Some("Change the password or revoke the token at the host named here, and take it out of the URL."),
     advice: Advice {
