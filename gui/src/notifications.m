@@ -237,6 +237,9 @@ void ch_fingerprint(const unsigned char *key, const unsigned char *bytes, size_t
 // ---- Background agent ----
 
 static FSEventStreamRef watchStream;
+static CFArrayRef watchFolders;
+static double watchLatency;
+static dispatch_queue_t watchQueue;
 static void (*watchChange)(const char *, unsigned int);
 static void (*watchBatch)(unsigned long long);
 
@@ -247,25 +250,50 @@ static void watchCallback(ConstFSEventStreamRef stream, void *info, size_t count
     if (count) watchBatch(ids[count - 1]);
 }
 
+static bool watchOpen(unsigned long long since) {
+    // Our own writes to the state file are not reported back to us.
+    watchStream = FSEventStreamCreate(NULL, watchCallback, NULL, watchFolders,
+        since ? since : kFSEventStreamEventIdSinceNow, watchLatency,
+        kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagIgnoreSelf);
+    if (!watchStream) return false;
+    FSEventStreamSetDispatchQueue(watchStream, watchQueue);
+    return FSEventStreamStart(watchStream);
+}
+
 // Report file changes under one folder, batched every `latency` seconds on a
 // background queue. `since` is the last event already handled, or 0 for now.
 bool ch_watch_start(const char *path, unsigned long long since, double latency,
                     void (*change)(const char *, unsigned int), void (*batch)(unsigned long long)) {
     watchChange = change;
     watchBatch = batch;
+    watchLatency = latency;
     CFStringRef folder = CFStringCreateWithFileSystemRepresentation(NULL, path);
     if (!folder) return false;
-    CFArrayRef folders = CFArrayCreate(NULL, (const void **)&folder, 1, &kCFTypeArrayCallBacks);
-    // Our own writes to the state file are not reported back to us.
-    watchStream = FSEventStreamCreate(NULL, watchCallback, NULL, folders,
-        since ? since : kFSEventStreamEventIdSinceNow, latency,
-        kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagIgnoreSelf);
-    CFRelease(folders);
+    watchFolders = CFArrayCreate(NULL, (const void **)&folder, 1, &kCFTypeArrayCallBacks);
     CFRelease(folder);
-    if (!watchStream) return false;
+    if (!watchFolders) return false;
     dispatch_queue_attr_t quiet = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_BACKGROUND, 0);
-    FSEventStreamSetDispatchQueue(watchStream, dispatch_queue_create("dev.loosekeys.watch", quiet));
-    return FSEventStreamStart(watchStream);
+    watchQueue = dispatch_queue_create("dev.loosekeys.watch", quiet);
+    return watchOpen(since);
+}
+
+// Open the stream again from event `since`, after events were dropped because
+// this process did not keep up: macOS keeps them in its change history, and
+// the new stream replays them. Runs on the stream's own queue, between
+// callbacks. Never call it from that queue.
+bool ch_watch_resume(unsigned long long since) {
+    if (!watchQueue || !since) return false;
+    __block bool ok = false;
+    dispatch_sync(watchQueue, ^{
+        if (watchStream) {
+            FSEventStreamStop(watchStream);
+            FSEventStreamInvalidate(watchStream);
+            FSEventStreamRelease(watchStream);
+            watchStream = NULL;
+        }
+        ok = watchOpen(since);
+    });
+    return ok;
 }
 
 // Identifies the change history of the volume holding `path`. Event numbers

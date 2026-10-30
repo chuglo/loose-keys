@@ -343,6 +343,20 @@ a thousand files every ten seconds filled it within minutes and started a walk
 of the whole home each time. Verification: a helper test checks 27,000 paths
 once each without a full pass.
 
+The helper runs at background priority, and a build that deletes thousands of
+files at once can outrun it: FSEvents then drops events for it and says so
+with `UserDropped` on the home. Those events are still in the volume's change
+history, so the helper opens its stream again (`ch_watch_resume`) from the last
+batch it handled, and does not save a place past that batch until then. Up to
+10 times in 10 minutes; after that, and for events the kernel dropped or ids
+that wrapped, a full pass makes up for them as before. If the stream cannot be
+opened again the helper exits with failure, and launchd starts it again from
+its saved place. Verification: helper tests check that a drop opens the stream
+from the place before it without a full pass, and that drops past the limit
+become one; a test on a synthetic folder checks that the real stream, opened
+again, replays what came after the place and not what came before.
+Not verified: how often a real helper is dropped, or replays fall behind again.
+
 ## Secrets
 
 - A value does not leave the function that matched it. A matcher returns

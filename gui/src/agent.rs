@@ -48,6 +48,14 @@ const PASS_AGAIN: Duration = Duration::from_secs(24 * 3600);
 // walked; and the marker that ends replayed history.
 const MUST_RESCAN: u32 = 0x1 | 0x2 | 0x4 | 0x8;
 const HISTORY_DONE: u32 = 0x10;
+/// Dropped because this process did not keep up, not by the kernel, with the
+/// event numbers intact: the change history still has every one.
+const USER_DROPPED: u32 = 0x2;
+const LOST: u32 = 0x4 | 0x8;
+/// How often the stream may be opened again for dropped events, in
+/// `RESUME_WINDOW`, before a full pass makes up for them instead.
+const RESUMES_MAX: usize = 10;
+const RESUME_WINDOW: Duration = Duration::from_secs(600);
 
 unsafe extern "C" {
     fn ch_watch_start(
@@ -57,6 +65,7 @@ unsafe extern "C" {
         change: extern "C" fn(*const c_char, u32),
         batch: extern "C" fn(u64),
     ) -> bool;
+    fn ch_watch_resume(since: u64) -> bool;
     fn ch_watch_volume(path: *const c_char, out: *mut c_char) -> bool;
     fn ch_low_power() -> bool;
     fn ch_open_app();
@@ -91,6 +100,9 @@ struct Agent {
     /// Wait before retrying a full pass held by Low Power Mode: ten minutes,
     /// shortened only by synthetic worker tests.
     low_power_pause: Duration,
+    /// Open the event stream again from an event, to replay what was
+    /// dropped. Ends the agent if it cannot, so launchd starts it again.
+    resume_watch: fn(u64),
     /// Saves of what a check found that have failed in a row. A full pass
     /// waits longer for each before it makes the slice again.
     unsaved: AtomicU32,
@@ -103,6 +115,8 @@ struct Inbox {
     full_pass: bool,
     settings: bool,
     last_event: u64,
+    /// Events were dropped: the place to replay the change history from.
+    resume: Option<u64>,
 }
 
 #[derive(Default)]
@@ -267,9 +281,16 @@ impl Agent {
             return;
         }
         let mut inbox = self.inbox.lock().unwrap();
+        let enabled = self.known.lock().unwrap().enabled;
         if path.starts_with(&self.state_dir) {
             inbox.settings = true;
-        } else if !self.known.lock().unwrap().enabled
+        } else if enabled && flags & USER_DROPPED != 0 && flags & LOST == 0 && inbox.last_event != 0
+        {
+            // Read again from the change history, from the last batch handled
+            // in full, instead of walking the whole home.
+            let from = inbox.last_event;
+            inbox.resume.get_or_insert(from);
+        } else if !enabled
             || (flags & MUST_RESCAN != 0 && !path.starts_with(&self.home))
             || (flags & MUST_RESCAN != 0 && path == self.home)
         {
@@ -288,7 +309,11 @@ impl Agent {
     fn batch(&self, last_event: u64) {
         let settings = {
             let mut inbox = self.inbox.lock().unwrap();
-            inbox.last_event = last_event;
+            // Not past events that were dropped: until they are replayed,
+            // no saved place may follow them.
+            if inbox.resume.is_none() {
+                inbox.last_event = last_event;
+            }
             std::mem::take(&mut inbox.settings)
         };
         // The app changed the shared state: a setting, a decision or a retry.
@@ -480,9 +505,26 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
     // every reason but "scan-limit": where one slice stops, the next goes on,
     // and a report cannot tell that from a limit no slice gets past.
     let mut unread = review::UnreadPlaces::default();
+    // When the event stream was last opened again for dropped events.
+    let mut resumes: Vec<Instant> = Vec::new();
     while let Some(tick) = agent.monitor.wait() {
         if !agent.monitor.arm(ScanKind::Automatic) {
             continue;
+        }
+        // Copied, not taken: until the stream is open again, events still
+        // coming must not move the place past those that were dropped. And
+        // not under the lock, which the stream's callbacks wait for.
+        let resume = agent.inbox.lock().unwrap().resume;
+        if let Some(since) = resume {
+            resumes.retain(|at| at.elapsed() < RESUME_WINDOW);
+            if resumes.len() < RESUMES_MAX {
+                resumes.push(Instant::now());
+                (agent.resume_watch)(since);
+            } else {
+                // Dropped again and again: a full pass makes up for them.
+                ask_for_pass(&mut full_pass, &mut owed);
+            }
+            agent.inbox.lock().unwrap().resume = None;
         }
         let (paths, restart, event) = {
             let mut inbox = agent.inbox.lock().unwrap();
@@ -760,6 +802,16 @@ pub fn run() -> ! {
         // SAFETY: reads one process-wide setting; no preconditions.
         low_power: || unsafe { ch_low_power() },
         low_power_pause: Duration::from_secs(600),
+        resume_watch: |since| {
+            // SAFETY: takes a number and borrows nothing. The worker calls it,
+            // never the stream's own queue, which it waits for.
+            if !unsafe { ch_watch_resume(since) } {
+                // Exits with failure, unlike `stop`, so launchd starts the
+                // agent again, and it replays from its saved place.
+                eprintln!("loose-keys agent: could not watch the home folder again");
+                std::process::exit(1)
+            }
+        },
         unsaved: AtomicU32::new(0),
     });
     agent.remember(&state);
@@ -795,6 +847,7 @@ pub fn run() -> ! {
 mod tests {
     use super::*;
     use std::path::Path;
+    use std::sync::atomic::{AtomicU64, AtomicUsize};
 
     /// The worker running on a synthetic home folder, fed changes the way the
     /// file-event callbacks feed them. No event stream, window or notification,
@@ -850,6 +903,7 @@ mod tests {
                 changes: CHANGES,
                 low_power: || false,
                 low_power_pause: Duration::from_secs(600),
+                resume_watch: |_| {},
                 unsaved: AtomicU32::new(0),
             };
             tune(&mut agent);
@@ -935,6 +989,14 @@ mod tests {
         /// home folder has to be walked again.
         fn changes_lost(&mut self) {
             self.agent.changed(self.home.clone(), MUST_RESCAN);
+            self.event += 1;
+            self.agent.batch(self.event);
+        }
+
+        /// This process fell behind and FSEvents dropped events for it, as
+        /// it says while a build deletes thousands of files.
+        fn dropped(&mut self) {
+            self.agent.changed(self.home.clone(), 0x1 | USER_DROPPED);
             self.event += 1;
             self.agent.batch(self.event);
         }
@@ -1533,6 +1595,120 @@ mod tests {
         f.changes(&["proj/.git/objects/ab/cdef", "proj/.git/config"]);
         let state = f.wait("the repository's settings", |s| s.items.len() == 1);
         assert_eq!(open(&state), ["~/proj/.git/config"]);
+        f.stop();
+    }
+
+    /// A build that deleted thousands of files at once outran the helper,
+    /// FSEvents dropped events for it, and it walked the whole home. The
+    /// change history still holds them: the stream is opened again from the
+    /// last batch handled before the drop, and they are replayed.
+    #[test]
+    fn events_dropped_for_falling_behind_are_read_again_not_walked() {
+        static FROM: AtomicU64 = AtomicU64::new(0);
+        let mut f = Fixture::tuned(
+            "dropped",
+            &[],
+            |_| {},
+            |agent| agent.resume_watch = |since| FROM.store(since, Ordering::SeqCst),
+        );
+        f.first_pass();
+        let walked = walked(&mut f, |f| {
+            f.changes(&["before.csv"]);
+            let before = f.event;
+            f.dropped();
+            f.until("the stream to be opened again", || {
+                FROM.load(Ordering::SeqCst) == before
+            });
+        });
+        assert!(!walked, "dropped events became a full pass");
+        f.stop();
+    }
+
+    /// The real event stream, on a synthetic folder: opened again from an
+    /// event, it replays from the change history what came after that event,
+    /// and not what came before. The only test that starts this process's
+    /// stream. The files are made by a child: the stream ignores this process.
+    #[test]
+    fn the_event_stream_opened_again_replays_what_came_after() {
+        static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        static LAST: AtomicU64 = AtomicU64::new(0);
+        extern "C" fn change(path: *const c_char, _: u32) {
+            // SAFETY: FSEvents passes a NUL-terminated path valid for this call.
+            let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
+            let name = path.rsplit('/').next().unwrap_or_default().to_string();
+            SEEN.lock().unwrap().push(name);
+        }
+        extern "C" fn batch(last: u64) {
+            LAST.store(last, Ordering::SeqCst);
+        }
+        let seen = |name: &str| SEEN.lock().unwrap().iter().any(|n| n == name);
+        let wait = |what: &str, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !done() {
+                assert!(
+                    Instant::now() < deadline,
+                    "the stream never reported: {what}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        let touch = |path: &Path| {
+            let made = std::process::Command::new("touch").arg(path).status();
+            assert!(made.unwrap().success());
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "credential-agent-test-{}-stream",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = CString::new(dir.as_os_str().as_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path, and plain functions that live for the
+        // whole process.
+        assert!(unsafe { ch_watch_start(path.as_ptr(), 0, 0.1, change, batch) });
+        touch(&dir.join("before-the-place"));
+        wait("the first file", &|| seen("before-the-place"));
+        let place = LAST.load(Ordering::SeqCst);
+        touch(&dir.join("after-the-place"));
+        wait("the second file", &|| seen("after-the-place"));
+        SEEN.lock().unwrap().clear();
+        // SAFETY: takes a number; called from this thread, not the stream's queue.
+        assert!(unsafe { ch_watch_resume(place) });
+        wait("the second file again", &|| seen("after-the-place"));
+        assert!(!seen("before-the-place"), "replayed from before the place");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A helper that keeps falling behind does not open the stream again for
+    /// ever: a full pass makes up for what was dropped.
+    #[test]
+    fn events_dropped_again_and_again_become_a_full_pass() {
+        static OPENED: AtomicUsize = AtomicUsize::new(0);
+        let mut f = Fixture::tuned(
+            "dropped-again",
+            &[],
+            |_| {},
+            |agent| {
+                agent.resume_watch = |_| {
+                    OPENED.fetch_add(1, Ordering::SeqCst);
+                }
+            },
+        );
+        f.first_pass();
+        let walked = walked(&mut f, |f| {
+            f.changes(&["before.csv"]);
+            let agent = f.agent;
+            for _ in 0..=RESUMES_MAX {
+                f.dropped();
+                f.until("the drop to be handled", || {
+                    agent.inbox.lock().unwrap().resume.is_none()
+                });
+            }
+        });
+        assert!(
+            walked,
+            "events dropped again and again were never made up for"
+        );
+        assert_eq!(OPENED.load(Ordering::SeqCst), RESUMES_MAX);
         f.stop();
     }
 
