@@ -276,7 +276,7 @@ impl Agent {
             // Nothing is read while monitoring is off; catch up when it is on.
             inbox.full_pass = true;
         } else {
-            inbox.paths.insert(path);
+            inbox.paths.insert(scan::change_at(&self.home, &path));
             if inbox.paths.len() > INBOX_MAX {
                 inbox.paths.clear();
                 inbox.full_pass = true;
@@ -1414,6 +1414,83 @@ mod tests {
         let state = f.wait("the full pass", |s| s.items.len() == 1);
         assert_eq!(open(&state), ["~/not-among-the-events.csv"]);
         assert_eq!(state.agent.changes, 0);
+        f.stop();
+    }
+
+    /// One file changed, once it is listed.
+    fn change_listed(f: &mut Fixture, file: &str) -> Review {
+        export(&f.home, file);
+        f.changes(&[file]);
+        let path = format!("~/{file}");
+        f.wait(file, |s| listed(s, &path))
+    }
+
+    /// Whether `flood` started a full pass: it would list a file that no
+    /// change names. Once a change made after the flood's own is listed, a
+    /// pass the flood asked for has run.
+    fn walked(f: &mut Fixture, flood: impl FnOnce(&mut Fixture)) -> bool {
+        export(&f.home, "not-among-the-events.csv");
+        flood(f);
+        change_listed(f, "first.csv");
+        let state = change_listed(f, "second.csv");
+        open(&state).contains(&"~/not-among-the-events.csv")
+    }
+
+    /// A build writes thousands of files where scans do not read. Each was a
+    /// change of its own, and more than could be held became a walk of the
+    /// whole home, over and over while software was being built.
+    #[test]
+    fn a_flood_of_changes_where_scans_do_not_read_is_not_a_full_pass() {
+        let mut f = Fixture::start("left-out-flood", &[], |_| {});
+        f.first_pass();
+        let walked = walked(&mut f, |f| {
+            // Held while paused, so the worker takes none of them early.
+            f.app_sets(|state| state.paused = true);
+            let flood: Vec<String> = (0..=INBOX_MAX)
+                .map(|n| format!("proj/target/debug/{n}.o"))
+                .collect();
+            f.changes(&flood.iter().map(String::as_str).collect::<Vec<_>>());
+            f.app_sets(|state| state.paused = false);
+        });
+        assert!(!walked, "a flood of build output became a full pass");
+        f.stop();
+    }
+
+    /// The same build in batches small enough to hold: every path it wrote
+    /// was remembered as checked, and more than the worker keeps also became
+    /// a walk of the whole home.
+    #[test]
+    fn many_batches_of_changes_where_scans_do_not_read_are_not_a_full_pass() {
+        let mut f = Fixture::start("left-out-batches", &[], |_| {});
+        f.first_pass();
+        let walked = walked(&mut f, |f| {
+            for round in 0..6 {
+                let batch: Vec<String> = (0..INBOX_MAX - 500)
+                    .map(|n| format!("proj/.git/objects/{round}/{n}"))
+                    .collect();
+                f.changes(&batch.iter().map(String::as_str).collect::<Vec<_>>());
+                // Taken before the next batch: held together, they would be
+                // the flood above.
+                change_listed(f, &format!("round-{round}.csv"));
+            }
+        });
+        assert!(!walked, "batches of repository changes became a full pass");
+        f.stop();
+    }
+
+    /// A repository's settings are read, though nothing else in `.git` is.
+    #[test]
+    fn a_password_added_to_a_repositorys_settings_is_found() {
+        let mut f = Fixture::start("repo-config", &[], |_| {});
+        f.first_pass();
+        let config = f.home.join("proj/.git/config");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        let remote =
+            "[remote \"origin\"]\n\turl = https://fixture:synthetic-only@git.example.invalid/r\n";
+        std::fs::write(&config, remote).unwrap();
+        f.changes(&["proj/.git/objects/ab/cdef", "proj/.git/config"]);
+        let state = f.wait("the repository's settings", |s| s.items.len() == 1);
+        assert_eq!(open(&state), ["~/proj/.git/config"]);
         f.stop();
     }
 

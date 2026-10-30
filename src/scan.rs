@@ -335,6 +335,23 @@ fn linked(target: &Target, path: &Path, home: &Path) -> bool {
     }
 }
 
+/// What to check for a change at `p`. Inside a folder that discovery passes
+/// over, `Scan::changed` reads only known locations and the files rules name
+/// in a repository's `.git`, and checking the outermost such folder reads all
+/// of those. So a build that writes thousands of files there is one change of
+/// that folder. Any other path is checked as it is.
+pub fn change_at(home: &Path, p: &Path) -> PathBuf {
+    let Ok(below) = p.strip_prefix(home) else {
+        return p.to_path_buf();
+    };
+    // From `p` upwards, so the last match is the outermost.
+    let left_out = below
+        .ancestors()
+        .filter(|a| EXCLUDED.iter().any(|name| a.ends_with(name)))
+        .last();
+    left_out.map_or_else(|| p.to_path_buf(), |a| home.join(a))
+}
+
 /// A folder the person asks not to be checked: absolute, with no "..", and
 /// never the home folder or a folder above it.
 pub fn skipped_folder(path: &OsStr, home: &Path) -> Result<PathBuf, &'static str> {
@@ -4010,6 +4027,10 @@ mod tests {
         let found = (vec![(rule, format!("~/{passed}/adc.json"))], vec![]);
         assert_eq!(full(&f.0), found);
         assert_eq!(change(&f.0, &[], &format!("{passed}/adc.json")), found);
+        // And as the agent hands it on: a change of the folder passed over.
+        let at = change_at(&f.0, &f.0.join(passed).join("adc.json"));
+        assert_eq!(at, f.0.join("build/node_modules"));
+        assert_eq!(change(&f.0, &[], "build/node_modules"), found);
         let none = Limits {
             entries: 1000,
             time: Duration::ZERO,
@@ -4032,6 +4053,43 @@ mod tests {
         assert_eq!(full(&f.0), gap);
         assert_eq!(change(&f.0, &[], known), gap);
         assert_eq!(change(&f.0, &[], ".config/gcloud"), gap);
+    }
+
+    /// The agent hands on a change inside a folder discovery passes over as
+    /// a change of the outermost such folder. Checked, that folder reads what
+    /// the change itself would: here a known file that is a link into it.
+    #[test]
+    fn a_change_where_discovery_does_not_go_is_one_of_the_folder_it_passes_over() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new("change-at");
+        let home = &f.0;
+        let at = |p: &str| change_at(home, &home.join(p));
+        assert_eq!(at("proj/target/debug/a.o"), home.join("proj/target"));
+        assert_eq!(at("proj/.git/objects/ab/cd"), home.join("proj/.git"));
+        assert_eq!(at("proj/.git/config"), home.join("proj/.git"));
+        assert_eq!(
+            at("app/node_modules/pkg/.git/x"),
+            home.join("app/node_modules")
+        );
+        assert_eq!(at("Library/Caches/app/x"), home.join("Library/Caches"));
+        assert_eq!(at("proj/target"), home.join("proj/target"));
+        assert_eq!(at("proj/src/main.rs"), home.join("proj/src/main.rs"));
+        assert_eq!(
+            change_at(home, Path::new("/elsewhere/target/x")),
+            PathBuf::from("/elsewhere/target/x")
+        );
+
+        let real = "dotfiles/vendor/git/config";
+        let url = b"[url \"https://fixture:synthetic-only@git.example.invalid/\"]\n\tinsteadOf = https://git.example.invalid/\n";
+        put(home, real, url);
+        symlink(home.join(real), home.join(".gitconfig")).unwrap();
+        let found = (
+            vec![("dev.url.inline-password", format!("~/{real}"))],
+            vec![],
+        );
+        assert_eq!(full(home), found);
+        assert_eq!(at(real), home.join("dotfiles/vendor"));
+        assert_eq!(change(home, &[], "dotfiles/vendor"), found);
     }
 
     /// The same for a known folder whose files are each read: one of them

@@ -307,6 +307,24 @@ the engine check exercises path escaping; model checks cover overlapping
 reads and failures; the sample window check opens the list from Settings and
 asserts that no scan was requested.
 
+### Changes in folders discovery passes over
+
+A change inside a folder in `EXCLUDED` (`target`, `.git`, `node_modules` and
+the rest) reaches the helper's inbox as one change of the outermost such folder
+(`scan::change_at`). Checking that folder reads the same known locations and
+`.git` files the change itself would, and no more. Without this, every file a
+build or `git` wrote was a change of its own; more than 5,000 at once, or more
+than 20,000 checked within a quarter of an hour, started a walk of the whole
+home, and one asked for during a walk followed it, so walks ran back to back
+while software was being built.
+
+Verification: the helper tests send more than 5,000 changes in `target`, and
+six rounds of 4,500 in `.git`, and check that neither starts a full pass; a
+password added to a repository's `.git/config` is still found. A scanner test
+checks the mapping and that a known file linked into a folder passed over is
+found by a change of that folder. Not verified: the event volume of a real
+build against the installed helper.
+
 ## Secrets
 
 - A value does not leave the function that matched it. A matcher returns
