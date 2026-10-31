@@ -45,8 +45,8 @@ fn dispatch(args: &[String]) -> Result<i32> {
         Some("generate") => {
             fixtures::generate(
                 &PathBuf::from(required(args, "--out")?),
-                number(args, "--large-file-mib", 1024.)? as usize,
-                number(args, "--bomb-mib", 256.)? as usize,
+                count(args, "--large-file-mib", 1024)?,
+                count(args, "--bomb-mib", 256)?,
             )?;
             Ok(0)
         }
@@ -109,6 +109,17 @@ fn number(args: &[String], name: &str, default: f64) -> Result<f64> {
         .map_err(|_| format!("bad {name}"))?
         .unwrap_or(default);
     if !value.is_finite() || value <= 0. {
+        return Err(format!("bad {name}"));
+    }
+    Ok(value)
+}
+fn count(args: &[String], name: &str, default: usize) -> Result<usize> {
+    let value = option(args, name)
+        .map(str::parse::<usize>)
+        .transpose()
+        .map_err(|_| format!("bad {name}"))?
+        .unwrap_or(default);
+    if value == 0 {
         return Err(format!("bad {name}"));
     }
     Ok(value)
@@ -414,7 +425,8 @@ fn check(args: &[String]) -> Result<i32> {
     let scope_tokens = strings("scope_tokens")?;
     let win = manifest["forbidden"]["fragment_window"]
         .as_u64()
-        .ok_or("bad fragment window")? as usize;
+        .and_then(|w| usize::try_from(w).ok())
+        .ok_or("bad fragment window")?;
     if win == 0 {
         return Err("bad fragment window".into());
     }

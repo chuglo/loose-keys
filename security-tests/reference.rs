@@ -229,12 +229,12 @@ fn ssh_protected(data: &[u8]) -> Option<bool> {
             };
             value = (value << 6) | u32::from(digit);
         }
-        decoded.push((value >> 16) as u8);
+        decoded.push(((value >> 16) & 0xff) as u8);
         if padding < 2 {
-            decoded.push((value >> 8) as u8);
+            decoded.push(((value >> 8) & 0xff) as u8);
         }
         if padding < 1 {
-            decoded.push(value as u8);
+            decoded.push((value & 0xff) as u8);
         }
     }
     if !decoded.starts_with(b"openssh-key-v1\0") {

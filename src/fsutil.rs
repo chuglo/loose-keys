@@ -468,7 +468,7 @@ mod tests {
 
     /// How many names a path has, as `mounted_at` counts a mount point.
     fn names(path: &Path) -> Option<u32> {
-        Some(path.components().count() as u32)
+        u32::try_from(path.components().count()).ok()
     }
 
     #[test]

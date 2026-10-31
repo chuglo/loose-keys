@@ -388,9 +388,11 @@ checker does not catch either. [8]
   to change this. [12][13]
 - Narrow a number with `try_from`, not `as`:
   `usize::try_from(varint(page, &mut at)?).ok()?`. `as` truncates and changes
-  sign silently. It is fine for widening (`u32` to `usize` on a 64-bit Mac).
-  New code that uses it for a reinterpretation the format defines says so in
-  a comment. [12]
+  sign silently, and clippy refuses a narrowing one. Widening (`u32` to
+  `usize`) is fine. A reinterpretation the format defines uses
+  `cast_signed()` with a comment, as the SQLite rowid does. Taking the low
+  byte of a `u32` on purpose masks it first, as `base64_decode` in
+  `private_key.rs` does. [12]
 - Index with `.get(..)` and give up on `None` (`bytes.get(at..at + 2)?`).
   Index directly only after a length check in the same function, as
   `blob.len() < 19` comes before `blob[15]` in `private_key.rs`. A panic
@@ -576,17 +578,20 @@ vendors change their settings.
 
 - `rustfmt` and clippy run with their defaults, and any warning fails the
   check (`-D warnings`). Both manifests have a
-  `[lints]` table that denies five more things: an unsafe call inside an
-  `unsafe fn` with no block of its own (`unsafe_op_in_unsafe_fn`), and
-  clippy's `dbg_macro`, `todo`, `unimplemented` and `mem_forget`. Keep the
-  two tables the same. Fix what a lint reports. If it is wrong for this
+  `[lints]` table that denies eight more things: an unsafe call inside an
+  `unsafe fn` with no block of its own (`unsafe_op_in_unsafe_fn`), clippy's
+  `dbg_macro`, `todo`, `unimplemented` and `mem_forget`, and since
+  2026-10-30 a cast that can truncate, wrap or lose a sign
+  (`cast_possible_truncation`, `cast_possible_wrap`, `cast_sign_loss`).
+  Keep the two tables the same. Fix what a lint reports. If it is wrong for this
   code, override it on the smallest item with
   `#[expect(lint, reason = "...")]`, not `#[allow]`: clippy fails once the
   lint no longer fires there, so the override cannot outlive its reason. [6]
-- Clippy's default set does not check casts, arithmetic or indexing. Those
-  lints are pedantic or restriction, and turning them on is a lint setting to
-  ask about first. "Numbers, offsets and text from a file" is the rule
-  meanwhile. [10]
+- Clippy does not check arithmetic or indexing here. Its lints for them
+  (`arithmetic_side_effects`, `indexing_slicing`, `string_slice`) are
+  restriction lints that reported 368 places on 2026-10-30, nearly all
+  bounded already. "Numbers, offsets and text from a file" is the rule for
+  them. Turning one on is a lint setting to ask about first. [10]
 - Pass `--locked` to every cargo command that builds. It fails instead of
   rewriting `Cargo.lock`. The workspace has one lock file, at the root.
   `cargo audit --file <lock>` checks one against the RustSec advisory list.

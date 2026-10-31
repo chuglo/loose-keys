@@ -17,7 +17,8 @@ impl Builder {
                 self.state ^= self.state << 13;
                 self.state ^= self.state >> 7;
                 self.state ^= self.state << 17;
-                bytes[(self.state % bytes.len() as u64) as usize] as char
+                let at = self.state % bytes.len() as u64;
+                bytes[usize::try_from(at).expect("below the length")] as char
             })
             .collect()
     }

@@ -244,7 +244,7 @@ impl Case {
                 severity: finding["severity"].as_str().expect("severity").to_owned(),
                 line: finding
                     .get("line")
-                    .map(|v| v.as_u64().expect("line") as usize),
+                    .map(|v| usize::try_from(v.as_u64().expect("line")).expect("line")),
                 token_type: finding
                     .get("token_type")
                     .map(|v| v.as_str().expect("token_type").to_owned()),

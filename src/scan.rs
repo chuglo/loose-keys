@@ -5256,7 +5256,7 @@ mod tests {
         ];
         // As if they had been found on a volume mounted at this folder.
         // Nothing is mounted at it: it is a folder like any other.
-        let unmounted = Some(f.0.components().count() as u32);
+        let unmounted = u32::try_from(f.0.components().count()).ok();
         for (rule, at) in gone {
             let path = f.0.join(at);
             // Found on the home folder's own volume, they were removed.
@@ -5384,13 +5384,13 @@ mod tests {
             ],
         );
         spilled[..512].copy_from_slice(&committed[..512]);
-        for row in 0..5 {
-            let page = 1536 + 512 * row;
+        for row in 0..5u8 {
+            let page = 1536 + 512 * usize::from(row);
             spilled[page..page + 10].copy_from_slice(b"\x0d\x00\x00\x00\x01\x00\xce\x00\x00\xce");
             spilled[page + 206..page + 212].copy_from_slice(&[
                 0x82,
                 b'/',
-                row as u8 + 1,
+                row + 1,
                 0x03,
                 0x84,
                 b'd',
@@ -5407,9 +5407,9 @@ mod tests {
                 (2572, b"&\x95\x92`\x00\x00\x00\x03\x00\x00\x02\x00\x00\x00\x02"),
             ],
         );
-        for (record, page) in [2, 3, 1].into_iter().enumerate() {
-            let (to, from) = (512 + 520 * record, 512 * (page - 1));
-            hot[to + 3] = page as u8;
+        for (record, page) in [2u8, 3, 1].into_iter().enumerate() {
+            let (to, from) = (512 + 520 * record, 512 * (usize::from(page) - 1));
+            hot[to + 3] = page;
             hot[to + 4..to + 516].copy_from_slice(&committed[from..from + 512]);
             hot[to + 516..to + 520].copy_from_slice(b"\x82&M\x8b");
         }

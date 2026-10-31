@@ -310,8 +310,9 @@ impl Run {
         Ok(out.status == Some(0))
     }
     fn stopped(&mut self, process: u32) -> Check<bool> {
+        let process = libc::pid_t::try_from(process).map_err(|_| fail("invalid helper PID"))?;
         // SAFETY: positive pid, signal zero only queries existence and sends no signal.
-        let result = unsafe { libc::kill(process as i32, 0) };
+        let result = unsafe { libc::kill(process, 0) };
         if result == 0 {
             return Ok(false);
         }
@@ -372,14 +373,13 @@ impl Run {
         )
     }
     fn helper_identity(&mut self, state: &Value) -> Check<()> {
-        let process = pid(state)?;
+        let process = libc::pid_t::try_from(pid(state)?).map_err(|_| fail("invalid helper PID"))?;
         {
             let mut path = [0u8; 4096];
+            let size = u32::try_from(path.len()).map_err(|_| fail("helper path buffer"))?;
             // SAFETY: buffer is writable for the supplied length; proc_pidpath
             // reads process metadata for a positive pid, never dereferences it.
-            let length = unsafe {
-                libc::proc_pidpath(process as i32, path.as_mut_ptr().cast(), path.len() as u32)
-            };
+            let length = unsafe { libc::proc_pidpath(process, path.as_mut_ptr().cast(), size) };
             require(length > 0, "helper executable identity unavailable")?;
             let end = path
                 .iter()
@@ -675,8 +675,9 @@ impl Run {
                 .then_some(()))
             })?;
             let app = self.app.as_mut().ok_or_else(|| fail("test app missing"))?;
+            let id = libc::pid_t::try_from(app.id()).map_err(|_| fail("invalid test app PID"))?;
             // SAFETY: the Child is still running and unreaped; this pid belongs to our app.
-            let code = unsafe { libc::kill(app.id() as i32, libc::SIGTERM) };
+            let code = unsafe { libc::kill(id, libc::SIGTERM) };
             require(code == 0, "cannot stop test app")?;
             wait_for("test app exit", 10, || {
                 app.try_wait().map_err(|_| fail("cannot wait for test app"))

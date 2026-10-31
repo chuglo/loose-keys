@@ -2514,7 +2514,7 @@ mod tests {
         );
         // No longer one. A real drive is a volume of its own, mounted at its
         // folder, so the item is given what a scan keeps for one.
-        let mounted: Kept = |drive, _| Some(drive.components().count() as u32);
+        let mounted: Kept = |drive, _| u32::try_from(drive.components().count()).ok();
         assert_eq!(
             ejected("eject-unlisted", false, mounted),
             (found.clone(), json!("complete"), json!("open"))
@@ -2546,7 +2546,7 @@ mod tests {
         assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 3);
         // A real share is a volume of its own, mounted at its folder, so its
         // two items are given what a scan keeps for one.
-        let share = home.join("mnt/share").components().count() as u32;
+        let share = u32::try_from(home.join("mnt/share").components().count()).unwrap();
         update_state(&app, |state| {
             let on_share = |i: &&mut review::Item| i.path.starts_with("~/mnt/share/");
             for item in state.items.iter_mut().filter(on_share) {

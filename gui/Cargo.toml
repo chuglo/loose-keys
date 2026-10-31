@@ -28,4 +28,8 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 mem_forget = "deny"
+# A cast that can truncate or change sign; use `try_from` or `cast_signed`.
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_sign_loss = "deny"
 

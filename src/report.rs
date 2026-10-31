@@ -424,7 +424,8 @@ pub fn to_text(r: &Report, limits: bool) -> String {
 pub fn utc_now() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
+        .ok()
+        .and_then(|d| i64::try_from(d.as_secs()).ok())
         .unwrap_or(0);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     // Howard Hinnant's civil_from_days.

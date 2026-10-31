@@ -52,7 +52,7 @@ fn fields(payload: &[u8]) -> Option<Vec<(u64, &[u8])>> {
         let kind = varint(header_bytes, &mut at)?;
         let length = match kind {
             0 | 8 | 9 => 0,
-            1..=4 => kind as usize,
+            1..=4 => usize::try_from(kind).ok()?,
             5 => 6,
             6 | 7 => 8,
             10 | 11 => return None,
@@ -179,7 +179,9 @@ impl<'a> Database<'a> {
                     at += 4;
                     0
                 };
-                let key = varint(page, &mut at)? as i64;
+                // A rowid is a signed 64-bit integer stored as its
+                // two's-complement bits.
+                let key = varint(page, &mut at)?.cast_signed();
                 if previous.is_some_and(|p| p >= key) {
                     return None;
                 }

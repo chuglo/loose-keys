@@ -239,7 +239,7 @@ fn base64_decode(s: &str) -> Vec<u8> {
         bits += 6;
         if bits >= 8 {
             bits -= 8;
-            out.push((acc >> bits) as u8);
+            out.push(((acc >> bits) & 0xff) as u8);
             acc &= (1 << bits) - 1;
         }
     }

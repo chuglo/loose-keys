@@ -86,18 +86,18 @@ pub(super) const fn sqlite_sample_of(table: &[u8], rows: u8) -> [u8; 1024] {
     let cell = 512 - payload_len - 2;
     b[100] = 13;
     b[104] = 1;
-    b[105] = (cell >> 8) as u8;
-    b[106] = cell as u8;
-    b[108] = (cell >> 8) as u8;
-    b[109] = cell as u8;
-    b[cell] = payload_len as u8;
+    b[105] = byte(cell >> 8);
+    b[106] = byte(cell & 0xff);
+    b[108] = byte(cell >> 8);
+    b[109] = byte(cell & 0xff);
+    b[cell] = byte(payload_len);
     b[cell + 1] = 1;
     b[cell + 2] = 6; // Record header: five serial types.
     b[cell + 3] = 23; // Text "table".
-    b[cell + 4] = 13 + table.len() as u8 * 2;
-    b[cell + 5] = 13 + table.len() as u8 * 2;
+    b[cell + 4] = byte(13 + table.len() * 2);
+    b[cell + 5] = byte(13 + table.len() * 2);
     b[cell + 6] = 1; // Root page, one-byte integer.
-    b[cell + 7] = 13 + sql_len as u8 * 2;
+    b[cell + 7] = byte(13 + sql_len * 2);
     let mut at = cell + 8;
     let parts: [&[u8]; 7] = [
         b"table", table, table, b"\x02", sql_prefix, table, sql_suffix,
@@ -115,19 +115,30 @@ pub(super) const fn sqlite_sample_of(table: &[u8], rows: u8) -> [u8; 1024] {
     b[512] = 13;
     b[516] = rows;
     let content = 512 - rows as usize * 4;
-    b[517] = (content >> 8) as u8;
-    b[518] = content as u8;
+    b[517] = byte(content >> 8);
+    b[518] = byte(content & 0xff);
     i = 0;
     while i < rows as usize {
         let cell = 512 - (i + 1) * 4;
-        b[520 + i * 2] = (cell >> 8) as u8;
-        b[521 + i * 2] = cell as u8;
+        b[520 + i * 2] = byte(cell >> 8);
+        b[521 + i * 2] = byte(cell & 0xff);
         b[512 + cell] = 2;
-        b[513 + cell] = i as u8 + 1;
+        b[513 + cell] = byte(i + 1);
         b[514 + cell] = 2;
         i += 1;
     }
     b
+}
+
+/// One byte of the sample. A const fn cannot call `u8::try_from`, so the
+/// value is checked here instead.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the assert above the cast keeps it to one byte"
+)]
+const fn byte(n: usize) -> u8 {
+    assert!(n <= 0xff);
+    n as u8
 }
 
 fn chromium_hits(bytes: &[u8]) -> Hits {
