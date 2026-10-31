@@ -134,9 +134,35 @@ pub fn key_protection(head: &[u8]) -> KeyState {
             None => KeyState::NotAKey,
         };
     }
-    let Some((at, first)) = key_header(&text) else {
-        return KeyState::NotAKey;
-    };
+    let mut rest = text.as_ref();
+    let mut state = KeyState::NotAKey;
+    while let Some((at, first)) = key_header(rest) {
+        let start: usize = rest.split_inclusive('\n').take(at).map(str::len).sum();
+        let block = &rest[start..];
+        let mut end = 0;
+        let mut closed = false;
+        for line in block.split_inclusive('\n') {
+            end += line.len();
+            if line.trim().starts_with("-----END ") {
+                closed = true;
+                break;
+            }
+        }
+        match key_block_protection(&block[..end], first) {
+            KeyState::Unprotected => return KeyState::Unprotected,
+            KeyState::Unknown => state = KeyState::Unknown,
+            KeyState::Protected if state == KeyState::NotAKey => state = KeyState::Protected,
+            _ => {}
+        }
+        if !closed {
+            break;
+        }
+        rest = &block[end..];
+    }
+    state
+}
+
+fn key_block_protection(text: &str, first: &str) -> KeyState {
     // An exported PGP key may or may not have a passphrase; the armor does not say.
     if first == PGP {
         return KeyState::Unknown;
@@ -150,7 +176,7 @@ pub fn key_protection(head: &[u8]) -> KeyState {
     // openssh-key-v1: magic "openssh-key-v1\0", then a length-prefixed cipher name.
     let b64: String = text
         .lines()
-        .skip(at + 1)
+        .skip(1)
         .take_while(|l| !l.starts_with("-----"))
         .flat_map(str::chars)
         .take(64)
@@ -223,6 +249,23 @@ fn base64_decode(s: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_encrypted_key_does_not_hide_an_unprotected_key_in_the_same_file() {
+        let plain = concat!(
+            "-----BEGIN RSA ",
+            "PRIVATE KEY-----\nsynthetic\n-----END RSA ",
+            "PRIVATE KEY-----\n"
+        );
+        let encrypted = concat!(
+            "-----BEGIN RSA ",
+            "PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nsynthetic\n-----END RSA ",
+            "PRIVATE KEY-----\n"
+        );
+        for bundle in [format!("{plain}{encrypted}"), format!("{encrypted}{plain}")] {
+            assert_eq!(key_protection(bundle.as_bytes()), KeyState::Unprotected);
+        }
+    }
 
     #[test]
     fn key_states() {

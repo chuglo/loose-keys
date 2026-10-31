@@ -422,6 +422,18 @@ vendors change their settings.
   `tests/detection-corpus.json`, or the coverage test fails. `Case` in
   `tests/support/detection.rs` documents the fields. Write the expected
   findings from the intended behaviour, never by copying a scan's output.
+- Inline environment tables retain each literal secret separately and skip a
+  service-token assignment only when its whole value matches the token rule. Quoted
+  commas do not separate pairs. The existing scalar parser accepts a limited
+  subset of TOML, not every escaped or multiline value; secrets it cannot parse
+  can be missed. The token rule reads those known settings files whole as well,
+  so suppressing a duplicate assignment does not hide a token beyond the head;
+  the existing 1 MiB config limit and its gap still apply. A key bundle is
+  checked block by block within its 4 KiB head:
+  any unprotected key found there takes precedence over protected or unknown
+  keys. Keys past the head and key validity remain unverified. Rule tests cover
+  the matching and limits; the detection corpus checks the findings and that
+  fixture values and fragments do not enter CLI or engine exports.
 - Matcher caps: 100 assignments per environment or shell file, 100 MCP
   holders, 100 OpenVPN key blocks, 100 rclone remotes per rule, and 20
   password-note lines. Poetry token entries fill the first 100 findings after

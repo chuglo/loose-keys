@@ -50,6 +50,11 @@ pub const SERVICE_TOKEN: Rule = Rule {
         Target::File(".cache/huggingface/token"),
         Target::Name(".envrc"),
         Target::Name("*.tfvars"),
+        // These settings files are read whole for assignments, including
+        // tokens beyond the discovery head.
+        Target::File(".gradle/gradle.properties"),
+        Target::File(".codex/config.toml"),
+        Target::File(".config/goose/secrets.yaml"),
         // Aider writes its chat history into the project folder.
         Target::Name(".aider.chat.history.md"),
         Target::Name(".aider.input.history"),
@@ -452,6 +457,10 @@ fn find(bytes: &[u8]) -> (Vec<(usize, &'static Provider)>, bool) {
 
 pub fn has_token(bytes: &[u8]) -> bool {
     !find(bytes).0.is_empty()
+}
+
+pub(super) fn is_token(bytes: &[u8]) -> bool {
+    token_at(bytes).is_some_and(|(_, len)| len == bytes.len())
 }
 
 /// One hit per line, token type and value: a token repeated on its line is

@@ -5183,6 +5183,68 @@ mod tests {
     }
 
     #[test]
+    fn inline_environment_values_are_rechecked_independently() {
+        let f = Fixture::new("inline-recheck");
+        let path = ".codex/config.toml";
+        put(
+            &f.0,
+            path,
+            b"env = { FIRST_PASSWORD = 'synthetic-first-A', SECOND_PASSWORD = 'synthetic-second-B' }\n",
+        );
+        let digest = |_: &str, bytes: &[u8], _: bool| format!("{:?}", bytes.last());
+        let still = || {
+            recheck_values(
+                "secret.env-assignment",
+                &f.0.join(path),
+                &f.0,
+                None,
+                &digest,
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            still(),
+            [
+                (
+                    Some("FIRST_PASSWORD".to_string()),
+                    Some("Some(65)".to_string())
+                ),
+                (
+                    Some("SECOND_PASSWORD".to_string()),
+                    Some("Some(66)".to_string())
+                ),
+            ]
+        );
+        put(
+            &f.0,
+            path,
+            b"env = { SECOND_PASSWORD = 'synthetic-second-B' }\n",
+        );
+        assert_eq!(
+            still(),
+            [(
+                Some("SECOND_PASSWORD".to_string()),
+                Some("Some(66)".to_string())
+            )]
+        );
+    }
+
+    #[test]
+    fn a_service_token_past_the_head_of_a_known_environment_file_is_found() {
+        let f = Fixture::new("known-env-token");
+        let token = format!("gh{}_{}", "p", "0123456789abcdefghijABCDEFGHIJ012345");
+        let content = format!("{}api_token={token}\n", "# ordinary settings\n".repeat(300));
+        put(&f.0, ".gradle/gradle.properties", content.as_bytes());
+        let s = Scan::run(&f.0, std::slice::from_ref(&f.0));
+        assert!(s
+            .findings
+            .iter()
+            .any(|finding| finding.rule == "secret.service-token"
+                && finding.path == "~/.gradle/gradle.properties"));
+        assert!(s.not_checked.is_empty());
+    }
+
+    #[test]
     fn a_recheck_of_a_file_gone_with_its_volume_knows_nothing() {
         let f = Fixture::new("recheck-volume");
         // Not there: a file read whole, a record read through, and a folder

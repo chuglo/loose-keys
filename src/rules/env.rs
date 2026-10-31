@@ -105,15 +105,34 @@ fn assignments(bytes: &[u8], shell: bool) -> Hits {
     let text = String::from_utf8_lossy(bytes);
     // Positions in `text` are positions in the file only if nothing was replaced.
     let exact = matches!(text, std::borrow::Cow::Borrowed(_));
+    let start = text.as_ptr() as usize;
     capped_hits(
-        text.lines().enumerate().filter_map(|(i, raw)| {
-            // A recognizable service token is reported by its own rule.
-            let (name, value) =
-                secret_assignment(raw, shell).filter(|_| !token::has_token(raw.as_bytes()))?;
-            let at = value.as_ptr() as usize - text.as_ptr() as usize;
-            let mut hit = Hit::line(i + 1).about(name);
-            hit.span = exact.then_some(at..at + value.len());
-            Some(hit)
+        text.lines().enumerate().flat_map(|(i, raw)| {
+            let table = raw.trim().split_once('=').and_then(|(name, value)| {
+                is_name(unquoted(name))
+                    .then(|| value.trim().strip_prefix('{'))
+                    .flatten()
+            });
+            let pairs = table
+                .into_iter()
+                .flat_map(inline_table_pairs)
+                .filter_map(|(name, value)| secret(unquoted(name), value))
+                .chain(
+                    table
+                        .is_none()
+                        .then(|| secret_assignment(raw, shell))
+                        .flatten(),
+                );
+            pairs.filter_map(move |(name, value)| {
+                // A recognizable service token is reported by its own rule.
+                if token::is_token(value.as_bytes()) {
+                    return None;
+                }
+                let at = value.as_ptr() as usize - start;
+                let mut hit = Hit::line(i + 1).about(name);
+                hit.span = exact.then_some(at..at + value.len());
+                Some(hit)
+            })
         }),
         100,
     )
@@ -148,12 +167,48 @@ fn secret_assignment(raw: &str, shell: bool) -> Option<(&str, &str)> {
     };
     // Codex writes a server's variables on one line: env = { "NAME" = "value" }
     if let Some(table) = value.trim().strip_prefix('{') {
-        let pairs = table.trim_end().trim_end_matches('}').split(',');
-        return pairs
-            .filter_map(|pair| pair.split_once('='))
-            .find_map(|(name, value)| secret(unquoted(name), value));
+        return inline_table_pairs(table).find_map(|(name, value)| secret(unquoted(name), value));
     }
     secret(name, value)
+}
+
+fn inline_table_pairs(table: &str) -> impl Iterator<Item = (&str, &str)> {
+    let (mut quote, mut escaped) = (None, false);
+    let end = table
+        .char_indices()
+        .find_map(|(i, c)| {
+            if escaped {
+                escaped = false;
+            } else if quote == Some('"') && c == '\\' {
+                escaped = true;
+            } else if quote == Some(c) {
+                quote = None;
+            } else if quote.is_none() && matches!(c, '\'' | '"') {
+                quote = Some(c);
+            } else if quote.is_none() && c == '}' {
+                return Some(i);
+            }
+            None
+        })
+        .unwrap_or(table.len());
+    let (mut quote, mut escaped) = (None, false);
+    table[..end]
+        .trim_end()
+        .split(move |c| {
+            if escaped {
+                escaped = false;
+            } else if quote == Some('"') && c == '\\' {
+                escaped = true;
+            } else if quote == Some(c) {
+                quote = None;
+            } else if quote.is_none() && matches!(c, '\'' | '"') {
+                quote = Some(c);
+            } else if quote.is_none() && c == ',' {
+                return true;
+            }
+            false
+        })
+        .filter_map(|pair| pair.split_once('='))
 }
 
 /// A name as TOML may write it, in quotes.
@@ -219,6 +274,79 @@ fn shell_word(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_environment_keeps_each_secret_even_beside_a_service_token() {
+        let line = concat!(
+            "env = { \"FIRST_PASSWORD\" = \"synthetic-first-value\", ",
+            "\"SERVICE_TOKEN\" = \"gh",
+            "p_0123456789abcdefghijABCDEFGHIJ012345\", ",
+            "\"SECOND_PASSWORD\" = \"synthetic-second-value\" }\n"
+        );
+        let hits = env_hits(line.as_bytes()).unwrap();
+        let names: Vec<_> = hits.iter().map(|hit| hit.subject.as_deref()).collect();
+        assert_eq!(names, [Some("FIRST_PASSWORD"), Some("SECOND_PASSWORD")]);
+        assert_eq!(
+            &line[hits[0].span.clone().unwrap()],
+            "synthetic-first-value"
+        );
+        assert_eq!(
+            &line[hits[1].span.clone().unwrap()],
+            "synthetic-second-value"
+        );
+    }
+
+    #[test]
+    fn commas_inside_an_inline_environment_value_are_not_pair_separators() {
+        let line = "env = { FIRST_PASSWORD = 'synthetic,first-value', SECOND_PASSWORD = 'synthetic-second-value' }";
+        let hits = env_hits(line.as_bytes()).unwrap();
+        let names: Vec<_> = hits.iter().map(|hit| hit.subject.as_deref()).collect();
+        assert_eq!(names, [Some("FIRST_PASSWORD"), Some("SECOND_PASSWORD")]);
+        assert_eq!(
+            &line[hits[0].span.clone().unwrap()],
+            "synthetic,first-value"
+        );
+    }
+
+    #[test]
+    fn a_comment_after_an_inline_environment_does_not_hide_the_last_value() {
+        let line = "env = { FIRST_PASSWORD = 'synthetic-first-value', SECOND_PASSWORD = 'synthetic-second-value' } # comment";
+        let hits = env_hits(line.as_bytes()).unwrap();
+        let names: Vec<_> = hits.iter().map(|hit| hit.subject.as_deref()).collect();
+        assert_eq!(names, [Some("FIRST_PASSWORD"), Some("SECOND_PASSWORD")]);
+    }
+
+    #[test]
+    fn a_token_inside_a_longer_password_does_not_hide_the_password() {
+        let line = concat!(
+            "PASSWORD=synthetic.prefix.gh",
+            "p_0123456789abcdefghijABCDEFGHIJ012345",
+            ".suffix\n"
+        );
+        let hits = env_hits(line.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].subject.as_deref(), Some("PASSWORD"));
+        assert_eq!(
+            &line[hits[0].span.clone().unwrap()],
+            line.trim().strip_prefix("PASSWORD=").unwrap()
+        );
+    }
+
+    #[test]
+    fn inline_environment_reports_the_assignment_limit() {
+        let pairs = |count| {
+            (0..count)
+                .map(|n| format!("PASSWORD_{n}_TOKEN = \"synthetic-value-{n}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let exact = format!("env = {{ {} }}", pairs(100));
+        assert_eq!(env_hits(exact.as_bytes()).unwrap().len(), 100);
+        let more = format!("env = {{ {} }}", pairs(101));
+        let incomplete = env_hits(more.as_bytes()).err().expect("assignment limit");
+        assert_eq!(incomplete.reason, "scan-limit");
+        assert_eq!(incomplete.hits.len(), 100);
+    }
 
     #[test]
     fn names_and_values_are_filtered() {
