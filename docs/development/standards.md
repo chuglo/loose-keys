@@ -41,6 +41,11 @@ own. Numbers in brackets refer to the sources at the end.
   `FromUtf8Error` and `NulError` includes the bytes, and a `serde_json` type
   error can quote the value it did not expect. Map the error to a fixed
   reason, as `utf8_lines` and `json_hits` in `src/rules/mod.rs` do.
+- `std::process::exit` runs no `Drop`, on any thread. The command returns
+  an `ExitCode` from `main` instead. The agent calls `exit` in `run`, only
+  at startup failures and at the end. New code that ends the agent saves
+  what must be kept through the store first and leaves nothing to a
+  `Drop`. [14]
 
 ## Unsafe code
 
@@ -196,6 +201,17 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   `configure` sets it for automatic work only: the monitor remembers which
   kind `arm` last let through, so a pause or a change of consent never ends a
   scan the person started.
+- The atomics are `AtomicBool` flags, such as `cancel` and the scanning
+  flag, that hand over no other data, and all use `SeqCst`. Keep to that. Data
+  another thread reads goes through a `Mutex`, `Condvar` or channel, never a
+  flag set after writing it. A weaker ordering is a change of its own, with
+  the reasoning in a comment. [15]
+- Limits and deadlines use `Instant` (`Scan::started`, the monitor's `due`).
+  `SystemTime` is only for a timestamp written down (`report::utc_now`,
+  `now` in `gui/src/lib.rs`). It can go backwards, so both handle
+  `duration_since` failing. `Instant + Duration` panics on overflow. That is
+  fine for a constant such as `CADENCE`, but a duration from input or state
+  uses `checked_add`. [14]
 - The worker sets its own priority where its thread starts, in `run`, not
   inside the loop, so tests run the worker at ordinary priority.
 
@@ -357,6 +373,54 @@ become one; a test on a synthetic folder checks that the real stream, opened
 again, replays what came after the place and not what came before.
 Not verified: how often a real helper is dropped, or replays fall behind again.
 
+## Numbers, offsets and text from a file
+
+A length, count or offset decoded from a scanned file is input like the rest
+of the file. Arithmetic and indexing on it can wrap or panic, and the type
+checker does not catch either. [8]
+
+- Arithmetic on a decoded number uses `checked_add`, `checked_sub` and
+  `checked_mul`, and gives up on `None`, as `src/rules/sqlite.rs` does with
+  a cell's length. Release builds wrap on overflow silently, so a wrapped sum
+  passes a bounds check it should fail. Plain `+` is fine where both sides are
+  already bounded, such as a position in a buffer `fsutil` capped at 1 MiB
+  plus a small constant (`u16_at`). Do not set `overflow-checks` in a profile
+  to change this. [12][13]
+- Narrow a number with `try_from`, not `as`:
+  `usize::try_from(varint(page, &mut at)?).ok()?`. `as` truncates and changes
+  sign silently. It is fine for widening (`u32` to `usize` on a 64-bit Mac).
+  New code that uses it for a reinterpretation the format defines says so in
+  a comment. [12]
+- Index with `.get(..)` and give up on `None` (`bytes.get(at..at + 2)?`).
+  Index directly only after a length check in the same function, as
+  `blob.len() < 19` comes before `blob[15]` in `private_key.rs`. A panic
+  there is a crash on input. [8]
+- Slice a `str` only at a byte offset that `find`, `split_once`,
+  `char_indices` or a match on an ASCII character returned. An offset made
+  by arithmetic or a byte limit can land inside a character, and slicing
+  there panics. To cut text at a byte limit, step back to
+  `is_char_boundary`. `floor_char_boundary` needs Rust 1.91, newer than the
+  supported 1.88. [14]
+- Size an allocation from a file only after capping it.
+  `Vec::with_capacity(cells)` is safe because `cells` is a `u16`. A count a
+  header claims can be anything: `with_capacity` panics above `isize::MAX`
+  bytes, and a smaller huge count still exhausts memory. Cap it at the
+  matcher's budget or use `try_reserve`. [14]
+- No recursion over nested data from a file. The SQLite reader keeps the
+  pages it still has to visit in a list, and a new parser does the same with
+  an entry limit. Running out of stack is not a panic `catch_unwind` can
+  catch, and a spawned thread has 2 MiB of it. `serde_json` stops at 128
+  levels. Keep its `unbounded_depth` feature off. [14][16]
+- Keep a file name as `Path` or `OsStr` until it is shown. A name that is not
+  UTF-8 is shown through `to_string_lossy` and `report::escape`
+  (`Scan::rel`), so its bad bytes read as `\u{fffd}`. Two such names can look
+  the same, and in the app a decision about the place then covers both
+  files. APFS refuses such names (checked 2026-10-30), so only another kind
+  of volume can hold them. Repaired text names some other file, so nothing
+  reopens or acts on a file through it: `full_path` takes only printable
+  ASCII, and `recheck_path` refuses text holding U+FFFD. `Path::display`
+  escapes nothing and is no substitute for `report::escape`. [14]
+
 ## Secrets
 
 - A value does not leave the function that matched it. A matcher returns
@@ -516,7 +580,13 @@ vendors change their settings.
   `unsafe fn` with no block of its own (`unsafe_op_in_unsafe_fn`), and
   clippy's `dbg_macro`, `todo`, `unimplemented` and `mem_forget`. Keep the
   two tables the same. Fix what a lint reports. If it is wrong for this
-  code, allow it on the smallest item with the reason in a comment.
+  code, override it on the smallest item with
+  `#[expect(lint, reason = "...")]`, not `#[allow]`: clippy fails once the
+  lint no longer fires there, so the override cannot outlive its reason. [6]
+- Clippy's default set does not check casts, arithmetic or indexing. Those
+  lints are pedantic or restriction, and turning them on is a lint setting to
+  ask about first. "Numbers, offsets and text from a file" is the rule
+  meanwhile. [10]
 - Pass `--locked` to every cargo command that builds. It fails instead of
   rewriting `Cargo.lock`. The workspace has one lock file, at the root.
   `cargo audit --file <lock>` checks one against the RustSec advisory list.
@@ -774,7 +844,8 @@ Recheck a source before leaning on a detail: these change.
 5. `std::fs`, "Time of Check to Time of Use", and `std::io`, "I/O Safety".
    https://doc.rust-lang.org/std/fs/index.html and
    https://doc.rust-lang.org/std/io/index.html
-6. Rust 1.81 release notes: a panic leaving an `extern "C"` function aborts.
+6. Rust 1.81 release notes: a panic leaving an `extern "C"` function aborts,
+   and `#[expect]` with lint reasons is stable.
    https://blog.rust-lang.org/2024/09/05/Rust-1.81.0/
 7. Rust 1.82 release notes (`unsafe extern`, unsafe attributes) and the 2024
    edition guide (`if let` temporaries, `set_var`).
@@ -791,3 +862,17 @@ Recheck a source before leaning on a detail: these change.
 11. Cargo, `--locked` and the `[lints]` table; RustSec and `cargo audit`.
     https://doc.rust-lang.org/cargo/commands/cargo-build.html,
     https://doc.rust-lang.org/cargo/reference/manifest.html and https://rustsec.org/
+12. The Reference, "Overflow" and "Numeric cast" under operator
+    expressions: overflow wraps when checks are off, and `as` truncates.
+    https://doc.rust-lang.org/reference/expressions/operator-expr.html
+13. Cargo profiles, `overflow-checks`: on in dev, off in release.
+    https://doc.rust-lang.org/cargo/reference/profiles.html
+14. The standard library: `str` slicing and `is_char_boundary`,
+    `Vec::with_capacity` and `try_reserve`, `Path::to_string_lossy` and
+    `display`, `Instant` and `SystemTime`, `std::thread` ("Stack size") and
+    `std::process::exit`. https://doc.rust-lang.org/std/
+15. Mara Bos, Rust Atomics and Locks, chapters 2 and 3: stop flags, Relaxed,
+    Release and Acquire ordering. https://mara.nl/atomics/
+16. `serde_json::Deserializer::disable_recursion_limit` and the
+    `unbounded_depth` feature.
+    https://docs.rs/serde_json/latest/serde_json/struct.Deserializer.html

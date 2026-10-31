@@ -190,10 +190,9 @@ run from the repository or worktree root as their instructions specify.
   "unverified", as the docs do.
 - **Do not make a check pass by weakening it:** no deleted or ignored test,
   loosened assertion or longer timeout. A lint that is wrong for this code
-  is allowed on the smallest item, with the reason in a comment; one that
-  found a real problem is fixed. If a test is wrong, say why in the commit
-  that changes it. If it fails only sometimes, report what
-  you saw.
+  is overridden on the smallest item with `#[expect(lint, reason = "...")]`;
+  one that found a real problem is fixed. If a test is wrong, say why in the
+  commit that changes it. If it fails only sometimes, report what you saw.
 - **For a bug, write the test first and watch it fail** with the bug present.
 - **Stay inside the task.** No refactor, rename, reformat or new abstraction
   on the way, and no `dbg!`, stray print, commented-out code or scratch file
@@ -217,6 +216,11 @@ run from the repository or worktree root as their instructions specify.
 - **Errors.** An expected failure is a value: a `Result`, or a gap in the
   report. A panic is for a broken invariant. Never unwrap or print an error
   that embeds bytes from a scanned file, such as `FromUtf8Error`.
+- **Numbers from a file.** A decoded length, count or offset is input:
+  `checked_*` arithmetic, `try_from` instead of a narrowing `as`, `.get()`
+  instead of indexing, a `str` sliced only where `find` or `char_indices`
+  put the offset, an allocation capped before it is made, and no recursion.
+  Release builds wrap on overflow silently.
 - **Unsafe** is only for system calls and the C interface. A block you add or
   change gets a `// SAFETY:` comment saying why the call's requirements hold
   (older blocks lack one). Wrap a new file descriptor in `File` at once, so
