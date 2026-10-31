@@ -38,6 +38,7 @@ pub const ENV_SECRET: Rule = Rule {
     },
     samples: &[
         (b"DATABASE_PASSWORD=synthetic-only-value\n", true),
+        (b"\xef\xbb\xbfDATABASE_PASSWORD=synthetic-only-value\n", true),
         (b": 1700000000:0;export API_TOKEN=\"synthetic-only-value\"\n", true),
         (b"API_TOKEN=${OTHER}\nDB_PASSWORD=changeme\nPORT=8080\nAUTHOR=someone-else\n", false),
         (b"# API_TOKEN=synthetic-only-value\nPASSWORD_MIN_LENGTH=12\n", false),
@@ -106,8 +107,11 @@ fn assignments(bytes: &[u8], shell: bool) -> Hits {
     // Positions in `text` are positions in the file only if nothing was replaced.
     let exact = matches!(text, std::borrow::Cow::Borrowed(_));
     let start = text.as_ptr() as usize;
+    // A byte order mark is not part of the first line. Skipping it keeps
+    // positions counted from the start of the file.
+    let lines = text.trim_start_matches('\u{feff}').lines();
     capped_hits(
-        text.lines().enumerate().flat_map(|(i, raw)| {
+        lines.enumerate().flat_map(|(i, raw)| {
             let table = raw.trim().split_once('=').and_then(|(name, value)| {
                 is_name(unquoted(name))
                     .then(|| value.trim().strip_prefix('{'))
@@ -294,6 +298,34 @@ mod tests {
             &line[hits[1].span.clone().unwrap()],
             "synthetic-second-value"
         );
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_line() {
+        let file = b"\xef\xbb\xbfDATABASE_PASSWORD=synthetic-only-value\nAPI_TOKEN=synthetic-second-value\n";
+        for hits in [env_hits(file), shell_hits(file)] {
+            let hits = hits.unwrap();
+            let found: Vec<_> = hits
+                .iter()
+                .map(|hit| (hit.line, hit.subject.as_deref()))
+                .collect();
+            assert_eq!(
+                found,
+                [
+                    (Some(1), Some("DATABASE_PASSWORD")),
+                    (Some(2), Some("API_TOKEN"))
+                ]
+            );
+            // Positions are in the file as read, mark included.
+            assert_eq!(
+                &file[hits[0].span.clone().unwrap()],
+                b"synthetic-only-value"
+            );
+            assert_eq!(
+                &file[hits[1].span.clone().unwrap()],
+                b"synthetic-second-value"
+            );
+        }
     }
 
     #[test]

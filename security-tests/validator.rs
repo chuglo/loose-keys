@@ -107,7 +107,7 @@ pub(crate) fn self_tests() -> Result<()> {
         ("line", json!(0)),
         ("steps", json!([])),
         ("link", json!("http://example.invalid")),
-        ("token_type", json!("1bad")),
+        ("token_type", json!("bad!")),
         ("category", json!("unknown")),
     ] {
         let mut report = good.clone();

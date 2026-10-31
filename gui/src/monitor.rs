@@ -118,9 +118,12 @@ impl Monitor {
 
     /// Wake the worker after `delay` without a scan being due. Several
     /// requests keep the earliest; the worker asks again for whatever is left.
+    /// A delay the clock cannot hold asks for no wake.
     pub fn retry_in(&self, delay: Duration) {
         let mut s = self.state.lock().unwrap();
-        let at = Instant::now() + delay;
+        let Some(at) = Instant::now().checked_add(delay) else {
+            return;
+        };
         s.retry = Some(s.retry.map_or(at, |earlier| earlier.min(at)));
         self.ready.notify_one();
     }
@@ -235,6 +238,22 @@ mod tests {
         // instead of holding the test until the next check is due.
         let (worker, (tx, rx)) = (m.clone(), std::sync::mpsc::channel());
         std::thread::spawn(move || tx.send(worker.wait()));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(Some(false)));
+        m.stop();
+    }
+
+    /// A wait read from the saved state can be any number. One too long to
+    /// add to the clock ended the helper, and launchd started it again into
+    /// the same state.
+    #[test]
+    fn a_wake_too_far_ahead_is_none_and_an_earlier_one_still_comes() {
+        let m = Arc::new(Monitor::new(true, false));
+        assert_eq!(m.wait(), Some(true));
+        m.retry_in(Duration::MAX);
+        let (worker, (tx, rx)) = (m.clone(), std::sync::mpsc::channel());
+        std::thread::spawn(move || tx.send(worker.wait()));
+        assert!(rx.recv_timeout(Duration::from_millis(20)).is_err());
+        m.retry_in(Duration::ZERO);
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(Some(false)));
         m.stop();
     }

@@ -359,12 +359,15 @@ const PROVIDERS: &[Provider] = &[
     p("Together AI API key", "tgp_v1_", word, 43, 43, None),
 ];
 
-/// Whether any prefix starts with this byte.
-const STARTS: [bool; 256] = {
-    let mut table = [false; 256];
+/// The providers whose prefix starts with each byte, as bits by their place
+/// in `PROVIDERS`. Most words start with a letter some prefix starts with,
+/// and trying only these keeps to the order without trying all of them.
+const STARTS: [u128; 256] = {
+    assert!(PROVIDERS.len() <= 128);
+    let mut table = [0; 256];
     let mut i = 0;
     while i < PROVIDERS.len() {
-        table[PROVIDERS[i].prefix.as_bytes()[0] as usize] = true;
+        table[PROVIDERS[i].prefix.as_bytes()[0] as usize] |= 1 << i;
         i += 1;
     }
     table
@@ -380,29 +383,80 @@ pub fn names() -> impl Iterator<Item = &'static str> {
 
 /// The token starting at `rest`, as (provider, length).
 fn token_at(rest: &[u8]) -> Option<(&'static Provider, usize)> {
-    PROVIDERS.iter().find_map(|p| {
-        let body = rest.strip_prefix(p.prefix.as_bytes())?;
-        // One past the longest allowed is already too long: counting further
-        // would read a long run again from every place a token could start.
-        let n = body
+    token_counted(rest, 0, &mut [(0, 0); PROVIDERS.len()])
+}
+
+/// The token starting at `i`, as `token_at` finds it. `counted` keeps, for
+/// each provider, bytes already found to be characters its tokens may hold:
+/// a start inside them takes up the count where it stopped, so a long run of
+/// them is counted once, not again from every place a token could start.
+fn token_counted(
+    bytes: &[u8],
+    i: usize,
+    counted: &mut [(usize, usize); PROVIDERS.len()],
+) -> Option<(&'static Provider, usize)> {
+    let rest = bytes.get(i..)?;
+    let mut candidates = STARTS[usize::from(*rest.first()?)];
+    while candidates != 0 {
+        let k = usize::try_from(candidates.trailing_zeros()).ok()?;
+        // Clear the lowest bit: the next is the next provider in order.
+        candidates &= candidates - 1;
+        let p = PROVIDERS.get(k)?;
+        let body = i + p.prefix.len();
+        let (start, end) = counted.get(k).copied()?;
+        let known = if (start..end).contains(&body) {
+            end - body
+        } else {
+            0
+        };
+        let (len, n) = token_of(p, rest, known);
+        if n > known {
+            counted[k] = (body, body + n);
+        }
+        if let Some(len) = len {
+            return Some((p, len));
+        }
+    }
+    None
+}
+
+/// The length of the token of this provider starting at `rest`, if one does,
+/// and how many characters its body was counted to have. The first `known`
+/// bytes after the prefix are known to be such characters.
+fn token_of(p: &Provider, rest: &[u8], known: usize) -> (Option<usize>, usize) {
+    let Some(body) = rest.strip_prefix(p.prefix.as_bytes()) else {
+        return (None, 0);
+    };
+    // One past the longest allowed is already too long: counting further
+    // would read a long run again from every place a token could start.
+    let known = known.min(p.max + 1).min(body.len());
+    let n = known
+        + body[known..]
             .iter()
-            .take(p.max + 1)
+            .take(p.max + 1 - known)
             .take_while(|b| (p.body)(**b))
             .count();
-        // Databricks: the characters may be followed by "-" and one digit.
-        let suffix = p.prefix == "dapi"
-            && n == p.max
-            && body.get(n) == Some(&b'-')
-            && body.get(n + 1).is_some_and(u8::is_ascii_digit);
-        let extra = if suffix { 2 } else { 0 };
-        let ends = body.get(n + extra).is_none_or(|b| !word(*b));
-        // Slack: a letter saying which kind of token, then "-" or ".".
-        let slack = p.prefix != "xox"
-            || (body.len() > 1 && b"bparsoecd".contains(&body[0]) && b"-.".contains(&body[1]));
-        let text = std::str::from_utf8(&body[..n]).ok()?;
-        (n >= p.min && n <= p.max && ends && slack && text.contains(p.must) && plausible(text))
-            .then_some((p, p.prefix.len() + n + extra))
-    })
+    (token_body(p, body, n), n)
+}
+
+/// The length of the token of this provider whose prefix `body` follows,
+/// with `n` characters a token's body may hold before anything else.
+fn token_body(p: &Provider, body: &[u8], n: usize) -> Option<usize> {
+    // Databricks: the characters may be followed by "-" and one digit.
+    let suffix = p.prefix == "dapi"
+        && n == p.max
+        && body.get(n) == Some(&b'-')
+        && body.get(n + 1).is_some_and(u8::is_ascii_digit);
+    let extra = if suffix { 2 } else { 0 };
+    let ends = body.get(n + extra).is_none_or(|b| !word(*b));
+    // Slack: a letter saying which kind of token, then "-" or ".".
+    let slack = p.prefix != "xox"
+        || (body.len() > 1 && b"bparsoecd".contains(&body[0]) && b"-.".contains(&body[1]));
+    if n < p.min || n > p.max || !ends || !slack {
+        return None;
+    }
+    let text = std::str::from_utf8(&body[..n]).ok()?;
+    (text.contains(p.must) && plausible(text)).then_some(p.prefix.len() + n + extra)
 }
 
 /// Whether a token may start at `i`: not inside a longer word. In a JSON
@@ -431,10 +485,11 @@ fn starts_word(bytes: &[u8], i: usize) -> bool {
 fn find(bytes: &[u8]) -> (Vec<(usize, &'static Provider)>, bool) {
     let mut out = Vec::new();
     let mut values = std::collections::HashSet::new();
+    let mut counted = [(0, 0); PROVIDERS.len()];
     let mut i = 0;
     while i < bytes.len() {
-        if STARTS[bytes[i] as usize] && starts_word(bytes, i) {
-            if let Some((p, len)) = token_at(&bytes[i..]) {
+        if STARTS[usize::from(bytes[i])] != 0 && starts_word(bytes, i) {
+            if let Some((p, len)) = token_counted(bytes, i, &mut counted) {
                 let value = &bytes[i..i + len];
                 let new = !values.contains(value);
                 if new && values.len() == MAX_HITS {
@@ -467,7 +522,8 @@ pub(super) fn is_token(bytes: &[u8]) -> bool {
 /// one hit, and two different ones there are two. Binary files get a
 /// whole-file hit for each different token.
 fn token_hits(bytes: &[u8]) -> Hits {
-    let text = std::str::from_utf8(bytes).is_ok();
+    // Text need not be UTF-8: zsh writes non-ASCII history in its own form.
+    let text = !bytes.contains(&0);
     let mut hits: Vec<Hit> = Vec::new();
     let (mut line, mut counted) = (1, 0);
     let (found, limited) = find(bytes);
@@ -541,6 +597,26 @@ mod tests {
         let hits = token_hits(&bytes).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].line, None);
+    }
+
+    #[test]
+    fn a_line_that_is_not_utf8_keeps_line_numbers() {
+        // zsh writes non-ASCII history "metafied", which is not UTF-8.
+        let gh = |end: &str| fake("ghp_", &format!("0123456789abcdefghijABCDEFGHIJ0123{end}"));
+        let history = |first: &[u8], token: &str| {
+            let mut bytes = b": 1700000000:0;echo synthetic-caf".to_vec();
+            bytes.extend(first);
+            bytes.extend(format!("\n: 1700000001:0;export GITHUB_TOKEN={token}\n").as_bytes());
+            bytes
+        };
+        let file = history(b"\x83\xa6", &gh("AA"));
+        let hits = token_hits(&file).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, Some(2));
+        // The app fingerprints that line, so it follows the token alone.
+        let material = |bytes: &[u8]| crate::rules::material("secret.service-token", bytes);
+        assert_ne!(material(&file), material(&history(b"\x83\xa6", &gh("BB"))));
+        assert_eq!(material(&file), material(&history(b"\x83\xa7", &gh("AA"))));
     }
 
     #[test]
@@ -732,6 +808,117 @@ mod tests {
             "checking {} bytes took {took:?}",
             run.len()
         );
+    }
+
+    /// A JSON report gives each token's type, and the report format says
+    /// what a type may look like. Two names did not fit it, so a report
+    /// holding either failed validation.
+    #[test]
+    fn every_token_type_fits_the_report_format() {
+        let schema: serde_json::Value =
+            serde_json::from_str(include_str!("../../schema/report-1.schema.json")).unwrap();
+        let field = &schema["properties"]["findings"]["items"]["properties"]["token_type"];
+        assert!(field.is_object(), "no token_type in the report format");
+        let format = jsonschema::options()
+            .with_draft(jsonschema::Draft::Draft202012)
+            .build(field)
+            .unwrap();
+        for p in PROVIDERS {
+            assert!(format.is_valid(&serde_json::json!(p.name)), "{}", p.name);
+        }
+    }
+
+    #[test]
+    fn a_run_longer_than_any_token_is_counted_once() {
+        // As above, for formats that allow 2,000 characters: each start
+        // counted that many again, about a second for each MiB of a record.
+        for repeated in [",fm2_", ",ops_eyJ"] {
+            let run = repeated.repeat(1024 * 1024 / repeated.len());
+            let started = std::time::Instant::now();
+            find(run.as_bytes());
+            let took = started.elapsed();
+            assert!(
+                took < std::time::Duration::from_secs(10),
+                "checking {} bytes of {repeated} took {took:?}",
+                run.len()
+            );
+        }
+    }
+
+    #[test]
+    fn counting_a_run_once_finds_what_counting_it_from_every_start_did() {
+        // Each start counted afresh, as `find` once did.
+        let afresh = |bytes: &[u8]| {
+            let (mut out, mut i) = (Vec::new(), 0);
+            while i < bytes.len() {
+                match token_at(&bytes[i..]).filter(|_| starts_word(bytes, i)) {
+                    Some((p, len)) => {
+                        out.push((i, p.name, len));
+                        i += len;
+                    }
+                    None => i += 1,
+                }
+            }
+            out
+        };
+        let counted = |bytes: &[u8]| {
+            let (found, _) = find(bytes);
+            let length = |at: usize| token_at(&bytes[at..]).map_or(0, |(_, n)| n);
+            found
+                .into_iter()
+                .map(|(at, p)| (at, p.name, length(at)))
+                .collect::<Vec<_>>()
+        };
+        let fm2 = fake("fm2_", &"abcDEF0123".repeat(12));
+        let ops = fake("ops_eyJ", &"abcDEF0123".repeat(30));
+        let gh = fake("ghp_", "0123456789abcdefghijABCDEFGHIJ012345");
+        let samples = [
+            ",fm2_".repeat(500),
+            ",ops_eyJ".repeat(400),
+            format!("{}{fm2},{fm2} {ops}", ",fm2_".repeat(450)),
+            format!("{fm2},fm2_,{ops},ops_eyJ,{gh} {gh}x {gh}\n,fm2_{fm2}"),
+            format!("{},{gh}", "glc_".repeat(150)),
+        ];
+        // Named by place, so a failure does not print a token.
+        for (n, sample) in samples.iter().enumerate() {
+            let found = counted(sample.as_bytes());
+            assert_eq!(found, afresh(sample.as_bytes()), "sample {n}");
+        }
+        assert!(!counted(samples[3].as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn providers_are_tried_in_order_whatever_their_first_letter() {
+        // Every provider in order, as `token_at` once tried them.
+        let in_order = |rest: &[u8]| {
+            PROVIDERS
+                .iter()
+                .find_map(|p| token_of(p, rest, 0).0.map(|len| (p.name, p.prefix, len)))
+        };
+        let indexed = |rest: &[u8]| token_at(rest).map(|(p, len)| (p.name, p.prefix, len));
+        // A token of each provider's shortest length, and the same with a
+        // character too many; then each prefix cut short and followed by text.
+        let pool = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let mut samples = Vec::new();
+        for p in PROVIDERS {
+            let lead = if p.prefix == "xox" { "b-" } else { "" };
+            let fill = pool.bytes().filter(|b| (p.body)(*b)).cycle();
+            let mut body = format!("{lead}{}", p.must).into_bytes();
+            body.extend(fill.take(p.min.saturating_sub(body.len())));
+            let token = [p.prefix.as_bytes(), &body].concat();
+            assert_eq!(indexed(&token).map(|t| t.1), Some(p.prefix), "{}", p.name);
+            samples.push([&token[..], b"x"].concat());
+            samples.push(token);
+            for cut in 1..p.prefix.len() {
+                samples.push([&p.prefix.as_bytes()[..cut], b" synthetic text"].concat());
+            }
+        }
+        samples.extend((0..=255).map(|b| vec![b, b'_', b'-', b'.']));
+        samples.push(Vec::new());
+        // Named by place, so a failure does not print a token.
+        for (n, sample) in samples.iter().enumerate() {
+            assert_eq!(indexed(sample), in_order(sample), "sample {n}");
+        }
     }
 
     #[test]

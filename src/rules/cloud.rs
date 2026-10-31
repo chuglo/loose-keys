@@ -453,8 +453,20 @@ pub(super) fn state_secrets(v: &serde_json::Value) -> (Vec<Held<'_>>, bool) {
                 .flatten()
                 .filter_map(|path| path[0]["value"].as_str());
             let usual = STATE_SECRETS.iter().copied().chain(generated);
-            limited |= marked.clone().nth(100).is_some();
-            let mut names: Vec<&str> = marked.take(100).chain(usual).collect();
+            // Counted by name: a helm_release marks one attribute at a path
+            // for each of its set_sensitive blocks.
+            let mut names: Vec<&str> = Vec::new();
+            for name in marked {
+                if names.contains(&name) {
+                    continue;
+                }
+                if names.len() == 100 {
+                    limited = true;
+                    break;
+                }
+                names.push(name);
+            }
+            names.extend(usual);
             names.sort_unstable();
             names.dedup();
             for name in names {
@@ -496,4 +508,53 @@ pub(super) fn state_secrets(v: &serde_json::Value) -> (Vec<Held<'_>>, bool) {
         });
     }
     (out, limited)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn sensitive_attributes_are_counted_by_name() {
+        let state = |paths: Vec<serde_json::Value>, attributes: serde_json::Value| {
+            json!({"version": 4, "terraform_version": "1.9.0", "resources": [
+                {"mode": "managed", "type": "helm_release", "name": "fixture",
+                 "instances": [{"attributes": attributes, "sensitive_attributes": paths}]},
+            ]})
+            .to_string()
+        };
+        // A helm_release marks each of its set_sensitive blocks: many paths,
+        // one name, and nothing left unexamined.
+        for count in [100, 101] {
+            let paths = (0..count)
+                .map(|n| {
+                    json!([{"type": "get_attr", "value": "set_sensitive"},
+                           {"type": "index", "value": {"value": n, "type": "number"}},
+                           {"type": "get_attr", "value": "value"}])
+                })
+                .collect();
+            let attributes = json!({"password": "synthetic-only-value",
+                "set_sensitive": [{"name": "fixture", "value": "synthetic-only-value"}]});
+            let hits = tfstate_hits(state(paths, attributes).as_bytes());
+            assert_eq!(hits.map(|hits| hits.len()).ok(), Some(1), "{count}");
+        }
+        // Past 100 different names the rest are not examined: what was
+        // found stays, with the gap.
+        for count in [100, 101] {
+            let paths = (0..count)
+                .map(|n| json!([{"type": "get_attr", "value": format!("field{n}")}]))
+                .collect();
+            let attributes = json!({"field0": "synthetic-only-value"});
+            let hits = tfstate_hits(state(paths, attributes).as_bytes());
+            match hits {
+                Ok(hits) => assert_eq!((count, hits.len()), (100, 1)),
+                Err(incomplete) => {
+                    assert_eq!(count, 101);
+                    assert_eq!(incomplete.reason, "scan-limit");
+                    assert_eq!(incomplete.hits.len(), 1);
+                }
+            }
+        }
+    }
 }

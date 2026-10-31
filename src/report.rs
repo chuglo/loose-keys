@@ -339,7 +339,9 @@ fn push_findings(s: &mut String, r: &Report, kind: &str, label: &str) {
                 types.push(t);
             }
         }
-        let several = links.len() > 1;
+        // One page alone is where each token is revoked only if every token
+        // has that page.
+        let several = links.len() > 1 || group.iter().any(|g| g.link.is_none());
         for (link, types) in links {
             if several && !types.is_empty() {
                 s.push_str(&format!("   Where: {link} ({})\n", types.join(", ")));
@@ -629,6 +631,13 @@ mod tests {
         // With one place to go, the types are already on the lines above it.
         r.findings.remove(1);
         assert!(to_text(&r, false).contains("   Where: https://one.invalid\n"));
+        // Unless a token has no page: the one there is not where it is revoked.
+        r.findings.push(Finding {
+            link: None,
+            ..finding("Sentry user token", "")
+        });
+        assert!(to_text(&r, false)
+            .contains("   Where: https://one.invalid (Square access token, Square app secret)\n"));
     }
 
     #[test]

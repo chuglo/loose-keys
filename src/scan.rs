@@ -5,7 +5,10 @@
 mod traversal;
 use traversal::{Traversal, Visit, Walk};
 
-use crate::fsutil::{list_dir, open_regular, read_config, read_head, through_links, Gap};
+use crate::fsutil::{
+    list_dir, open_regular, read_config, read_config_in, read_head, read_head_in, through_links,
+    Gap,
+};
 use crate::report::{self, Finding, NotChecked, Report};
 use crate::rules::browser::CHROMIUM;
 use crate::rules::{Hit, Matcher, Rule, Target, RULES};
@@ -339,17 +342,45 @@ fn linked(target: &Target, path: &Path, home: &Path) -> bool {
 /// over, `Scan::changed` reads only known locations and the files rules name
 /// in a repository's `.git`, and checking the outermost such folder reads all
 /// of those. So a build that writes thousands of files there is one change of
-/// that folder. Any other path is checked as it is.
+/// that folder. Where such a folder holds a known location, as
+/// `Library/Caches` holds a tree of records, a change is folded only as far
+/// as a folder that holds none, and one at or in the location is checked as
+/// it is, so a change elsewhere does not read the location again. Any other
+/// path is checked as it is.
 pub fn change_at(home: &Path, p: &Path) -> PathBuf {
     let Ok(below) = p.strip_prefix(home) else {
         return p.to_path_buf();
     };
     // From `p` upwards, so the last match is the outermost.
-    let left_out = below
+    let Some(left_out) = below
         .ancestors()
         .filter(|a| EXCLUDED.iter().any(|name| a.ends_with(name)))
+        .last()
+    else {
+        return p.to_path_buf();
+    };
+    let inside: Vec<&Path> = RULES
+        .iter()
+        .flat_map(|r| r.targets)
+        .filter_map(|t| match *t {
+            Target::File(at)
+            | Target::Present(at, _)
+            | Target::Dir(at)
+            | Target::Each(at, _)
+            | Target::Tree(at) => Some(Path::new(at)),
+            _ => None,
+        })
+        .filter(|at| at.starts_with(left_out) && *at != left_out)
+        .collect();
+    if inside.iter().any(|at| below.starts_with(at)) {
+        return p.to_path_buf();
+    }
+    let fold = below
+        .ancestors()
+        .take_while(|a| a.starts_with(left_out))
+        .take_while(|a| !inside.iter().any(|at| at.starts_with(a)))
         .last();
-    left_out.map_or_else(|| p.to_path_buf(), |a| home.join(a))
+    fold.map_or_else(|| p.to_path_buf(), |a| home.join(a))
 }
 
 /// A folder the person asks not to be checked: absolute, with no "..", and
@@ -452,6 +483,9 @@ pub struct Scan {
     profiles: HashMap<PathBuf, (Vec<(PathBuf, bool)>, bool)>,
     /// The last folder reported as holding cloud-only files.
     cloud_dir: Option<PathBuf>,
+    /// The folder discovery is checking the files of, open, as it was
+    /// listed: its files are opened from it, not walked to from "/" again.
+    folder: Option<(PathBuf, std::fs::File)>,
     /// How long a cancellable scan may run.
     limit: Duration,
     /// How long a cancellable scan may spend reading one record through.
@@ -572,6 +606,7 @@ impl Scan {
             linked_target_cache: HashMap::new(),
             profiles: HashMap::new(),
             cloud_dir: None,
+            folder: None,
             limit: Duration::from_secs(30),
             record_time: Duration::from_secs(60),
             skip: Vec::new(),
@@ -1230,10 +1265,12 @@ impl Scan {
         // Whether a path before this one began to use the check's limits.
         let mut shared = false;
         // Judged below the home only: the names above it are not the scan's.
-        let excluded = |p: &Path| {
+        // Discovery passes over folders by these names, never a file.
+        let excluded = |p: &Path, folder: bool| {
             p.strip_prefix(home).is_ok_and(|below| {
                 below
                     .ancestors()
+                    .skip(usize::from(!folder))
                     .any(|a| EXCLUDED.iter().any(|name| a.ends_with(name)))
             })
         };
@@ -1248,7 +1285,7 @@ impl Scan {
                 .into_iter()
                 .flatten()
                 .find(|d| d.file_name() == Some(".git".as_ref()))
-                .filter(|git| git.parent().is_some_and(|repo| !excluded(repo)));
+                .filter(|git| git.parent().is_some_and(|repo| !excluded(repo, true)));
             if s.stopped() {
                 // Said only of what would have been read: in a `.git`, the
                 // folder itself or a file a rule names there.
@@ -1267,7 +1304,8 @@ impl Scan {
                 s.known_at(p, true);
                 let known = s.unread > said;
                 let meta = std::fs::symlink_metadata(p);
-                let walked = meta.is_ok_and(|m| m.is_dir() || m.is_file()) && !excluded(p);
+                let walked =
+                    meta.is_ok_and(|m| (m.is_dir() || m.is_file()) && !excluded(p, m.is_dir()));
                 // Not for a record too deep for any scan: that is said, and
                 // checking it again would read no more.
                 if walked || named || s.work_unfinished {
@@ -1285,7 +1323,9 @@ impl Scan {
             }
             s.work_unfinished = false;
             s.known_at(p, false);
-            let meta = std::fs::symlink_metadata(p).ok().filter(|_| !excluded(p));
+            let meta = std::fs::symlink_metadata(p)
+                .ok()
+                .filter(|m| !excluded(p, m.is_dir()));
             // A file's head is read before it is read as a record: a record
             // once begun is read to its end, past the time, and the head
             // would then be left unread. The report keeps a full scan's
@@ -1619,7 +1659,14 @@ impl Scan {
         if reason == "scan-limit" {
             self.unread += 1;
         }
-        if self.cancel.is_some() && self.not_checked.len() >= 4096 {
+        if self.cancel.is_some() && self.not_checked.len() >= 4096 - 1 {
+            // The last row a report keeps says that more was not checked
+            // than the list names.
+            if self.not_checked.len() == 4096 - 1 {
+                let path = self.rel(&self.home);
+                let reason = "scan-limit";
+                self.not_checked.push(NotChecked { path, reason });
+            }
             return;
         }
         let path = self.rel(p);
@@ -1798,7 +1845,11 @@ impl Scan {
         }
         self.counts.header_attempts += 1;
         self.tick();
-        match read_head(p, max) {
+        let read = match self.in_folder(p) {
+            Some((dir, name)) => read_head_in(dir, name, max),
+            None => read_head(p, max),
+        };
+        match read {
             Ok(h) => h,
             // One gap per folder: a synced folder can hold thousands of these.
             Err("cloud-only-file") => {
@@ -1814,6 +1865,13 @@ impl Scan {
                 None
             }
         }
+    }
+
+    /// The open folder `p` is in, and its name there, when discovery is
+    /// checking that folder's files.
+    fn in_folder<'a>(&self, p: &'a Path) -> Option<(&std::fs::File, &'a OsStr)> {
+        let (dir, handle) = self.folder.as_ref()?;
+        (p.parent() == Some(dir)).then_some((handle, p.file_name()?))
     }
 
     /// Counts only: paths never reach the status line.
@@ -1938,6 +1996,8 @@ impl Scan {
             // The budget ran out, not the fixed 10,000-entry limit per folder.
             interrupted = g == "scan-limit" && entries.entries.len() < 10_000;
         }
+        let open = entries.handle.map(|handle| (dir.to_path_buf(), handle));
+        let outer = std::mem::replace(&mut self.folder, open);
         // A listing the budget cut is some of the entries, in no order: the
         // place reached in it says nothing about the ones it left out.
         let ordered = !interrupted;
@@ -2005,6 +2065,7 @@ impl Scan {
                 subfolders.push(p);
             }
         }
+        self.folder = outer;
         Visit {
             folders: subfolders,
             interrupted,
@@ -2044,14 +2105,17 @@ impl Scan {
             let all = named || matches!(target, Target::Dir(_));
             match rule.matcher {
                 Matcher::Head(m) if m(&h.bytes) => {
-                    if self.fingerprint.is_some() {
-                        if let Some(full) = self.config(p) {
-                            self.add(rule, p, Hit::file(), full.shared, &full.bytes);
-                        } else {
-                            self.add(rule, p, Hit::file(), h.shared, &h.bytes);
-                        }
-                    } else {
-                        self.add(rule, p, Hit::file(), h.shared, &h.bytes);
+                    // Read whole only as the fingerprint's material. The head
+                    // matched, so a file too large for that is still checked.
+                    let full = (self.fingerprint.is_some() && !self.stopped())
+                        .then(|| {
+                            self.counts.config_attempts += 1;
+                            self.read_whole(p).ok().flatten()
+                        })
+                        .flatten();
+                    match full {
+                        Some(full) => self.add(rule, p, Hit::file(), full.shared, &full.bytes),
+                        None => self.add(rule, p, Hit::file(), h.shared, &h.bytes),
                     }
                 }
                 Matcher::Whole { candidate, .. } if candidate(&h.bytes) => self.whole(rule, p),
@@ -2086,7 +2150,10 @@ impl Scan {
         if !self.whole_files_checked.insert((rule.id, p.to_path_buf())) {
             return;
         }
-        let Some(h) = self.config(p) else {
+        // A record is read through by its own rule for the same tokens, at
+        // any size, and that rule says so itself when it cannot read it.
+        let record = rule.id == crate::rules::SERVICE_TOKEN_ID && self.read_as_record(p);
+        let Some(h) = self.config(p, record.then_some("too-large")) else {
             if self.stopped() {
                 self.whole_files_checked.remove(&(rule.id, p.to_path_buf()));
             }
@@ -2186,19 +2253,54 @@ impl Scan {
         }
     }
 
-    fn config(&mut self, p: &Path) -> Option<crate::fsutil::Head> {
+    /// Read a whole file, recording a gap if it cannot be, unless for
+    /// `quiet`: a reason another rule answers for.
+    fn config(&mut self, p: &Path, quiet: Option<Gap>) -> Option<crate::fsutil::Head> {
         if self.stopped() {
             self.unread(p);
             return None;
         }
         self.counts.config_attempts += 1;
         self.publish(false);
-        match read_config(p, CONFIG_MAX) {
+        match self.read_whole(p) {
             Ok(h) => h,
             Err(g) => {
-                self.gap(p, g);
+                if quiet != Some(g) {
+                    self.gap(p, g);
+                }
                 None
             }
+        }
+    }
+
+    /// Whether a rule for records reads `p` through: a file in a tree of
+    /// records, in no folder that rule passes over, and no deeper than it
+    /// reads. Only by the tree's own name in the home folder.
+    fn read_as_record(&self, p: &Path) -> bool {
+        trees().any(|(_, dir)| {
+            let root = self.home.join(dir);
+            let Some(parent) = p.parent().filter(|parent| parent.starts_with(&root)) else {
+                return false;
+            };
+            // The folders below the root on the way to the file, each judged
+            // as `tree_from` judges it before going in.
+            let folders: Vec<&Path> = parent.ancestors().take_while(|a| *a != root).collect();
+            folders.len() <= TREE_DEPTH
+                && folders.iter().all(|folder| {
+                    !self.skipped(folder)
+                        && !EXCLUDED.iter().any(|name| folder.ends_with(name))
+                        && !TREE_SKIP
+                            .iter()
+                            .any(|name| folder.file_name() == Some(name.as_ref()))
+                })
+        })
+    }
+
+    /// Read a whole file, from the open folder when it is in it.
+    fn read_whole(&self, p: &Path) -> Result<Option<crate::fsutil::Head>, Gap> {
+        match self.in_folder(p) {
+            Some((dir, name)) => read_config_in(dir, name, CONFIG_MAX),
+            None => read_config(p, CONFIG_MAX),
         }
     }
 }
@@ -3103,6 +3205,27 @@ mod tests {
             // What the file holds beyond that is said to be unread.
             assert!(gaps.contains(&("~/proj/.npmrc".to_string(), "scan-limit")));
         }
+    }
+
+    /// Where findings are kept, a report keeps 4,096 rows of what it did not
+    /// check. Those past them were dropped with nothing to say so.
+    #[test]
+    fn a_full_list_of_what_was_not_checked_says_it_is_full() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = Fixture::new("gaps-full");
+        for n in 0..4100 {
+            put(&f.0, &format!("g/u{n:04}"), b"plain");
+            let none = fs::Permissions::from_mode(0o000);
+            fs::set_permissions(f.0.join(format!("g/u{n:04}")), none).unwrap();
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let r = Scan::report_controlled(&f.0, &[], &[], cancel, digest, |_| {});
+        assert_eq!(r.not_checked.len(), 4096);
+        let last = r.not_checked.last().map(|g| (g.path.as_str(), g.reason));
+        assert_eq!(last, Some(("~/", "scan-limit")));
+        // A scan that keeps no findings lists every one.
+        let s = Scan::run(&f.0, std::slice::from_ref(&f.0));
+        assert_eq!(s.not_checked.len(), 4100);
     }
 
     #[test]
@@ -4076,7 +4199,19 @@ mod tests {
             at("app/node_modules/pkg/.git/x"),
             home.join("app/node_modules")
         );
-        assert_eq!(at("Library/Caches/app/x"), home.join("Library/Caches"));
+        // Not as far as a folder holding a known location the change is not
+        // in: checked, that would read the location too.
+        assert_eq!(at("Library/Caches/app/x"), home.join("Library/Caches/app"));
+        assert_eq!(
+            at(".cache/huggingface/hub/models/x"),
+            home.join(".cache/huggingface/hub")
+        );
+        let log = "Library/Caches/claude-cli-nodejs/p/mcp.log";
+        assert_eq!(at(log), home.join(log));
+        assert_eq!(
+            at(".cache/huggingface/token"),
+            home.join(".cache/huggingface/token")
+        );
         assert_eq!(at("proj/target"), home.join("proj/target"));
         assert_eq!(at("proj/src/main.rs"), home.join("proj/src/main.rs"));
         assert_eq!(
@@ -4095,6 +4230,106 @@ mod tests {
         assert_eq!(full(home), found);
         assert_eq!(at(real), home.join("dotfiles/vendor"));
         assert_eq!(change(home, &[], "dotfiles/vendor"), found);
+
+        // An app's cache changing reads no agent's records beside it, and a
+        // record changing reads that record, not every other one.
+        let token = format!("gh{}_{}", "p", "0123456789abcdefghijABCDEFGHIJ012345");
+        let record = format!("{{\"out\":\"{token}\"}}\n");
+        let other = "Library/Caches/claude-cli-nodejs/q/mcp.log";
+        put(home, log, record.as_bytes());
+        put(home, other, record.as_bytes());
+        put(home, "Library/Caches/app/x", b"synthetic");
+        let changed = |p: &str| {
+            change(
+                home,
+                &[],
+                at(p).strip_prefix(home).unwrap().to_str().unwrap(),
+            )
+        };
+        assert_eq!(changed("Library/Caches/app/x"), (vec![], vec![]));
+        let read: Vec<_> = changed(log).0.into_iter().map(|(_, path)| path).collect();
+        assert_eq!(read, [format!("~/{log}")]);
+    }
+
+    /// A record is read through by its own rule for the same tokens, at any
+    /// size. A long one with a token near its start was also said to be too
+    /// large for the token rule, so every scan of such a Mac was partial.
+    #[test]
+    fn a_long_record_with_a_token_at_its_start_is_not_too_large_to_check() {
+        let f = Fixture::new("long-record");
+        let token = format!("gh{}_{}", "p", "0123456789abcdefghijABCDEFGHIJ012345");
+        let mut record = format!("{{\"out\":\"{token}\"}}\n").into_bytes();
+        while record.len() <= 1024 * 1024 + 4096 {
+            record.extend_from_slice(b"{\"type\":\"synthetic\",\"text\":\"fixture line\"}\n");
+        }
+        put(&f.0, ".claude/projects/p/session.jsonl", &record);
+        // Programs a tool keeps beside its records are not records.
+        put(&f.0, ".claude/plugins/p/bundle.js", &record);
+        // Nor is a folder passed over by a name of two parts, which a scan
+        // reads only when it is asked to scan it.
+        let passed = ".claude/p/Library/Caches";
+        put(&f.0, &format!("{passed}/session.log"), &record);
+        let s = Scan::run(&f.0, &[f.0.clone(), f.0.join(passed)]);
+        let record = "~/.claude/projects/p/session.jsonl";
+        assert_eq!(rules_at(&s, record), ["secret.agent-record"]);
+        let mut gaps: Vec<_> = s
+            .not_checked
+            .iter()
+            .map(|g| (g.path.as_str(), g.reason))
+            .collect();
+        gaps.sort_unstable();
+        assert_eq!(
+            gaps,
+            [
+                ("~/.claude/p/Library/Caches/session.log", "too-large"),
+                ("~/.claude/plugins/p/bundle.js", "too-large")
+            ]
+        );
+    }
+
+    /// A file matched by its head is read whole only for its fingerprint.
+    /// One too large for that was still found, and was also said to be too
+    /// large to check, so the app's scans were never complete.
+    #[test]
+    fn a_large_file_matched_by_its_head_is_not_a_gap_where_findings_are_kept() {
+        let f = Fixture::new("large-head-match");
+        let mut database = b"\x03\xd9\xa2\x9a\x67\xfb\x4b\xb5\x01\x00\x04\x00synthetic".to_vec();
+        database.resize(2 * 1024 * 1024, 0);
+        put(&f.0, "Documents/vault.kdbx", &database);
+        let found = (
+            vec![(
+                "export.keepass-database",
+                "~/Documents/vault.kdbx".to_string(),
+            )],
+            vec![],
+        );
+        assert_eq!(full(&f.0), found);
+        assert_eq!(change(&f.0, &[], "Documents/vault.kdbx"), found);
+    }
+
+    /// Discovery passes over folders by these names, and reads files by
+    /// them. A check of a changed file once passed it over too, so a value
+    /// replaced in it was taken to be gone and its item marked fixed.
+    #[test]
+    fn a_changed_file_named_like_a_folder_discovery_passes_over_is_read() {
+        let f = Fixture::new("named-like-passed-over");
+        let names = ["proj/.cache", "proj/target", "proj/vendor", "proj/venv"];
+        let export = b"url,username,password\nhttps://fixture.invalid,fixture,synthetic-only\n";
+        for name in names {
+            put(&f.0, name, export);
+        }
+        let found = |name: &str| (vec![("export.password-csv", format!("~/{name}"))], vec![]);
+        let every: Vec<_> = names.iter().flat_map(|n| found(n).0).collect();
+        assert_eq!(full(&f.0), (every, vec![]));
+        for name in names {
+            assert_eq!(change(&f.0, &[], name), found(name), "{name}");
+        }
+        // A file inside such a folder is still passed over.
+        put(&f.0, "other/target/export.csv", export);
+        assert_eq!(
+            change(&f.0, &[], "other/target/export.csv"),
+            (vec![], vec![])
+        );
     }
 
     /// The same for a known folder whose files are each read: one of them

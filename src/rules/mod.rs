@@ -360,6 +360,10 @@ pub fn token_names() -> impl Iterator<Item = &'static str> {
     token::names()
 }
 
+/// The rule for service tokens in any file, whose formats the rule for
+/// agents' records also looks for.
+pub const SERVICE_TOKEN_ID: &str = token::SERVICE_TOKEN.id;
+
 /// The steps a token finding's advice gives, whichever provider issued it.
 pub fn token_steps() -> &'static [&'static str] {
     token::STEPS
@@ -448,8 +452,11 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
         if hits.iter().any(|h| h.line.is_none()) {
             return bytes.to_vec();
         }
-        // The lines the hits are on, in the order of the file.
-        let found: Vec<usize> = hits.into_iter().filter_map(|h| h.line).collect();
+        // The lines the hits are on, in the order of the file, each once: a
+        // line can hold many hits, and is copied once for them all.
+        let mut found: Vec<usize> = hits.into_iter().filter_map(|h| h.line).collect();
+        found.sort_unstable();
+        found.dedup();
         for (nth, line) in found.iter().copied().enumerate() {
             let Some(raw) = lines.get(line.saturating_sub(1)) else {
                 continue;
@@ -490,11 +497,31 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
                         .map(|l| l.trim().to_string())
                         .collect(),
                 );
+            } else if let Some(close) = match rule {
+                "dev.maven.settings-password" => Some("</password"),
+                "app.filezilla.saved-password" => Some("</Pass"),
+                _ => None,
+            } {
+                // The value may stand on lines of its own after the tag that
+                // opens it: up to the tag that closes it, or the next hit.
+                let next = found.get(nth + 1).map_or(usize::MAX, |next| *next);
+                let lines = lines.iter().skip(line.saturating_sub(1));
+                let mut value = Vec::new();
+                for l in lines.take(next.saturating_sub(line).max(1)) {
+                    value.push(l.trim().to_string());
+                    if l.contains(close) {
+                        break;
+                    }
+                }
+                fields.push(value);
             } else if !matches!(rule, "dev.gh.inline-token" | "dev.npm.inline-credentials") {
                 fields.push(vec![raw.trim().to_string()]);
             } else {
                 // Yarn writes "npmAuthToken: value", .npmrc "name=value".
-                let yarn = raw.trim_start().starts_with("npmAuth");
+                let yarn = raw
+                    .trim_start_matches('\u{feff}')
+                    .trim_start()
+                    .starts_with("npmAuth");
                 let separator = if rule == "dev.gh.inline-token" || yarn {
                     ':'
                 } else {
@@ -931,9 +958,10 @@ mod rule_samples {
     #[test]
     fn material_changes_with_the_credential_and_not_with_a_count() {
         // Yarn's way of writing an npm token, alone, under a scope, and as
-        // the base64 form that ends in "=".
+        // the base64 form that ends in "=", and after a byte order mark.
         for form in [
             "npmAuthToken: VALUE\n",
+            "\u{feff}npmAuthToken: VALUE\n",
             "npmScopes:\n  fixture:\n    npmAuthToken: \"VALUE\"\n",
             "npmAuthIdent: VALUE==\n",
         ] {
@@ -965,6 +993,65 @@ mod rule_samples {
             material("dev.composer.auth", file.as_bytes())
         };
         assert_ne!(composer("synthetic-first"), composer("synthetic-second"));
+    }
+
+    /// pip takes several URLs on a line, and each with a password is a hit.
+    /// The line was copied once for each of them, so a settings file of 1 MiB
+    /// could take some 20 GB to fingerprint.
+    #[test]
+    fn material_copies_a_line_once_however_many_hits_are_on_it() {
+        let line = "https://fixture:synthetic-only@host.invalid/simple ".repeat(4000);
+        let file = format!("[global]\nextra-index-url = {line}\n");
+        let peak = || {
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            // SAFETY: `usage` is writable and the size getrusage fills.
+            assert_eq!(
+                unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) },
+                0
+            );
+            // SAFETY: getrusage reported success, so it filled `usage`.
+            unsafe { usage.assume_init() }.ru_maxrss
+        };
+        let before = peak();
+        let material = material("dev.url.inline-password", file.as_bytes());
+        // On macOS the peak is in bytes. Copied once per hit, it grew 800 MB.
+        let grew = peak() - before;
+        assert!(
+            grew < 64 << 20,
+            "fingerprinting {} bytes took {grew} more",
+            file.len()
+        );
+        assert!(material.len() <= 2 * file.len());
+    }
+
+    /// Maven and FileZilla may write a password on lines of its own after
+    /// the tag that opens it. Only the tag's line was material, so a changed
+    /// password looked like the same one.
+    #[test]
+    fn material_for_an_xml_password_follows_it_onto_its_own_lines() {
+        for (rule, entry, password) in [
+            ("dev.maven.settings-password", "server", "password"),
+            ("app.filezilla.saved-password", "Server", "Pass"),
+        ] {
+            let of = |value: &str, around: &str| {
+                let file = format!(
+                    "<{entry}>\n<{password}>{around}{value}{around}</{password}>\n</{entry}>\n"
+                );
+                material(rule, file.as_bytes())
+            };
+            for around in ["", "\n", "\n  "] {
+                assert_ne!(
+                    of("synthetic-first", around),
+                    of("synthetic-second", around),
+                    "{rule}: {around:?}"
+                );
+            }
+            // On one line, as before.
+            let file = format!("<{entry}>\n<{password}>synthetic-first</{password}>\n</{entry}>\n");
+            let line = format!("<{password}>synthetic-first</{password}>");
+            let expected = serde_json::to_vec(&[[line]]).unwrap();
+            assert_eq!(material(rule, file.as_bytes()), expected, "{rule}");
+        }
     }
 
     #[test]

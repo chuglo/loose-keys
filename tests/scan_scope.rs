@@ -1065,6 +1065,97 @@ fn special_files_links_and_large_headers_do_not_break_discovery() {
     assert_eq!(r["findings"].as_array().unwrap().len(), 2);
 }
 
+/// Discovery reads folders 64 levels deep, and a name can be 255 bytes, so a
+/// path can be far longer than the 4,096 characters the report format once
+/// allowed. Anyone who can make folders in a scanned place could make every
+/// report from it fail validation.
+#[test]
+fn a_deep_path_fits_the_report_format() {
+    use std::ffi::CString;
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let f = Fixture::new();
+    // Each folder is made inside the one before, through its handle: the
+    // whole path is longer than the system takes in one call.
+    let mut dir = fs::File::open(f.home()).unwrap();
+    for n in 0..18 {
+        let name = CString::new(format!("{n:02}{}", "d".repeat(248))).unwrap();
+        // SAFETY: `dir` is an open folder and `name` is NUL-terminated.
+        assert_eq!(
+            unsafe { libc::mkdirat(dir.as_raw_fd(), name.as_ptr(), 0o700) },
+            0
+        );
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+        // SAFETY: as above.
+        let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags) };
+        assert!(fd >= 0);
+        // SAFETY: openat returned a new descriptor that nothing else owns.
+        dir = unsafe { fs::File::from_raw_fd(fd) };
+    }
+    // A finding there, and a file that cannot be read for a gap.
+    for (name, mode) in [("export.csv", 0o600), ("locked.csv", 0o000)] {
+        let name = CString::new(name).unwrap();
+        let flags = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC;
+        // SAFETY: `dir` is an open folder and `name` is NUL-terminated.
+        let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags, mode) };
+        assert!(fd >= 0);
+        // SAFETY: openat returned a new descriptor that nothing else owns.
+        let mut file = unsafe { fs::File::from_raw_fd(fd) };
+        file.write_all(b"url,username,password\nhttps://example.invalid,fixture,synthetic-only\n")
+            .unwrap();
+    }
+    let report = f.json(&[]);
+    let longest = |list: &str| {
+        let paths = report[list].as_array().unwrap().iter();
+        paths.map(|x| x["path"].as_str().unwrap().len()).max()
+    };
+    assert!(longest("findings") > Some(4096) && longest("not_checked") > Some(4096));
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../schema/report-1.schema.json")).unwrap();
+    let format = jsonschema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .build(&schema)
+        .unwrap();
+    // Where only: an error can quote the value it is about.
+    let wrong: Vec<String> = format
+        .iter_errors(&report)
+        .map(|e| e.instance_path.to_string())
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:?}");
+}
+
+/// Output piped to a reader that has gone, as `loose-keys scan | head` leaves
+/// it. That once ended the command with a panic and status 101, which the
+/// usage does not list.
+#[test]
+fn output_no_one_reads_is_an_error() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let f = Fixture::new();
+    f.csv(&f.home().join("export.csv"));
+    for args in [&[][..], &["--export", "-"], &["--feedback", "-"]] {
+        let mut ends = [0; 2];
+        // SAFETY: `ends` has room for the two descriptors pipe writes.
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        // SAFETY: pipe returned two new descriptors that nothing else owns.
+        let (read, write) =
+            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+        drop(read);
+        let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", f.home())
+            .arg("scan")
+            .args(args)
+            .stdout(std::process::Stdio::from(write))
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {said}");
+        assert!(
+            said.contains("error: ") && !said.contains("panicked"),
+            "{said}"
+        );
+    }
+}
+
 #[test]
 fn invalid_cli_options_fail_before_scanning() {
     let f = Fixture::new();

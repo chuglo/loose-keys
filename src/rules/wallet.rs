@@ -86,8 +86,12 @@ const WORDS: &str = include_str!("bip39-english.txt");
 /// list (test, file, open, void) sit twelve in a row in ordinary source files,
 /// so the gaps between the words and the words themselves both have to fit.
 fn has_recovery_phrase(head: &[u8]) -> bool {
-    static LIST: std::sync::OnceLock<Vec<&str>> = std::sync::OnceLock::new();
-    let list = LIST.get_or_init(|| WORDS.lines().collect());
+    static LIST: std::sync::OnceLock<(Vec<&str>, Vec<u64>)> = std::sync::OnceLock::new();
+    let (list, keys) = LIST.get_or_init(|| {
+        let list: Vec<&str> = WORDS.lines().collect();
+        let keys = list.iter().map(|w| packed(w.as_bytes())).collect();
+        (list, keys)
+    });
     // The current run, as positions in the list, and what came before its next word.
     let mut run: Vec<usize> = Vec::new();
     let mut gap: &[u8] = &[];
@@ -101,8 +105,7 @@ fn has_recovery_phrase(head: &[u8]) -> bool {
         let known = (3..=8).contains(&chunk.len()).then(|| {
             lower[..chunk.len()].copy_from_slice(chunk);
             lower[..chunk.len()].make_ascii_lowercase();
-            list.binary_search_by(|w| w.as_bytes().cmp(&lower[..chunk.len()]))
-                .ok()
+            keys.binary_search(&packed(&lower[..chunk.len()])).ok()
         });
         let Some(Some(position)) = known else {
             run.clear();
@@ -120,6 +123,16 @@ fn has_recovery_phrase(head: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// A word of at most 8 bytes as a number that sorts as the word does, so a
+/// lookup in the list compares numbers rather than strings. Shorter words
+/// are padded with zeros, which come before any letter.
+fn packed(word: &[u8]) -> u64 {
+    let mut bytes = [0u8; 8];
+    let n = word.len().min(8);
+    bytes[..n].copy_from_slice(&word[..n]);
+    u64::from_be_bytes(bytes)
 }
 
 /// What a person puts between the words of a phrase: spaces, line breaks,
@@ -191,7 +204,6 @@ pub const DESKTOP_WALLET: Rule = Rule {
         Target::Present("Library/Application Support/Binance/app-store.json", "Binance"),
         Target::Present("Library/Application Support/Bitcoin/wallet.dat", "Bitcoin Core"),
         Target::Present("Library/Application Support/Bitcoin/wallets", "Bitcoin Core"),
-        Target::Present("Library/Application Support/Bitcoin/wallets", "Bitcoin Core"),
         Target::Present("Library/Application Support/Ledger Live", "Ledger Wallet"),
         Target::Present("Library/Application Support/@trezor/suite-desktop", "Trezor Suite"),
         Target::Present("Library/Application Support/@tonkeeper/desktop", "Tonkeeper"),
@@ -211,6 +223,10 @@ mod tests {
         assert_eq!(list.len(), 2048);
         assert_eq!((list[0], list[2047]), ("abandon", "zoo"));
         assert!(list.windows(2).all(|pair| pair[0] < pair[1]));
+        // Looked up as numbers, which must sort as the words do and fit them.
+        assert!(list.iter().all(|w| (3..=8).contains(&w.len())));
+        let keys: Vec<u64> = list.iter().map(|w| packed(w.as_bytes())).collect();
+        assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
     }
 
     #[test]
@@ -277,6 +293,18 @@ mod tests {
         for code in ["_", "(", " = ", ": ", "-", "\", \""] {
             assert!(!has_recovery_phrase(words.replace(' ', code).as_bytes()));
         }
+    }
+
+    #[test]
+    fn a_wallet_still_there_is_named_once() {
+        let home = std::path::PathBuf::from(std::env::var_os("TMPDIR").expect("set TMPDIR")).join(
+            format!("credential-wallet-{}-named-once", std::process::id()),
+        );
+        let wallets = home.join("Library/Application Support/Bitcoin/wallets");
+        std::fs::create_dir_all(&wallets).unwrap();
+        let found = crate::scan::recheck("wallet.desktop.data", &wallets, &home, None);
+        std::fs::remove_dir_all(&home).unwrap();
+        assert_eq!(found, Some(vec![Some("Bitcoin Core".to_string())]));
     }
 
     #[test]

@@ -33,6 +33,7 @@ pub const NPM_CREDENTIALS: Rule = Rule {
     },
     samples: &[
         (b"//registry.npmjs.org/:_authToken=synthetic\n", true),
+        (b"\xef\xbb\xbf//registry.npmjs.org/:_authToken=synthetic\n", true),
         (b"//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n", false),
         (b"npmScopes:\n  fixture:\n    npmAuthToken: synthetic\n", true),
         (b"npmAuthToken: \"${NPM_TOKEN}\"\n", false),
@@ -47,7 +48,9 @@ fn npm_hits(bytes: &[u8]) -> Hits {
 }
 
 fn npm_credential_lines(text: &str) -> Vec<Hit> {
-    text.lines()
+    // A byte order mark is not part of the first line.
+    text.trim_start_matches('\u{feff}')
+        .lines()
         .enumerate()
         .filter_map(|(i, raw)| {
             let line = raw.trim();
@@ -76,4 +79,22 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
             scalar_literal(value).map(|_| Hit::line(i + 1).about(registry))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_line() {
+        let npmrc = b"\xef\xbb\xbf//registry.npmjs.org/:_authToken=synthetic-only-value\n";
+        let hits = npm_hits(npmrc).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, Some(1));
+        assert_eq!(hits[0].subject.as_deref(), Some("registry.npmjs.org"));
+        let yarnrc = b"\xef\xbb\xbfnpmAuthToken: synthetic-only-value\n";
+        let hits = npm_hits(yarnrc).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, Some(1));
+    }
 }

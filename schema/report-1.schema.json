@@ -42,7 +42,7 @@
           "explanation": {"$ref": "#/$defs/text"},
           "reason": {"$ref": "#/$defs/text"},
           "next_step": {"$ref": "#/$defs/text"},
-          "token_type": {"type": "string", "pattern": "^[A-Za-z][A-Za-z -]{2,60}$",
+          "token_type": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 .-]{2,60}$",
                          "description": "The kind of service token, from the scanner's fixed list. Never read from the file."},
           "steps": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"$ref": "#/$defs/text"},
                     "description": "Ordered steps that remove the exposure. Fixed scanner text."},
@@ -72,7 +72,7 @@
   "then": {"properties": {"status": {"const": "partial"}}},
   "else": {"properties": {"status": {"const": "complete"}}},
   "$defs": {
-    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(~(/[\\s\\S]*)?|/[\\s\\S]*)$",
+    "path": {"type": "string", "minLength": 1, "maxLength": 32768, "pattern":"^(~(/[\\s\\S]*)?|/[\\s\\S]*)$",
              "description": "'~/...' under the user's home (no username), absolute otherwise."},
     "text": {"type": "string", "minLength": 1, "maxLength": 2000}
   }

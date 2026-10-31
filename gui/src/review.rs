@@ -1038,6 +1038,13 @@ impl Store {
         if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return Ok(());
         }
+        // Looked at first without the locks, which wait for whoever holds the
+        // store: the old folder stays while anything else is in it, and the
+        // app opens the store on its main thread.
+        let state = c"state.json";
+        if present(&self.dir, state) || !private_file(&old, state) {
+            return Ok(());
+        }
         let _local = self.alone();
         let _lock = self.lock(libc::LOCK_EX)?;
         // SAFETY: `old` is an open folder for the whole call; its lock is
@@ -1045,7 +1052,6 @@ impl Store {
         if unsafe { libc::flock(old.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err("Could not get access to the review list.".into());
         }
-        let state = c"state.json";
         if present(&self.dir, state) || !private_file(&old, state) {
             return Ok(());
         }

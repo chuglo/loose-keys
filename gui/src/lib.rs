@@ -1259,11 +1259,12 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
     );
     let view = results_view(&r, app.home.as_deref().ok());
     // Merge into the shared state in one step; the agent may be writing too.
-    // The rechecks get their own time. Counted from before the scan, a scan
-    // that used all of its own left them none, and nothing was marked fixed.
-    let rechecking = std::time::Instant::now();
+    // The rechecks get their own time, counted once the store is locked:
+    // from before the scan, or while the agent held the store, they could
+    // have none left, and nothing was marked fixed.
     let saved = if app.storage_error.lock().unwrap().is_none() {
         update_state(app, |review| {
+            let rechecking = std::time::Instant::now();
             // ingest only ever sets `full`, so it is cleared here for this
             // scan to decide again, and put back below unless the scan ran to
             // its end and the list has room.
@@ -2270,6 +2271,56 @@ mod tests {
         std::fs::remove_dir_all(home).unwrap();
     }
 
+    /// The older version's folder stays once its state is moved out if
+    /// anything else is in it, such as a save it left half done. Every start
+    /// then took the store's lock to look for state to move, and waited for
+    /// the background agent to let go of it.
+    #[test]
+    fn starting_the_app_does_not_wait_for_the_store_while_the_old_folder_remains() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{mpsc::channel, Arc};
+        use std::time::Duration;
+        let home = std::env::temp_dir().join(format!(
+            "credential-engine-test-{}-old-folder-left",
+            std::process::id()
+        ));
+        let old = home.join(".loose-keys-review");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let saved = review::Review {
+            full: true,
+            ..review::Review::default()
+        };
+        let saved = serde_json::to_vec(&saved).unwrap();
+        for name in ["state.json", "state.tmp"] {
+            std::fs::write(old.join(name), &saved).unwrap();
+            std::fs::set_permissions(old.join(name), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+        }
+        drop(App::open(Ok(home.clone())));
+        let folder = home.join(review::STATE_DIR);
+        assert!(std::fs::symlink_metadata(folder.join("state.json")).is_ok());
+        assert!(std::fs::symlink_metadata(old.join("state.tmp")).is_ok());
+
+        // Another open of the folder holds the store, as the agent would.
+        let held = std::fs::File::open(&folder).unwrap();
+        // SAFETY: `held` is an open file for the whole test.
+        let lock = |kind| assert_eq!(unsafe { libc::flock(held.as_raw_fd(), kind) }, 0);
+        lock(libc::LOCK_EX);
+        let (opened, wait) = channel();
+        let at = home.clone();
+        std::thread::spawn(move || opened.send(Arc::new(App::open(Ok(at)))));
+        let Ok(app) = wait.recv_timeout(Duration::from_secs(5)) else {
+            lock(libc::LOCK_UN);
+            panic!("starting waited for the store, which another process held");
+        };
+        lock(libc::LOCK_UN);
+        let list = ask(&app, "pending_review", "{}");
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(list["ok"]["full"], true);
+    }
+
     #[test]
     fn a_scan_and_what_is_done_with_its_results_go_through_the_dispatcher() {
         use std::os::unix::fs::{symlink, PermissionsExt};
@@ -2433,6 +2484,54 @@ mod tests {
         drop(alone);
         let state = ask(&app, "pending_review", "{}")["ok"]["items"][0]["state"].clone();
         std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(again["ok"]["review"], 0);
+        assert_eq!(state, "fixed");
+    }
+
+    /// The background agent holds the store for its own rechecks, which can
+    /// take longer than the app's. Waiting for it used up the app's, and an
+    /// item whose file was deleted stayed open.
+    #[test]
+    fn rechecks_still_run_after_waiting_for_the_store() {
+        use std::os::fd::AsRawFd;
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+        let (home, mut app) = engine("store-held-rechecks");
+        app.rechecks = Duration::from_millis(300);
+        std::fs::create_dir(home.join("Documents")).unwrap();
+        let export = home.join("Documents/export.csv");
+        std::fs::write(&export, EXPORT).unwrap();
+        let alone = one_scan();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 1);
+        std::fs::remove_file(&export).unwrap();
+        // Mid-scan, another open of the folder takes the store, as the
+        // agent's process would, for longer than the app's rechecks.
+        let folder = home.join(review::STATE_DIR);
+        let (took, taken) = channel();
+        *MID_SCAN.lock().unwrap() = Some(Box::new(move || {
+            let (held, wait) = channel();
+            std::thread::spawn(move || {
+                let open = std::fs::File::open(folder).unwrap();
+                // SAFETY: `open` is an open file until the end of this thread.
+                let lock = |kind| unsafe { libc::flock(open.as_raw_fd(), kind) };
+                held.send(lock(libc::LOCK_EX)).unwrap();
+                std::thread::sleep(Duration::from_millis(600));
+                lock(libc::LOCK_UN);
+            });
+            took.send(wait.recv_timeout(Duration::from_secs(5)))
+                .unwrap();
+        }));
+        ch_set_event_handler(Some(mid_scan));
+        let again = ask(&app, "start_scan", "{}");
+        ch_set_event_handler(None);
+        drop(alone);
+        let state = ask(&app, "pending_review", "{}")["ok"]["items"][0]["state"].clone();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(
+            taken.try_recv(),
+            Ok(Ok(0)),
+            "the store was not taken mid-scan"
+        );
         assert_eq!(again["ok"]["review"], 0);
         assert_eq!(state, "fixed");
     }

@@ -35,18 +35,28 @@ fn gap(e: &io::Error) -> Gap {
 /// Ok(None): absent, a symlink, or not a regular file (skipped by design).
 /// Err(gap): in scope but could not be checked.
 pub fn read_head(path: &Path, max: u64) -> Result<Option<Head>, Gap> {
-    let Some(file) = open_path(path, false)? else {
-        return Ok(None);
-    };
+    open_path(path, false)?.map(|f| head_of(f, max)).transpose()
+}
+
+/// As `read_head`, for an entry of a folder `list_dir` opened: only the
+/// entry is checked, because the folder's handle was opened without
+/// following links. Its listing came from the same handle.
+pub fn read_head_in(dir: &File, name: &OsStr, max: u64) -> Result<Option<Head>, Gap> {
+    open_at(dir, name, false)?
+        .map(|f| head_of(f, max))
+        .transpose()
+}
+
+fn head_of(file: File, max: u64) -> Result<Head, Gap> {
     let meta = file.metadata().map_err(|e| gap(&e))?;
     let mut bytes = Vec::new();
     file.take(max)
         .read_to_end(&mut bytes)
         .map_err(|e| gap(&e))?;
-    Ok(Some(Head {
+    Ok(Head {
         bytes,
         shared: meta.mode() & 0o044 != 0,
-    }))
+    })
 }
 
 /// Open a regular file for reading in pieces, with its size and whether
@@ -62,9 +72,20 @@ pub fn open_regular(path: &Path) -> Result<Option<(File, u64, bool)>, Gap> {
 /// Read a complete small file, checking size on the same handle used to read.
 /// Never accept truncated input or read more than `max` bytes.
 pub fn read_config(path: &Path, max: u64) -> Result<Option<Head>, Gap> {
-    let Some(mut file) = open_path(path, false)? else {
-        return Ok(None);
-    };
+    open_path(path, false)?
+        .map(|f| config_of(f, max))
+        .transpose()
+}
+
+/// As `read_config`, for an entry of a folder `list_dir` opened, as
+/// `read_head_in` reads one.
+pub fn read_config_in(dir: &File, name: &OsStr, max: u64) -> Result<Option<Head>, Gap> {
+    open_at(dir, name, false)?
+        .map(|f| config_of(f, max))
+        .transpose()
+}
+
+fn config_of(mut file: File, max: u64) -> Result<Head, Gap> {
     let before = file.metadata().map_err(|e| gap(&e))?;
     if before.len() > max {
         return Err("too-large");
@@ -81,10 +102,10 @@ pub fn read_config(path: &Path, max: u64) -> Result<Option<Head>, Gap> {
     if before.len() != after.len() || bytes.len() as u64 != after.len() {
         return Err("unreadable");
     }
-    Ok(Some(Head {
+    Ok(Head {
         bytes,
         shared: before.mode() & 0o044 != 0,
-    }))
+    })
 }
 
 /// Open each component relative to an already-open directory, never following
@@ -102,66 +123,78 @@ fn open_path(path: &Path, directory: bool) -> Result<Option<File>, Gap> {
         let Component::Normal(name) = component else {
             return Err("unreadable");
         };
-        let name = CString::new(name.as_bytes()).map_err(|_| "unreadable")?;
         let want_dir = directory || i + 1 < parts.len();
-        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // SAFETY: live parent descriptor, NUL-terminated name and writable stat.
-        if unsafe {
-            libc::fstatat(
-                file.as_raw_fd(),
-                name.as_ptr(),
-                stat.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        } != 0
-        {
-            let e = io::Error::last_os_error();
-            return if e.kind() == io::ErrorKind::NotFound {
-                Ok(None)
-            } else {
-                Err(gap(&e))
-            };
-        }
-        let stat = unsafe { stat.assume_init() };
-        let kind = stat.st_mode & libc::S_IFMT;
-        if kind
-            != if want_dir {
-                libc::S_IFDIR
-            } else {
-                libc::S_IFREG
-            }
-        {
+        let Some(next) = open_at(&file, name, want_dir)? else {
             return Ok(None);
+        };
+        file = next;
+    }
+    Ok(Some(file))
+}
+
+/// Open one entry of an open directory: a folder if `want_dir`, else a
+/// regular file. Ok(None) for a link, another kind of file or nothing there.
+fn open_at(dir: &File, name: &OsStr, want_dir: bool) -> Result<Option<File>, Gap> {
+    let name = CString::new(name.as_bytes()).map_err(|_| "unreadable")?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: live parent descriptor, NUL-terminated name and writable stat.
+    if unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        let e = io::Error::last_os_error();
+        return if e.kind() == io::ErrorKind::NotFound {
+            Ok(None)
+        } else {
+            Err(gap(&e))
+        };
+    }
+    // SAFETY: fstatat reported success, so it filled the stat.
+    let stat = unsafe { stat.assume_init() };
+    let kind = stat.st_mode & libc::S_IFMT;
+    if kind
+        != if want_dir {
+            libc::S_IFDIR
+        } else {
+            libc::S_IFREG
         }
-        if stat.st_flags & 0x4000_0000 != 0 {
-            return Err("cloud-only-file");
-        }
-        let flags = libc::O_RDONLY
-            | libc::O_NOFOLLOW
-            | libc::O_NONBLOCK
-            | libc::O_CLOEXEC
-            | if want_dir { libc::O_DIRECTORY } else { 0 };
-        let fd = unsafe { libc::openat(file.as_raw_fd(), name.as_ptr(), flags) };
-        if fd < 0 {
-            let e = io::Error::last_os_error();
-            return if matches!(
-                e.raw_os_error(),
-                Some(libc::ELOOP | libc::ENOENT | libc::ENOTDIR)
-            ) {
-                Ok(None)
-            } else {
-                Err(gap(&e))
-            };
-        }
-        // SAFETY: openat returned a new owned descriptor.
-        file = unsafe { File::from_raw_fd(fd) };
-        let meta = file.metadata().map_err(|e| gap(&e))?;
-        if (want_dir && !meta.is_dir()) || (!want_dir && !meta.is_file()) {
-            return Ok(None);
-        }
-        if is_dataless(&meta) {
-            return Err("cloud-only-file");
-        }
+    {
+        return Ok(None);
+    }
+    if stat.st_flags & 0x4000_0000 != 0 {
+        return Err("cloud-only-file");
+    }
+    let flags = libc::O_RDONLY
+        | libc::O_NOFOLLOW
+        | libc::O_NONBLOCK
+        | libc::O_CLOEXEC
+        | if want_dir { libc::O_DIRECTORY } else { 0 };
+    // SAFETY: live parent descriptor and NUL-terminated name.
+    let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags) };
+    if fd < 0 {
+        let e = io::Error::last_os_error();
+        return if matches!(
+            e.raw_os_error(),
+            Some(libc::ELOOP | libc::ENOENT | libc::ENOTDIR)
+        ) {
+            Ok(None)
+        } else {
+            Err(gap(&e))
+        };
+    }
+    // SAFETY: openat returned a new owned descriptor.
+    let file = unsafe { File::from_raw_fd(fd) };
+    let meta = file.metadata().map_err(|e| gap(&e))?;
+    if (want_dir && !meta.is_dir()) || (!want_dir && !meta.is_file()) {
+        return Ok(None);
+    }
+    if is_dataless(&meta) {
+        return Err("cloud-only-file");
     }
     Ok(Some(file))
 }
@@ -346,6 +379,9 @@ impl Drop for Directory {
 pub struct Listing {
     pub entries: Vec<(PathBuf, bool)>,
     pub gap: Option<Gap>,
+    /// The folder the entries were listed from, to read them in with
+    /// `read_head_in`. None when there was no folder, or no second handle.
+    pub handle: Option<File>,
 }
 
 fn entry_is_directory(fd: libc::c_int, name: &CStr, kind: u8) -> Result<bool, Gap> {
@@ -376,9 +412,12 @@ pub fn list_dir(dir: &Path, required: bool, remaining: &mut usize) -> Result<Lis
             Ok(Listing {
                 entries: Vec::new(),
                 gap: None,
+                handle: None,
             })
         };
     };
+    // The listing closes its own descriptor; this one stays open for reads.
+    let handle = file.try_clone().ok();
     let fd = file.into_raw_fd();
     let ptr = unsafe { libc::fdopendir(fd) };
     if ptr.is_null() {
@@ -429,6 +468,7 @@ pub fn list_dir(dir: &Path, required: bool, remaining: &mut usize) -> Result<Lis
     Ok(Listing {
         entries: out,
         gap: incomplete,
+        handle,
     })
 }
 
@@ -464,6 +504,54 @@ mod tests {
             fs::remove_file(root.join(name)).unwrap();
         }
         fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn entries_read_from_a_listed_folder_are_checked_as_paths_are() {
+        let root = PathBuf::from(std::env::var_os("TMPDIR").unwrap())
+            .join(format!("credential-listed-{}", std::process::id()));
+        let dir = root.join("dir");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::create_dir(root.join("elsewhere")).unwrap();
+        fs::write(dir.join("regular"), b"synthetic listed").unwrap();
+        fs::write(root.join("elsewhere/regular"), b"synthetic elsewhere").unwrap();
+        std::os::unix::fs::symlink(dir.join("regular"), dir.join("link")).unwrap();
+        let fifo = CString::new(dir.join("fifo").as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let mut remaining = 100;
+        let listing = list_dir(&dir, true, &mut remaining).unwrap();
+        assert_eq!(listing.entries.len(), 4);
+        let handle = listing.handle.expect("the listed folder stays open");
+        let read =
+            |name: &str| read_head_in(&handle, name.as_ref(), 4096).map(|h| h.map(|h| h.bytes));
+        let whole =
+            |name: &str| read_config_in(&handle, name.as_ref(), 4096).map(|h| h.map(|h| h.bytes));
+        // As `read_head` and `read_config` answer for the same paths.
+        for name in ["regular", "link", "fifo", "sub", "absent"] {
+            let path = dir.join(name);
+            assert_eq!(
+                read(name),
+                read_head(&path, 4096).map(|h| h.map(|h| h.bytes)),
+                "{name}"
+            );
+            assert_eq!(
+                whole(name),
+                read_config(&path, 4096).map(|h| h.map(|h| h.bytes)),
+                "{name}"
+            );
+        }
+        assert_eq!(read("regular"), Ok(Some(b"synthetic listed".to_vec())));
+        assert_eq!(read("link"), Ok(None));
+        // The folder's path swapped for a link after it was listed: what is
+        // read is in the folder that was listed, never behind the link.
+        fs::rename(&dir, root.join("moved")).unwrap();
+        std::os::unix::fs::symlink(root.join("elsewhere"), &dir).unwrap();
+        assert_eq!(
+            read_head(&dir.join("regular"), 4096).map(|h| h.is_none()),
+            Ok(true)
+        );
+        assert_eq!(read("regular"), Ok(Some(b"synthetic listed".to_vec())));
+        fs::remove_dir_all(root).unwrap();
     }
 
     /// How many names a path has, as `mounted_at` counts a mount point.

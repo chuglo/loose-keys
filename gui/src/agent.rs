@@ -472,6 +472,13 @@ fn unsaved_wait(pause: Duration, failed: u32) -> Duration {
     (pause * 2u32.pow(failed.saturating_sub(1).min(5))).min(CADENCE)
 }
 
+/// When to wake for a notification that may be tried again at `at`, in
+/// seconds since 1970: in a minute at the soonest, and never for a time the
+/// clock cannot hold.
+fn notify_wake(at: u64) -> Option<Instant> {
+    Instant::now().checked_add(Duration::from_secs(at.saturating_sub(crate::now()).max(60)))
+}
+
 /// How many folders a full pass has left, for the window. Each may hold
 /// folders not listed yet, so it is the least there can be.
 fn folders_left(pending: &scan::Pending) -> usize {
@@ -507,6 +514,8 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
     let mut unread = review::UnreadPlaces::default();
     // When the event stream was last opened again for dropped events.
     let mut resumes: Vec<Instant> = Vec::new();
+    // The paths the last check left to check again, by their place in it.
+    let mut carried: HashMap<PathBuf, usize> = HashMap::new();
     while let Some(tick) = agent.monitor.wait() {
         if !agent.monitor.arm(ScanKind::Automatic) {
             continue;
@@ -570,6 +579,11 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 ready.push(p);
             }
         }
+        // The paths the last check left unfinished go first, in the order
+        // they had in it. By name among the paths that changed since, paths
+        // that keep changing could keep one from ever being the first a check
+        // begins, and so from the full pass that finishes it.
+        ready.sort_by_key(|p| carried.get(p).copied().unwrap_or(usize::MAX));
         // A path whose wait is over says only how often it changed lately.
         // Forgetting it loses no change: it is checked at once if it changes
         // again. So only the paths still waiting their turn count here.
@@ -601,6 +615,12 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
             );
             let cancelled = cancel.load(Ordering::SeqCst);
             let (again, pass) = unfinished(left, cancelled, ready.len(), &mut asked, now);
+            carried = ready
+                .iter()
+                .filter(|p| again.contains(*p))
+                .cloned()
+                .zip(0..)
+                .collect();
             if pass {
                 ask_for_pass(&mut full_pass, &mut owed);
             }
@@ -720,9 +740,7 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
             .keys()
             .map(|p| checked.get(p).map_or_else(Instant::now, |c| due(*c)))
             .chain(full_pass.is_some().then_some(next_slice))
-            .chain(notify.map(|at| {
-                Instant::now() + Duration::from_secs(at.saturating_sub(crate::now()).max(60))
-            }))
+            .chain(notify.and_then(notify_wake))
             .min();
         if !agent.inbox.lock().unwrap().paths.is_empty() {
             agent.monitor.retry_in(Duration::ZERO);
@@ -1934,6 +1952,68 @@ mod tests {
         f.stop();
     }
 
+    /// Paths a check left unfinished were checked again among the paths that
+    /// changed since, in name order. While changes that sort before it kept
+    /// coming, a folder too large for one check was never the first a check
+    /// began, so it never asked for the full pass that finishes it.
+    #[test]
+    fn a_folder_too_large_for_a_check_is_finished_while_other_changes_keep_coming() {
+        let mut f = Fixture::tuned(
+            "carried-first",
+            &[],
+            |_| {},
+            |agent| {
+                agent.changes.entries = 40;
+                agent.slice_pause = Duration::from_millis(20);
+                // The folders that keep changing are due again at once.
+                agent.recheck_after = Duration::ZERO;
+            },
+        );
+        f.first_pass();
+        // Folders that sort first, more of them than one check lists.
+        let other = |n: u64| format!("A-{:02}", n % 100);
+        for n in 0..100 {
+            std::fs::create_dir(f.home.join(other(n))).unwrap();
+            std::fs::write(f.home.join(other(n)).join("file"), "").unwrap();
+        }
+        // More entries than one check lists, and a file past them.
+        let large = |home: &Path, folder: &str| {
+            std::fs::create_dir(home.join(folder)).unwrap();
+            for n in 0..60 {
+                std::fs::write(home.join(folder).join(format!("file-{n}")), "").unwrap();
+            }
+            export(home, &format!("{folder}/zz/deep/export.csv"));
+        };
+        // "B" has had the full pass it asked for: cut short again, it asks
+        // for none, and is not checked again.
+        large(&f.home, "B");
+        f.changes(&["B"]);
+        f.wait("the full pass the first folder asked for", |s| {
+            listed(s, "~/B/zz/deep/export.csv") && s.agent.left == 0
+        });
+        large(&f.home, "Z");
+        // Both are left unfinished behind the others, which keep changing.
+        f.changes(&[&other(0), "B", "Z"]);
+        let halt = std::sync::Arc::new(AtomicBool::new(false));
+        let (agent, home, mut event, stop) = (f.agent, f.home.clone(), f.event, halt.clone());
+        let feeder = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !stop.load(Ordering::SeqCst) && Instant::now() < deadline {
+                agent.changed(home.join(other(event)), 0);
+                event += 1;
+                agent.batch(event);
+                std::thread::sleep(Duration::from_micros(50));
+            }
+            event
+        });
+        f.wait("the file past what one check of the folder lists", |s| {
+            listed(s, "~/Z/zz/deep/export.csv")
+        });
+        halt.store(true, Ordering::SeqCst);
+        f.event = feeder.join().unwrap();
+        f.stop();
+    }
+
     /// Whether a place is on the list, fixed or not.
     fn listed(state: &Review, path: &str) -> bool {
         state.items.iter().any(|i| i.path == path)
@@ -2065,6 +2145,16 @@ mod tests {
         let waits: Vec<u64> = (1..=8).map(|n| unsaved_wait(pause, n).as_secs()).collect();
         assert_eq!(waits, [30, 60, 120, 240, 480, 900, 900, 900]);
         assert_eq!(unsaved_wait(pause, u32::MAX), CADENCE);
+    }
+
+    /// The time is read from the saved state, which can hold any number.
+    /// One too far ahead to add to the clock ended the helper, and launchd
+    /// started it again into the same state.
+    #[test]
+    fn a_notification_retry_too_far_ahead_asks_for_no_wake() {
+        assert_eq!(notify_wake(u64::MAX), None);
+        let soon = notify_wake(0).unwrap();
+        assert!(soon > Instant::now() + Duration::from_secs(50));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use loose_keys::{fsutil, report, rules, scan};
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -140,8 +141,8 @@ fn main() -> ExitCode {
         (true, None) => report::to_feedback_json(&r),
         (false, _) => report::to_ascii_json(&r),
     });
-    match export.as_deref() {
-        Some(path) if path == Path::new("-") => println!("{}", json.as_ref().unwrap()),
+    let written = match export.as_deref() {
+        Some(path) if path == Path::new("-") => output(&format!("{}\n", json.as_ref().unwrap())),
         Some(path) => {
             if let Err(e) = fsutil::write_export(path, json.as_ref().unwrap(), scan::is_root()) {
                 eprintln!(
@@ -151,9 +152,13 @@ fn main() -> ExitCode {
                 );
                 return ExitCode::from(2);
             }
-            print!("{}", report::to_text(&r, limits));
+            output(&report::to_text(&r, limits))
         }
-        None => print!("{}", report::to_text(&r, limits)),
+        None => output(&report::to_text(&r, limits)),
+    };
+    if let Err(e) = written {
+        eprintln!("error: could not write the report: {e}");
+        return ExitCode::from(2);
     }
     // Open means worth reviewing. This stateless command knows nothing of
     // what a person has set aside in the app.
@@ -167,6 +172,14 @@ fn main() -> ExitCode {
         (false, "complete") => 0,
         (false, _) => 1,
     })
+}
+
+/// Write to standard output. Output no one reads any more is an error to
+/// report, where `print!` would panic.
+fn output(text: &str) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    out.write_all(text.as_bytes())?;
+    out.flush()
 }
 
 /// Risk levels, most serious first.

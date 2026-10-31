@@ -51,6 +51,11 @@ pub const MCP_SECRET: Rule = Rule {
     samples: &[
         (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"FIXTURE_API_KEY": "synthetic-only-value"}}}}"#, true),
         (br#"{"servers": {"fixture": {"url": "https://example.invalid", "headers": {"Authorization": "Bearer synthetic-only-value"}}}}"#, true),
+        // Any scheme, in any case, comes before the value.
+        (br#"{"servers": {"fixture": {"url": "https://example.invalid", "headers": {"Authorization": "Basic c3ludGhldGljOm9ubHktdmFsdWU="}}}}"#, true),
+        (br#"{"servers": {"fixture": {"url": "https://example.invalid", "headers": {"Authorization": "bearer synthetic-only-value"}}}}"#, true),
+        (br#"{"servers": {"fixture": {"url": "https://example.invalid", "headers": {"Authorization": "token synthetic-only-value"}}}}"#, true),
+        (br#"{"servers": {"fixture": {"url": "https://example.invalid", "headers": {"Authorization": "token ${FIXTURE_TOKEN}"}}}}"#, false),
         (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"FIXTURE_API_KEY": "${env:FIXTURE_API_KEY}", "LOG_LEVEL": "verbose-logging"}}}}"#, false),
         (br#"{"mcpServers": {}}"#, false),
         (br#"{"env": {"FIXTURE_API_KEY": "synthetic-only-value"}, "permissions": {}}"#, true),
@@ -60,6 +65,8 @@ pub const MCP_SECRET: Rule = Rule {
         // With comments and a trailing comma, as Zed and VS Code write and accept.
         (b"// Zed settings\n{\"context_servers\": {\"fixture\": {\"command\": \"npx\", \"env\": {\"FIXTURE_TOKEN\": \"synthetic-only-value\"},},},}\n", true),
         (br#"{"mcp": {"fixture": {"type": "local", "command": ["npx"], "environment": {"FIXTURE_API_KEY": "{env:FIXTURE_API_KEY}"}}}}"#, false),
+        // Amp names its server map with its own prefix.
+        (br#"{"amp.mcpServers": {"fixture": {"command": "npx", "env": {"FIXTURE_API_KEY": "synthetic-only-value"}}}}"#, true),
     ],
 };
 
@@ -173,7 +180,7 @@ fn secrets<'a>(v: &'a serde_json::Value, depth: usize, out: &mut Vec<(&'a str, &
             Some(servers)
                 if matches!(
                     key.as_str(),
-                    "mcpServers" | "servers" | "context_servers" | "mcp"
+                    "mcpServers" | "servers" | "context_servers" | "mcp" | "amp.mcpServers"
                 ) =>
             {
                 for (name, server) in servers {
@@ -220,8 +227,12 @@ fn secret(name: &str, s: &str) -> bool {
     let named = ["KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "PAT"]
         .iter()
         .any(|word| upper.ends_with(word));
-    // "Bearer <value>" is a literal; "${VAR}" and "$VAR" are references.
-    let literal = s.strip_prefix("Bearer ").unwrap_or(s);
+    // "Bearer <value>", "Basic <value>" or "token <value>" is a literal after
+    // its scheme; "${VAR}" and "$VAR" are references.
+    let literal = s
+        .split_once(' ')
+        .filter(|(scheme, _)| !scheme.is_empty() && scheme.bytes().all(|b| b.is_ascii_alphabetic()))
+        .map_or(s, |(_, value)| value);
     token::has_token(s.as_bytes())
         || (named
             && literal.len() >= 12

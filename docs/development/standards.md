@@ -229,6 +229,15 @@ The threats are a local user racing a root run with links, and hostile files
   scanned path skips all of it. The check before the open is not atomic with
   `openat`, so a file swapped in between can get a device opened before the
   handle check rejects it.
+- Discovery opens the files of the folder it is visiting from the handle
+  `list_dir` listed them from (`Listing.handle`, `read_head_in`,
+  `read_config_in`), with the same checks for the file itself, instead of
+  walking from `/` again for each: that walk was about half of a scan's time.
+  A folder whose path is swapped for a link after it was listed is still read
+  as listed, never behind the link. Tests:
+  `entries_read_from_a_listed_folder_are_checked_as_paths_are` in
+  `src/fsutil.rs`, and `special_files_links_and_large_headers_do_not_break_discovery`
+  through the CLI.
 - Check, then use, the same handle. Size, type, owner and cloud flags come
   from the open file, not from the path a second time. `read_config` compares
   the size before and after reading. A path can be swapped between two calls;
@@ -286,8 +295,10 @@ The threats are a local user racing a root run with links, and hostile files
   state elsewhere. It moves `state.json` from the older `~/.loose-keys-review`
   once, holding both folders' locks, only when the old file is a private
   regular file of the user's and the new folder holds none; anything else
-  there is left as it is. A helper from before the move that is still running
-  writes to the removed old folder until it restarts.
+  there is left as it is. It looks first without the locks, so a start with
+  nothing to move does not wait for the store, as when the old folder stays
+  because something else is in it. A helper from before the move that is
+  still running writes to the removed old folder until it restarts.
 
 ### Saved automatic coverage
 
@@ -327,7 +338,10 @@ asserts that no scan was requested.
 
 A change inside a folder in `EXCLUDED` (`target`, `.git`, `node_modules` and
 the rest) reaches the helper's inbox as one change of the outermost such folder
-(`scan::change_at`). Checking that folder reads the same known locations and
+(`scan::change_at`). Where that folder holds a known location the change is
+not in, as `Library/Caches` holds the Claude CLI's records, the change goes no
+further up than a folder holding none, and a change at or in the location is
+checked as it is. Checking the folder reads the same known locations and
 `.git` files the change itself would, and no more. Without this, every file a
 build or `git` wrote was a change of its own; more than 5,000 at once, or more
 than 20,000 checked within a quarter of an hour, started a walk of the whole
@@ -337,8 +351,9 @@ while software was being built.
 Verification: the helper tests send more than 5,000 changes in `target`, and
 six rounds of 4,500 in `.git`, and check that neither starts a full pass; a
 password added to a repository's `.git/config` is still found. A scanner test
-checks the mapping and that a known file linked into a folder passed over is
-found by a change of that folder. Not verified: the event volume of a real
+checks the mapping, that a known file linked into a folder passed over is
+found by a change of that folder, and that a change in an app's cache reads
+none of the records beside it. Not verified: the event volume of a real
 build against the installed helper.
 
 A path a change check leaves unfinished asks for a full pass only when it was
@@ -350,6 +365,12 @@ was on then started a walk of the whole home. Verification: a helper test
 checks two folders that together exceed one check's entries without a full
 pass; the existing tests still show a folder too large for any check finished
 by a full pass. Not verified: how long a real start's replay takes.
+
+The paths a check leaves to check again go first in the next round, in the
+order they had. By name among the paths that changed since, paths that keep
+changing could keep a folder too large for one check from ever being first,
+and so from the full pass that finishes it. Verification: a helper test checks
+that such a folder is finished while folders that sort before it keep changing.
 
 The worker remembers when each path was last checked, to space out the checks
 of a file that keeps changing. Past 20,000 such paths it forgets those whose

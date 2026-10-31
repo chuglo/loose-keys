@@ -479,6 +479,7 @@ pub const URL_PASSWORD: Rule = Rule {
     samples: &[
         (b"[global]\nindex-url = https://fixture:synthetic-only@pypi.example.invalid/simple\n", true),
         (b"[url \"https://fixture:synthetic-only@git.example.invalid/\"]\n\tinsteadOf = https://git.example.invalid/\n", true),
+        (b"[global]\nextra-index-url = https://pypi.example.invalid/simple https://fixture:synthetic-only@private.example.invalid/simple\n", true),
         (b"[global]\nindex-url = https://pypi.example.invalid/simple\n", false),
         (b"[global]\nindex-url = https://fixture:${PIP_PASSWORD}@pypi.example.invalid/simple\n", false),
     ],
@@ -490,17 +491,55 @@ fn url_password_hits(bytes: &[u8]) -> Hits {
         text.lines()
             .enumerate()
             .filter(|(_, l)| !l.trim_start().starts_with(['#', ';']))
-            .filter_map(|(i, line)| {
-                let rest = line.split_once("://")?.1;
-                let authority = rest.split(['/', '?', '#', '"', '\'', ' ']).next()?;
-                let (userinfo, host) = authority.rsplit_once('@')?;
-                let (user, password) = userinfo.split_once(':')?;
-                (!host.is_empty()
-                    && !user.is_empty()
-                    && inline_literal(password)
-                    && plausible(password))
-                .then(|| Hit::line(i + 1).about(host).at(text, password))
+            .flat_map(|(i, line)| {
+                // pip takes several URLs on one line.
+                line.match_indices("://")
+                    .filter_map(move |(at, separator)| {
+                        let rest = &line[at + separator.len()..];
+                        let authority = rest.split(['/', '?', '#', '"', '\'', ' ']).next()?;
+                        let (userinfo, host) = authority.rsplit_once('@')?;
+                        let (user, password) = userinfo.split_once(':')?;
+                        (!host.is_empty()
+                            && !user.is_empty()
+                            && inline_literal(password)
+                            && plausible(password))
+                        .then(|| Hit::line(i + 1).about(host).at(text, password))
+                    })
             })
             .collect()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_url_on_a_line_is_checked() {
+        // pip takes several index URLs on one line.
+        let text = "[global]\nextra-index-url = https://pypi.example.invalid/simple https://fixture:synthetic-only@private.example.invalid/simple\n";
+        let hits = url_password_hits(text.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, Some(2));
+        assert_eq!(hits[0].subject.as_deref(), Some("private.example.invalid"));
+        let span = hits[0].span.clone().unwrap();
+        assert_eq!(&text[span], "synthetic-only");
+
+        let text = "extra-index-url = https://fixture:synthetic-first@one.example.invalid/simple https://fixture:synthetic-second@two.example.invalid/simple\n";
+        let hits = url_password_hits(text.as_bytes()).unwrap();
+        let found: Vec<_> = hits
+            .iter()
+            .map(|h| {
+                let span = h.span.clone().unwrap();
+                (h.line, h.subject.as_deref(), &text[span])
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (Some(1), Some("one.example.invalid"), "synthetic-first"),
+                (Some(1), Some("two.example.invalid"), "synthetic-second"),
+            ]
+        );
+    }
 }

@@ -157,7 +157,8 @@ result. Manual-scan details are listed separately, and saved reports still
 contain only the manual scan. The automatic list keeps up to 4096 paths with
 their reasons, within 512 KiB, and says when it is incomplete. Older versions saved
 only the count; their details become available after the next automatic full
-pass.
+pass. A scan in the app keeps up to 4096 places not checked; when there are more,
+the last of them is `~/` with the reason `scan-limit`.
 
 The build signs ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
 code-signing identity. An ad-hoc identity changes with every build; an Apple

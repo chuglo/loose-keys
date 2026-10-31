@@ -28,6 +28,7 @@ pub const AWS_KEYS: Rule = Rule {
     },
     samples: &[
         (b"[default]\naws_access_key_id = AKIASYNTHETIC\naws_secret_access_key = synthetic\n", true),
+        (b"\xef\xbb\xbf[default]\naws_secret_access_key = synthetic\n", true),
         (b"[default]\nregion = us-east-1\n", false),
         (b"[fixture]\naws_secret_access_key = #comment-only\n", false),
     ],
@@ -43,7 +44,8 @@ pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
     let mut out = Vec::new();
     let mut section: Option<(usize, &str)> = None;
     let mut counted = false;
-    for (i, raw) in text.lines().enumerate() {
+    // A byte order mark is not part of the first line.
+    for (i, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let l = raw.trim();
         if l.starts_with('[') && l.ends_with(']') {
             section = Some((i + 1, &l[1..l.len() - 1]));
@@ -74,6 +76,15 @@ mod tests {
             hits.iter().map(|h| h.line).collect::<Vec<_>>(),
             vec![Some(1), Some(8)]
         );
+        assert_eq!(hits[0].subject.as_deref(), Some("profile default"));
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_profile() {
+        let file = b"\xef\xbb\xbf[default]\naws_access_key_id = AKIASYNTHETIC\naws_secret_access_key = synthetic\n";
+        let hits = aws_hits(file).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, Some(1));
         assert_eq!(hits[0].subject.as_deref(), Some("profile default"));
     }
 }

@@ -74,6 +74,11 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
 /// Lines in an INI or TOML file that set one of `keys` to a literal, labelled
 /// with their section.
 fn ini_hits(text: &str, keys: &[&str]) -> Vec<Hit> {
+    ini_hits_by(text, keys, |value| scalar_literal(value).is_some())
+}
+
+/// As `ini_hits`, with `literal` saying which values are literals.
+fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> bool) -> Vec<Hit> {
     let mut section = "";
     let mut out = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -81,7 +86,7 @@ fn ini_hits(text: &str, keys: &[&str]) -> Vec<Hit> {
         if line.starts_with('[') && line.ends_with(']') {
             section = &line[1..line.len() - 1];
         } else if let Some((key, value)) = line.split_once(['=', ':']) {
-            if keys.contains(&key.trim()) && scalar_literal(value).is_some() {
+            if keys.contains(&key.trim()) && literal(value) {
                 out.push(Hit::line(i + 1).about(section));
             }
         }
@@ -246,6 +251,12 @@ pub const MYCNF_PASSWORD: Rule = Rule {
     samples: &[
         (b"[client]\nuser = shop\npassword = synthetic-only\n", true),
         (b"[client]\nuser = shop\n", false),
+        // MySQL expands nothing here: these characters are the password's.
+        (b"[client]\npassword = Synth$tic-0nly\n", true),
+        (b"[client]\npassword = !Synth3tic-0nly\n", true),
+        (b"[client]\npassword = \"synthetic # only\"\n", true),
+        (b"[client]\npassword = # asked for when connecting\n", false),
+        (b"[client]\npassword = ${MYSQL_PASSWORD}\n", false),
     ],
     advice: Advice {
         steps: &[
@@ -330,7 +341,21 @@ fn warehouse_hits(bytes: &[u8]) -> Hits {
 }
 
 fn mycnf_hits(bytes: &[u8]) -> Hits {
-    utf8_lines(bytes, |text| ini_hits(text, &["password"]))
+    utf8_lines(bytes, |text| {
+        ini_hits_by(text, &["password"], mycnf_literal)
+    })
+}
+
+/// A value in a MySQL option file, which expands nothing: what is there,
+/// quoted or up to a comment, is the password, "$" and "!" included. Only a
+/// template's "${...}" is passed over.
+fn mycnf_literal(raw: &str) -> bool {
+    let raw = raw.trim();
+    let value = match raw.chars().next() {
+        Some(quote @ ('"' | '\'')) => raw[1..].find(quote).map_or("", |end| &raw[1..=end]),
+        _ => raw.split_once('#').map_or(raw, |(value, _)| value).trim(),
+    };
+    !value.is_empty() && !value.starts_with("${")
 }
 
 /// One word of a netrc file.
