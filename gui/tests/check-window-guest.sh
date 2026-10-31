@@ -78,6 +78,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 # Snapshot exactly the current working-tree inputs, including uncommitted edits.
+# tests/check-all.sh skips this check when none of them changed, so keep its
+# list in step with this one.
 tar -cf "$WORK/share/source.tar" gui/app gui/macos/Info.plist \
     gui/macos/en.lproj gui/tests/check-window.sh
 shasum -a 256 "$WORK/share/source.tar" > "$WORK/source.sha256"

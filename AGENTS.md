@@ -59,7 +59,8 @@ command, what it needs and what it does not cover:
 
 | Change | Also run |
 |---|---|
-| anything under `src/` | the security harness |
+| anything under `src/` | the security harness's scanner gate and platform check |
+| `security-tests/`, `schema/` | the whole security harness, self-test included |
 | rules, scan/report code, the engine's scan/export commands, the detection corpus | `sh security-tests/check_detection.sh` |
 | `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, the C interface | the bundle build and its contract test |
 | `gui/app/` | also the window check and the model check |

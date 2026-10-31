@@ -19,7 +19,8 @@ interactive desktop agent or VNC.
    It changes five version files. Stage those files by name.
 3. Commit after the required checks. Before a push or tag, run
    `sh tests/check-all.sh` on the exact commit. Announce the sample-data
-   window first. Record the commit, each exit status, and any failed runs.
+   window check first; the script skips it when its files match
+   `origin/main`. Record the commit, each exit status, and any failed runs.
    Check that the tree stayed clean. Keep the configured commit signing.
 4. Run `sh .agents/skills/release/candidate.sh <commit>`. It builds an ad-hoc
    bundle and harness from that commit, checks the bundle and versions, and

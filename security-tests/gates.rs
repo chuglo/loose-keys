@@ -92,9 +92,9 @@ fn runner_self_test(work: &Path) -> Result<()> {
     // itself only once the window check has started, or after three seconds,
     // so the order in CALLS shows whether that check started first. With
     // WINDOW_STATUS=hold the window check waits to be stopped and fmt waits
-    // to be interrupted.
+    // to be interrupted; with WINDOW_STATUS=skip it is not expected to start.
     let stub = br#"#!/bin/sh
-if [ "$*" = 'fmt --all --check' ]; then
+if [ "$*" = 'fmt --all --check' ] && [ "$WINDOW_STATUS" != skip ]; then
     deadline=$(( $(date +%s) + 3 ))
     until grep -q check-window-guest.sh "$CALLS" 2>/dev/null || [ "$(date +%s)" -ge "$deadline" ]; do
         sleep 0.01
@@ -120,12 +120,32 @@ exit 0
         write_private(&file, stub)?;
         fs::set_permissions(file, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
     }
+    // git answers the runner's change checks: a tracked change to GIT_DIFF, an
+    // untracked file under GIT_UNTRACKED, or GIT_STATUS when it cannot tell.
+    let git = bin.join("git");
+    write_private(
+        &git,
+        br#"#!/bin/sh
+[ "$GIT_STATUS" = 0 ] || exit "$GIT_STATUS"
+case "$*" in
+    'diff --name-only origin/main -- '*) path=$GIT_DIFF ;;
+    'ls-files --others --exclude-standard -- '*) path=$GIT_UNTRACKED ;;
+    *) exit 9 ;;
+esac
+[ -n "$path" ] || exit 0
+for arg do
+    [ "$arg" != "$path" ] || printf '%s/changed\n' "$path"
+done
+exit 0
+"#,
+    )?;
+    fs::set_permissions(git, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
     let audit = root.join("cargo-audit/bin");
     private_dir(&audit)?;
     let tool = audit.join("cargo-audit");
     write_private(&tool, stub)?;
     fs::set_permissions(tool, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
-    let runner = |calls: &Path, test: &str, window: &str| {
+    let runner = |calls: &Path, test: &str, window: &str, git: [&str; 3]| {
         let mut command = Command::new("/bin/sh");
         command
             .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/check-all.sh"))
@@ -141,50 +161,70 @@ exit 0
             )
             .env("CALLS", calls)
             .env("TEST_STATUS", test)
-            .env("WINDOW_STATUS", window);
+            .env("WINDOW_STATUS", window)
+            .env("GIT_STATUS", git[0])
+            .env("GIT_DIFF", git[1])
+            .env("GIT_UNTRACKED", git[2]);
         command
     };
-    for (test, window) in [("0", "0"), ("7", "0"), ("0", "7")] {
-        let calls = root.join(format!("calls-{test}-{window}"));
+    // The harness self-test runs only when a file under security-tests/
+    // differs from origin/main, the window check only when one under gui/app
+    // does, and both run when git cannot tell.
+    let cases = [
+        ("0", "0", ["0", "security-tests", "gui/app"]),
+        ("7", "0", ["0", "security-tests", "gui/app"]),
+        ("0", "7", ["0", "security-tests", "gui/app"]),
+        ("0", "0", ["128", "", ""]),
+        ("0", "skip", ["0", "", ""]),
+        ("0", "7", ["0", "gui/app", ""]),
+        ("0", "skip", ["0", "", "security-tests"]),
+    ];
+    for (index, (test, window, git)) in cases.into_iter().enumerate() {
+        let selftest = git[0] != "0" || git[1..].contains(&"security-tests");
+        let windowed = window != "skip";
+        let calls = root.join(format!("calls-{index}"));
         let out = run_capture(
-            &mut runner(&calls, test, window),
+            &mut runner(&calls, test, window, git),
             &root,
             Duration::from_secs(10),
         )?;
         let calls = fs::read_to_string(calls).map_err(|e| e.to_string())?;
         let summary = std::str::from_utf8(&out.stdout).map_err(|_| "invalid runner summary")?;
         let position = |text: &str| calls.lines().position(|line| line.contains(text));
+        let count = |text: &str| calls.lines().filter(|line| line.contains(text)).count();
+        let statuses: Vec<_> = summary
+            .lines()
+            .filter(|line| line.contains(": exit "))
+            .collect();
+        let failed = test != "0" || (windowed && window != "0");
         if !summary.contains(&format!("test-and-detection: exit {test} ("))
-            || !summary.contains(&format!("window: exit {window} ("))
-            || !summary
-                .lines()
-                .filter(|line| line.contains(": exit "))
-                .all(|line| line.ends_with("s)"))
-            || out.status != Some(if test == "0" && window == "0" { 0 } else { 1 })
+            || summary.contains(&format!("window: exit {window} (")) != windowed
+            || summary.contains("window: skipped") == windowed
+            || summary.contains("harness-selftest: exit 0 (") != selftest
+            || summary.contains("harness-selftest: skipped") == selftest
+            || count("harness.sh selftest") != usize::from(selftest)
+            || count("check-window-guest.sh") != usize::from(windowed)
+            // Every other check still runs.
+            || statuses.len() != 12 + usize::from(selftest) + usize::from(windowed)
+            || !statuses.iter().all(|line| line.ends_with("s)"))
+            || out.status != Some(if failed { 1 } else { 0 })
             // The guest check starts first and runs alongside the others.
-            || position("check-window-guest.sh") >= position("fmt --all --check")
-            || calls
-                .lines()
-                .filter(|line| line.contains("check_detection.sh"))
-                .count()
-                != 1
+            || (windowed && position("check-window-guest.sh") >= position("fmt --all --check"))
+            || count("check_detection.sh") != 1
             || !calls.contains("check_detection.sh --workspace")
-            || calls
-                .lines()
-                .filter(|line| line.contains("check-window-guest.sh"))
-                .count()
-                != 1
             || calls.contains("test --locked --workspace")
             || !calls.lines().last().unwrap_or("").starts_with("audit --db")
         {
-            return Err("full runner lost coverage, repeated tests or hid a failure".into());
+            return Err(format!(
+                "full runner lost coverage, repeated tests or hid a failure in case {index}"
+            ));
         }
     }
     // Ctrl-C reaches the whole process group, but sh ignores it in a
     // background job, so the runner must stop the window check itself and
     // wait for it to clean up its guest.
     let calls = root.join("calls-interrupt");
-    let mut child = runner(&calls, "0", "hold")
+    let mut child = runner(&calls, "0", "hold", ["0", "", "gui/app"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0)

@@ -38,6 +38,10 @@ security-tests/check_scanner.sh "$TMPDIR/loose-keys-gate"
 sh security-tests/harness.sh platform --binary target/release/loose-keys --work "$TMPDIR/loose-keys-platform"
 ```
 
+The first command runs the harness against its own stand-in scanners, never
+the one in `src/`, so it is needed only when `security-tests/`, `schema/` or
+the Cargo files change. The other two check the scanner.
+
 ## Detection
 
 Every rule against its cases in `tests/detection-corpus.json`, through the
@@ -157,3 +161,9 @@ waits while it stops its guest. It keeps going after a failure, exits 1 if any
 check failed and prints how long each check took. Each check's log is in the
 folder it names at the end. A later pass does not cancel an earlier failure.
 The shipped-app and native-helper guest checks are not in it.
+
+The harness self-test and the window check are skipped when none of the files
+they use differ from `origin/main`, which passed this script before it was
+pushed. Untracked files count, and both run when git cannot compare. Report a
+skipped check as skipped, not passed. A skip trusts that `origin/main` passed;
+it does not notice a new Rust toolchain or guest image.
