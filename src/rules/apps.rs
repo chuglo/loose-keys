@@ -228,6 +228,8 @@ pub const PASSWORD_NOTE: Rule = Rule {
         (b"Reminder: change my password: tomorrow\n", false),
         (b"password: <your password here>\nPassword: changeme\n", false),
         (b"if (password == null) { return; }\nconst password = req.body.password;\n", false),
+        // The shell's working folders, as a saved list of variables has them.
+        (b"PWD=/Users/fixture/project\nOLDPWD=/Users/fixture\n", false),
     ],
 };
 
@@ -258,7 +260,11 @@ fn password_lines(text: &str) -> Vec<usize> {
             let value = value.trim();
             // An ordinary lowercase word ("password: tomorrow") is prose.
             let mixed = !value.bytes().all(|b| b.is_ascii_lowercase());
+            // The shell's working folder, in a saved list of its variables.
+            let folder =
+                matches!(label.as_str(), "pwd" | "oldpwd") && value.starts_with(['/', '~']);
             (named
+                && !folder
                 && label.len() <= 60
                 && !label.contains(['(', '{', '.', '"'])
                 && value.len() >= 6

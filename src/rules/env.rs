@@ -247,10 +247,13 @@ fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
     ]
     .iter()
     .any(|word| upper.ends_with(word) || upper.contains(&format!("{word}_")))
-        // Settings about secrets, not secrets.
-        && !["_LENGTH", "_FILE", "_PATH", "_URL", "_NAME", "_ID", "_TTL", "_EXPIRY"]
-            .iter()
-            .any(|suffix| upper.ends_with(suffix));
+        // Settings about secrets, not secrets, and where a service is.
+        && ![
+            "_LENGTH", "_FILE", "_PATH", "_URL", "_URI", "_ENDPOINT", "_NAME", "_ID", "_TTL",
+            "_EXPIRY",
+        ]
+        .iter()
+        .any(|suffix| upper.ends_with(suffix));
     let value = scalar_literal(value)?;
     (secret_name && value.len() >= 8 && plausible(value)).then_some((name, value))
 }
@@ -396,6 +399,12 @@ mod tests {
                 Some("AWS_SECRET_ACCESS_KEY"),
             ),
             ("TOKENIZER=synthetic-only-value", None),
+            // Where a sign-in service is, not a secret.
+            ("GOOGLE_TOKEN_URI=https://oauth2.googleapis.com/token", None),
+            (
+                "OIDC_TOKEN_ENDPOINT=https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                None,
+            ),
             ("DB_PASSWORD=short", None),
             ("DB_PASSWORD=$(pass show db)", None),
             ("DB_PASSWORD_FILE=/run/secrets/db-password", None),

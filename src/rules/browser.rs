@@ -1,5 +1,6 @@
 //! Passwords saved in browsers: the first thing an infostealer collects.
-//! Only the number of saved logins is read. Nothing is decrypted.
+//! Only the number of saved logins is read, leaving out the answers never to
+//! save one. Nothing is decrypted.
 
 use super::*;
 
@@ -142,7 +143,10 @@ const fn byte(n: usize) -> u8 {
 }
 
 fn chromium_hits(bytes: &[u8]) -> Hits {
-    let rows = sqlite_table_rows(bytes, b"logins").ok_or("unreadable")?;
+    // Each "Never" answer to the offer to save a password is a row too,
+    // marked blacklisted_by_user and with no password in it.
+    let rows = super::sqlite::table_rows_except(bytes, b"logins", b"blacklisted_by_user", 1)
+        .ok_or("unreadable")?;
     Ok(saved_logins(rows))
 }
 
@@ -266,6 +270,44 @@ mod tests {
         let mut db = sqlite_fixture::table("logins", 0);
         db.truncate(520);
         assert_eq!(sqlite_table_rows(&db, b"logins"), None);
+    }
+
+    /// Each time someone answers "Never" when Chrome offers to save a
+    /// password, it keeps a row saying so, with no password in it.
+    #[test]
+    fn never_save_answers_are_not_saved_passwords() {
+        let schema = "CREATE TABLE logins (origin_url VARCHAR NOT NULL, action_url VARCHAR, \
+            username_element VARCHAR, username_value VARCHAR, password_element VARCHAR, \
+            password_value BLOB, submit_element VARCHAR, signon_realm VARCHAR NOT NULL, \
+            date_created INTEGER NOT NULL, \"blacklisted_by_user\" INTEGER NOT NULL, \
+            scheme INTEGER NOT NULL, id INTEGER PRIMARY KEY AUTOINCREMENT, \
+            UNIQUE (origin_url, username_element, username_value, password_element, \
+            signon_realm));";
+        let row = |site: &str, never: bool| {
+            let (user, password) = if never {
+                ("", "")
+            } else {
+                ("fixture", "7631300102")
+            };
+            format!(
+                "INSERT INTO logins (origin_url, username_value, password_value, signon_realm, \
+                 date_created, blacklisted_by_user, scheme) VALUES \
+                 ('https://{site}.fixture.invalid/', '{user}', x'{password}', \
+                 'https://{site}.fixture.invalid/', 1, {}, 0);",
+                u8::from(never)
+            )
+        };
+        let only = sqlite_fixture::database(&format!("{schema}{}", row("a", true)));
+        assert!(chromium_hits(&only).unwrap().is_empty());
+        let mixed = sqlite_fixture::database(&format!(
+            "{schema}{}{}{}",
+            row("a", true),
+            row("b", false),
+            row("c", false)
+        ));
+        let hits = chromium_hits(&mixed).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].detail.as_deref(), Some("2 saved logins"));
     }
 
     #[test]

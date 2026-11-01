@@ -49,6 +49,9 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
     let mut limited = false;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
+        if line.starts_with('#') {
+            continue;
+        }
         if line.starts_with('[') {
             tokens = line == "[pypi-token]";
         } else if let Some((repository, value)) = line.split_once('=').filter(|_| tokens) {
@@ -526,6 +529,24 @@ fn netrc_hits(bytes: &[u8]) -> Hits {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_commented_out_poetry_token_is_not_a_finding() {
+        let commented = "[pypi-token]\n# fixture-repository = \"synthetic-only-value\"\n  #other = 'synthetic-only-value'\n";
+        assert!(pypi_hits(commented.as_bytes()).unwrap().is_empty());
+
+        // Comments neither use up the 100 findings nor count as omitted.
+        let many = format!(
+            "[pypi-token]\n{}live-repository = \"synthetic-only-value\"\n",
+            "# fixture = \"synthetic-only-value\"\n".repeat(150)
+        );
+        let hits = pypi_hits(many.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            (hits[0].line, hits[0].subject.as_deref()),
+            (Some(152), Some("live-repository"))
+        );
+    }
 
     #[test]
     fn hits_name_their_section_or_host_and_never_the_value() {

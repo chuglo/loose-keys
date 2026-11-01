@@ -6,10 +6,13 @@
 //! schema table from page 1, then the named table's b-tree, without
 //! recursion. Page and header bounds, live cell pointers, serial lengths,
 //! overlapping cells and repeated pages are checked before a count is
-//! accepted. UTF-16, index b-trees (WITHOUT ROWID tables) and overflow
-//! payloads give no count, which callers report as an `unreadable` gap, never
-//! zero. It is not an integrity check: free lists, key order across pages,
-//! unvisited pages and a consistent snapshot are not established.
+//! accepted. A count can leave out rows by one integer column, found by its
+//! name in the table's CREATE TABLE text; text it cannot read for that, such
+//! as a comment, leaves every row counted. UTF-16, index b-trees (WITHOUT
+//! ROWID tables) and overflow payloads give no count, which callers report as
+//! an `unreadable` gap, never zero. It is not an integrity check: free lists,
+//! key order across pages, unvisited pages and a consistent snapshot are not
+//! established.
 
 use super::browser::Rows;
 use std::collections::HashSet;
@@ -132,7 +135,8 @@ impl<'a> Database<'a> {
     /// Follow only live cell pointers. No search through free or deleted bytes.
     /// Each page is visited once; cell count, allocations and work are bounded
     /// by the supplied database. Overflow payloads and index b-trees are refused.
-    fn table(&mut self, root: usize, mut row: impl FnMut(&[u8]) -> Option<()>) -> Option<Rows> {
+    /// `row` says whether a row counts.
+    fn table(&mut self, root: usize, mut row: impl FnMut(&[u8]) -> Option<bool>) -> Option<Rows> {
         let mut pending = vec![root];
         let mut count = 0usize;
         let mut multiple_pages = false;
@@ -192,9 +196,10 @@ impl<'a> Database<'a> {
                         return None;
                     }
                     let end = at.checked_add(length)?;
-                    row(page.get(at..end)?)?;
+                    if row(page.get(at..end)?)? {
+                        count += 1;
+                    }
                     at = end;
-                    count += 1;
                 }
                 spans.push((cell, at));
             }
@@ -216,8 +221,25 @@ impl<'a> Database<'a> {
 }
 
 pub(super) fn table_rows(bytes: &[u8], name: &[u8]) -> Option<Rows> {
+    rows_except(bytes, name, None)
+}
+
+/// As `table_rows`, leaving out the rows whose `column` holds the integer
+/// `value`. The column is found by its name in the table's own CREATE TABLE
+/// text; where that text cannot be read for it, every row counts.
+pub(super) fn table_rows_except(
+    bytes: &[u8],
+    name: &[u8],
+    column: &[u8],
+    value: usize,
+) -> Option<Rows> {
+    rows_except(bytes, name, Some((column, value)))
+}
+
+fn rows_except(bytes: &[u8], name: &[u8], except: Option<(&[u8], usize)>) -> Option<Rows> {
     let mut db = Database::new(bytes)?;
     let mut root = None;
+    let mut at = None;
     db.table(1, |payload| {
         let record = fields(payload)?;
         if record.len() != 5 {
@@ -228,8 +250,101 @@ pub(super) fn table_rows(bytes: &[u8], name: &[u8]) -> Option<Rows> {
                 return None;
             }
             root = Some(positive_integer(&record[3])?);
+            at = except.and_then(|(column, _)| column_index(text(&record[4])?, column));
         }
-        Some(())
+        Some(true)
     })?;
-    db.table(root?, |payload| fields(payload).map(|_| ()))
+    db.table(root?, |payload| {
+        let record = fields(payload)?;
+        let left_out = at
+            .zip(except)
+            .is_some_and(|(i, (_, value))| record.get(i).and_then(positive_integer) == Some(value));
+        Some(!left_out)
+    })
+}
+
+/// Where `column` is among the columns a CREATE TABLE statement defines, in
+/// the order a record lists them. None where the text has a comment, or the
+/// column is not among them before the table's own constraints.
+fn column_index(sql: &[u8], column: &[u8]) -> Option<usize> {
+    let open = sql.iter().position(|&b| b == b'(')?;
+    let body = sql.get(open + 1..)?;
+    let (mut depth, mut quote, mut start, mut index) = (0usize, None, 0usize, 0usize);
+    for (i, &b) in body.iter().enumerate() {
+        if let Some(close) = quote {
+            if b == close {
+                quote = None;
+            }
+            continue;
+        }
+        match b {
+            b'"' | b'\'' | b'`' => quote = Some(b),
+            b'[' => quote = Some(b']'),
+            b'-' if body.get(i + 1) == Some(&b'-') => return None,
+            b'/' if body.get(i + 1) == Some(&b'*') => return None,
+            b'(' => depth += 1,
+            b')' if depth > 0 => depth -= 1,
+            b',' | b')' if depth == 0 => {
+                let definition = body.get(start..i)?.trim_ascii_start();
+                let (quoted, word) = match definition.first() {
+                    Some(&q @ (b'"' | b'\'' | b'`' | b'[')) => {
+                        let close = if q == b'[' { b']' } else { q };
+                        let rest = definition.get(1..)?;
+                        (true, rest.get(..rest.iter().position(|&c| c == close)?)?)
+                    }
+                    _ => {
+                        let end = definition.iter().position(u8::is_ascii_whitespace);
+                        (false, definition.get(..end.unwrap_or(definition.len()))?)
+                    }
+                };
+                let keyword = |k: &[u8]| !quoted && word.eq_ignore_ascii_case(k);
+                let constraints = [
+                    b"CONSTRAINT" as &[u8],
+                    b"PRIMARY",
+                    b"UNIQUE",
+                    b"CHECK",
+                    b"FOREIGN",
+                ];
+                if constraints.iter().any(|k| keyword(k)) {
+                    return None;
+                }
+                if word.eq_ignore_ascii_case(column) {
+                    return Some(index);
+                }
+                if b == b')' {
+                    return None;
+                }
+                index += 1;
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::column_index;
+
+    #[test]
+    fn a_column_is_found_by_its_name_or_not_at_all() {
+        let sql = b"CREATE TABLE logins (a VARCHAR(10, 2), \"b,c\" INTEGER DEFAULT ',', \
+            [d] BLOB, e INTEGER NOT NULL, UNIQUE (a, e))";
+        assert_eq!(column_index(sql, b"a"), Some(0));
+        assert_eq!(column_index(sql, b"b,c"), Some(1));
+        assert_eq!(column_index(sql, b"D"), Some(2));
+        assert_eq!(column_index(sql, b"e"), Some(3));
+        // The table's own constraint is no column, nor is a name not there.
+        assert_eq!(column_index(sql, b"unique"), None);
+        assert_eq!(column_index(sql, b"f"), None);
+        // A comment could hold a comma, so nothing is said past one: every
+        // row then counts.
+        let commented = b"CREATE TABLE t (a INTEGER, -- one, two\n e INTEGER)";
+        assert_eq!(column_index(commented, b"e"), None);
+        assert_eq!(
+            column_index(b"CREATE TABLE t (a /* x, */ INTEGER, e)", b"e"),
+            None
+        );
+    }
 }
