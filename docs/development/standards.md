@@ -615,6 +615,25 @@ vendors change their settings.
   stay listed and a `scan-limit` gap makes the scan partial. Exactly filling a
   match budget is not a gap. An incomplete recheck cannot mark an omitted
   review item fixed. A change to a cap updates this list.
+- A service-token format (`PROVIDERS` in `src/rules/token.rs`) is matched with
+  no context, so its prefix and shape alone must say who issued it. A prefix
+  the Gitleaks, Betterleaks or TruffleHog rule sets match only next to the
+  service's name is left out, as Mem0's, Dropbox's and ElevenLabs' are
+  (`prefixes_that_need_the_services_name_are_not_tokens`). A format
+  made of parts is checked part by part (`Part`), not as one character class
+  and a total length, so text of the right length with a separator out of
+  place is not reported. A token ends where its parts do. What follows may be
+  a separator, but not a word character or a character one of the format's
+  parts can hold: that makes a longer string, which is not reported. So "/"
+  ends a Slack or Discord webhook URL but continues an AWS Bedrock key, whose
+  base64 holds "/" and "+". Mapbox secret tokens follow Betterleaks' pattern
+  without its offline filter, which decodes the middle part and drops one that
+  is not a `{"u":...,"a":...}` object; a string of the right shape with another
+  middle part is reported. `formats_are_strict` has a body of the
+  right length with one part wrong for each such format, and
+  `the_parts_of_a_format_fit_how_it_is_counted` checks that the parts can be
+  matched one after the other. Not verified: tokens vendors issue today
+  beyond the published formats, and how often ordinary text matches one.
 
 ## Tests
 

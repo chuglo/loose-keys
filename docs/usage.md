@@ -226,11 +226,12 @@ helper refused.
   read);
 - GitHub CLI `oauth_token` fields in `~/.config/gh/hosts.yml`;
 - npm auth, token and password fields in `~/.npmrc`;
-- service tokens in about 90 known issuer formats (AWS, GitHub, GitLab, OpenAI,
-  Anthropic, Stripe, Slack, npm, PyPI, Cloudflare, Vercel and more) in the first
-  4 KiB of any file, and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars`,
-  `secrets.toml`, `*.tfvars`, shell startup and history files. Stripe test-mode
-  keys are listed at low risk;
+- service tokens in about 140 known issuer formats (AWS, GitHub, GitLab, OpenAI,
+  Anthropic, Google Gemini, Stripe, Slack, npm, PyPI, Cloudflare, Vercel and
+  more) and Slack and Discord webhook URLs, in the first 4 KiB of any file,
+  and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars`, `secrets.toml`,
+  `*.tfvars`, shell startup and history files. Stripe test-mode keys are listed
+  at low risk;
 - AI agent records: the folders where Claude Code, Codex, Gemini, Cursor,
   Continue, Copilot, Cline, Roo Code, Windsurf, OpenCode and Goose keep session
   transcripts and logs, and VS Code's workspace storage, are read in full for

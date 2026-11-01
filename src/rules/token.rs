@@ -180,6 +180,9 @@ struct Provider {
     body: fn(u8) -> bool,
     min: usize,
     max: usize,
+    /// For a format made of parts, its parts in order. `body` then allows
+    /// every character a part can hold, and `min` and `max` add up theirs.
+    parts: &'static [Part],
     /// Text the body must contain, for formats with a fixed marker inside.
     must: &'static str,
     /// A format the issuer declares to be for testing: listed, at low risk.
@@ -187,8 +190,42 @@ struct Provider {
     advice: Advice,
 }
 
+/// One part of a format made of parts.
+enum Part {
+    /// This text, as it is.
+    Text(&'static str),
+    /// One of these characters.
+    One(&'static [u8]),
+    /// Between the two numbers of characters of one kind.
+    Run(fn(u8) -> bool, usize, usize),
+}
+
+use Part::{One, Run, Text};
+
+impl Part {
+    fn holds(&self, b: u8) -> bool {
+        match *self {
+            Text(text) => text.as_bytes().contains(&b),
+            One(set) => set.contains(&b),
+            Run(class, ..) => class(b),
+        }
+    }
+}
+
 fn alnum(b: u8) -> bool {
     b.is_ascii_alphanumeric()
+}
+
+fn digit(b: u8) -> bool {
+    b.is_ascii_digit()
+}
+
+fn lower_alnum(b: u8) -> bool {
+    b.is_ascii_lowercase() || b.is_ascii_digit()
+}
+
+fn alnum_dashed(b: u8) -> bool {
+    alnum(b) || b == b'-'
 }
 
 fn word(b: u8) -> bool {
@@ -203,8 +240,21 @@ fn base64ish(b: u8) -> bool {
     dotted(b) || b == b'+' || b == b'/' || b == b','
 }
 
+/// Standard base64, without its padding.
+fn base64(b: u8) -> bool {
+    alnum(b) || b == b'+' || b == b'/'
+}
+
+fn padding(b: u8) -> bool {
+    b == b'='
+}
+
 fn upper_base32(b: u8) -> bool {
     b.is_ascii_uppercase() || (b'2'..=b'7').contains(&b)
+}
+
+fn lower_base32(b: u8) -> bool {
+    b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)
 }
 
 fn upper_alnum(b: u8) -> bool {
@@ -215,8 +265,17 @@ fn hex(b: u8) -> bool {
     b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
 }
 
+/// Hex in either case.
+fn any_hex(b: u8) -> bool {
+    b.is_ascii_hexdigit()
+}
+
 fn hex_dashed(b: u8) -> bool {
     hex(b) || b == b'-'
+}
+
+fn path(b: u8) -> bool {
+    word(b) || b == b'/'
 }
 
 const fn p(
@@ -233,9 +292,35 @@ const fn p(
         body,
         min,
         max,
+        parts: &[],
         must: "",
         test: false,
         advice: advice(link),
+    }
+}
+
+/// A format made of these parts, counted with `body`.
+const fn in_parts(
+    name: &'static str,
+    prefix: &'static str,
+    body: fn(u8) -> bool,
+    parts: &'static [Part],
+    link: Option<&'static str>,
+) -> Provider {
+    let (mut min, mut max, mut i) = (0, 0, 0);
+    while i < parts.len() {
+        let (fewest, most) = match &parts[i] {
+            Text(text) => (text.len(), text.len()),
+            One(_) => (1, 1),
+            Run(_, fewest, most) => (*fewest, *most),
+        };
+        min += fewest;
+        max += most;
+        i += 1;
+    }
+    Provider {
+        parts,
+        ..p(name, prefix, body, min, max, link)
     }
 }
 
@@ -255,15 +340,43 @@ const GITLAB: Option<&str> = Some("https://gitlab.com/-/user_settings/personal_a
 const OPENAI: Option<&str> = Some("https://platform.openai.com/api-keys");
 const STRIPE: Option<&str> = Some("https://dashboard.stripe.com/apikeys");
 const SLACK: Option<&str> = Some("https://api.slack.com/methods/auth.revoke");
+const SLACK_APPS: Option<&str> = Some("https://api.slack.com/apps");
 const DIGITALOCEAN: Option<&str> = Some("https://cloud.digitalocean.com/account/api/tokens");
 const VERCEL: Option<&str> = Some("https://vercel.com/account/tokens");
 const CLOUDFLARE: Option<&str> = Some("https://dash.cloudflare.com/profile/api-tokens");
 const TAILSCALE: Option<&str> = Some("https://login.tailscale.com/admin/settings/keys");
 
+const UUID: &[Part] = &[
+    Run(hex, 8, 8),
+    Text("-"),
+    Run(hex, 4, 4),
+    Text("-"),
+    Run(hex, 4, 4),
+    Text("-"),
+    Run(hex, 4, 4),
+    Text("-"),
+    Run(hex, 12, 12),
+];
+const LANGSMITH: &[Part] = &[Run(any_hex, 32, 32), Text("_"), Run(any_hex, 10, 10)];
+
 /// Formats as published in the Gitleaks, Betterleaks and TruffleHog rule sets
-/// (checked 2026-10-10). Only formats with a fixed prefix and a length are
-/// here; prefixes those projects flag as prone to false matches without more
-/// context (Google `AIza`, Notion `secret_`, Twilio `SK`) are left out.
+/// (checked 2026-11-01). Only formats with a fixed prefix and a length are
+/// here; prefixes those projects match only next to the service's name
+/// (Google `AIza`, Notion `secret_`, Twilio `SK`, Mem0 `m0-`, Dropbox `sl.`,
+/// ElevenLabs `sk_`) are left out, as are keys that are public by design
+/// (PostHog `phc_`, Langfuse `pk-lf-`).
+/// A format made of parts keeps them, so text of the right length and
+/// characters with a part out of place is not taken for a token. Where an
+/// issuer's own code is stricter or differs, it wins: WakaTime's client takes
+/// only a version 4 UUID, and GitLab writes incoming mail tokens in base 36
+/// with up to 25 characters, so some are shorter than the rule sets' 25.
+/// Two bounds are chosen here, not taken from a rule set: a Slack trigger
+/// URL's secret is 20 to 40 letters and digits (Slack's guide shows only its
+/// structure), and each Slack team, bot or app ID is at most 20 characters
+/// (TruffleHog sets no limit). Mapbox follows Betterleaks' pattern but not
+/// its offline filter, which decodes the middle part and drops a token that
+/// is not a `{"u":...,"a":...}` object or has low entropy; text of the right
+/// shape with another middle part is reported here.
 /// Checked in order, so longer prefixes come before the ones they contain.
 #[rustfmt::skip]
 const PROVIDERS: &[Provider] = &[
@@ -283,19 +396,30 @@ const PROVIDERS: &[Provider] = &[
     p("GitLab SCIM token", "glsoat-", word, 20, 60, GITLAB),
     p("GitLab OAuth app secret", "gloas-", word, 64, 64, GITLAB),
     p("GitLab agent token", "glagent-", word, 50, 60, GITLAB),
+    in_parts("GitLab CI job token", "glcbt-", word, &[Run(alnum, 1, 5), Text("_"), Run(word, 20, 20)], None),
+    p("GitLab feature flag client token", "glffct-", word, 20, 20, None),
+    p("GitLab incoming mail token", "glimt-", lower_alnum, 20, 25, None),
+    p("GitLab runner registration token", "GR1348941", word, 20, 20, None),
     p("Google OAuth client secret", "GOCSPX-", word, 28, 28, Some("https://console.cloud.google.com/apis/credentials")),
+    p("Google Gemini API key", "AQ.Ab8RN6", word, 44, 44, Some("https://aistudio.google.com/apikey")),
     p("Anthropic API key", "sk-ant-", word, 80, 255, Some("https://console.anthropic.com/settings/keys")),
     containing(p("OpenAI API key", "sk-proj-", word, 100, 255, OPENAI), "T3BlbkFJ"),
     containing(p("OpenAI API key", "sk-svcacct-", word, 100, 255, OPENAI), "T3BlbkFJ"),
     containing(p("OpenAI admin key", "sk-admin-", word, 100, 255, OPENAI), "T3BlbkFJ"),
     p("OpenRouter API key", "sk-or-v1-", hex, 64, 64, Some("https://openrouter.ai/settings/keys")),
+    in_parts("Langfuse secret key", "sk-lf-", hex_dashed, UUID, None),
     containing(p("OpenAI API key", "sk-", alnum, 48, 48, OPENAI), "T3BlbkFJ"),
     p("Stripe live secret key", "sk_live_", alnum, 20, 99, STRIPE),
     p("Stripe live restricted key", "rk_live_", alnum, 20, 99, STRIPE),
     test_mode(p("Stripe test secret key", "sk_test_", alnum, 20, 99, STRIPE)),
     test_mode(p("Stripe test restricted key", "rk_test_", alnum, 20, 99, STRIPE)),
+    in_parts("Mapbox secret token", "sk.eyJ1Ijoi", dotted, &[Run(word, 15, 300), Text("."), Run(word, 21, 21), One(b"AQgw")], Some("https://console.mapbox.com/account/access-tokens/")),
     p("Slack token", "xox", dotted, 24, 255, SLACK),
     p("Slack app token", "xapp-", word, 40, 255, SLACK),
+    in_parts("Slack webhook URL", "https://hooks.slack.com/services/", path, &[Text("T"), Run(upper_alnum, 1, 20), Text("/B"), Run(upper_alnum, 1, 20), Text("/"), Run(alnum, 23, 25)], SLACK_APPS),
+    in_parts("Slack webhook URL", "https://hooks.slack.com/workflows/", path, &[Text("T"), Run(upper_alnum, 1, 20), Text("/A"), Run(upper_alnum, 1, 20), Text("/"), Run(digit, 17, 19), Text("/"), Run(alnum, 23, 25)], SLACK_APPS),
+    in_parts("Slack webhook URL", "https://hooks.slack.com/triggers/", path, &[Text("T"), Run(upper_alnum, 1, 20), Text("/"), Run(digit, 1, 20), Text("/"), Run(alnum, 20, 40)], SLACK_APPS),
+    in_parts("Discord webhook URL", "https://discord.com/api/webhooks/", path, &[Run(digit, 18, 19), Text("/"), Run(word, 68, 68)], None),
     p("npm access token", "npm_", alnum, 36, 36, Some("https://docs.npmjs.com/revoking-access-tokens")),
     p("PyPI API token", "pypi-AgEIcHlwaS5vcmc", word, 50, 1000, Some("https://pypi.org/manage/account/token/")),
     p("Test PyPI API token", "pypi-AgENdGVzdC5weXBpLm9yZw", word, 50, 1000, Some("https://test.pypi.org/manage/account/token/")),
@@ -338,6 +462,7 @@ const PROVIDERS: &[Provider] = &[
     p("Tailscale auth key", "tskey-auth-", word, 20, 80, TAILSCALE),
     p("Tailscale API key", "tskey-api-", word, 20, 80, TAILSCALE),
     p("Tailscale OAuth client secret", "tskey-client-", word, 20, 80, TAILSCALE),
+    in_parts("Tailscale SCIM key", "tskey-scim-", word, &[Run(alnum, 8, 24), Text("-"), Run(alnum, 28, 40)], TAILSCALE),
     p("Buildkite API token", "bkua_", alnum, 40, 40, None),
     p("Groq API key", "gsk_", alnum, 52, 52, Some("https://console.groq.com/keys")),
     p("Replicate API token", "r8_", alnum, 37, 37, Some("https://replicate.com/account/api-tokens")),
@@ -357,17 +482,53 @@ const PROVIDERS: &[Provider] = &[
     p("Neon API key", "napi_", alnum, 64, 64, None),
     p("Render API key", "rnd_", alnum, 28, 28, None),
     p("Together AI API key", "tgp_v1_", word, 43, 43, None),
+    p("NVIDIA API key", "nvapi-", word, 60, 70, None),
+    in_parts("LangSmith personal access token", "lsv2_pt_", word, LANGSMITH, None),
+    in_parts("LangSmith service key", "lsv2_sk_", word, LANGSMITH, None),
+    in_parts("Pinecone API key", "pcsk_", word, &[Run(alnum, 5, 6), Text("_"), Run(alnum, 63, 63)], None),
+    in_parts("Weights and Biases API key", "wandb_v1_", word, &[Run(alnum, 27, 27), Text("_"), Run(alnum, 49, 49)], None),
+    p("LlamaCloud API key", "llx-", alnum, 44, 52, None),
+    in_parts("AWS Bedrock API key", "ABSK", base64ish, &[Run(base64, 109, 269), Run(padding, 0, 2)], None),
+    p("Cerebras API key", "csk-", alnum, 48, 48, None),
+    in_parts("RunPod API key", "rpa_", alnum, &[Run(upper_alnum, 40, 40), Run(alnum, 6, 6)], None),
+    p("Alibaba Cloud access key", "LTAI", alnum, 17, 21, None),
+    p("Artifactory API key", "AKCp", alnum, 69, 69, None),
+    p("Artifactory reference token", "cmVmd", alnum, 59, 59, None),
+    p("Brevo API key", "xkeysib-", word, 81, 81, None),
+    in_parts("CircleCI personal token", "CCIPAT_", word, &[Run(alnum, 22, 22), Text("_"), Run(lower_alnum, 40, 40)], Some("https://app.circleci.com/settings/user/tokens")),
+    p("OpenShift user token", "sha256~", word, 43, 43, None),
+    p("Figma personal access token", "figd_", word, 38, 42, None),
+    p("PostHog personal API key", "phx_", word, 41, 49, None),
+    in_parts("WakaTime API key", "waka_", hex_dashed, &[Run(hex, 8, 8), Text("-"), Run(hex, 4, 4), Text("-4"), Run(hex, 3, 3), Text("-"), One(b"89ab"), Run(hex, 3, 3), Text("-"), Run(hex, 12, 12)], None),
+    p("MongoDB Atlas service account secret", "mdb_sa_sk_", word, 40, 40, None),
+    in_parts("NuGet API key", "oy2", lower_base32, &[One(b"abcdefghijklmnop"), Run(lower_base32, 15, 15), One(b"aq"), Run(lower_base32, 25, 25), One(b"aeimquy4")], Some("https://www.nuget.org/account/apikeys")),
+    in_parts("Sourcegraph access token", "sgp_", word, &[Run(any_hex, 16, 16), Text("_"), Run(any_hex, 40, 40)], None),
+    in_parts("Sourcegraph access token", "sgp_", word, &[Text("local_"), Run(any_hex, 40, 40)], None),
+    p("Sourcegraph access token", "sgp_", any_hex, 40, 40, None),
+    p("Deno Deploy token", "ddp_", alnum, 36, 36, None),
+    p("SonarQube user token", "squ_", hex, 40, 40, None),
+    p("SonarQube project analysis token", "sqp_", hex, 40, 40, None),
+    p("SonarQube global analysis token", "sqa_", hex, 40, 40, None),
+    in_parts("Dynatrace API token", "dt0c01.", dotted, &[Run(alnum, 24, 24), Text("."), Run(alnum, 64, 64)], None),
+    p("New Relic user API key", "NRAK-", alnum, 27, 27, None),
+    p("New Relic insert key", "NRII-", alnum_dashed, 32, 32, None),
+    p("MailerSend API token", "mlsn.", alnum, 30, 100, None),
+    p("Prefect API token", "pnu_", alnum, 36, 36, None),
+    in_parts("CockroachDB Cloud API key", "CCDB1_", word, &[Run(alnum, 22, 22), Text("_"), Run(alnum, 40, 40)], None),
+    in_parts("Elastic Cloud API key", "essu_", dotted, &[Run(word, 60, 200), Run(padding, 0, 2)], None),
+    in_parts("Paddle live API key", "pdl_live_apikey_", word, &[Run(lower_alnum, 26, 26), Text("_"), Run(alnum, 22, 22), Text("_"), Run(alnum, 3, 3)], None),
 ];
 
 /// The providers whose prefix starts with each byte, as bits by their place
-/// in `PROVIDERS`. Most words start with a letter some prefix starts with,
-/// and trying only these keeps to the order without trying all of them.
-const STARTS: [u128; 256] = {
-    assert!(PROVIDERS.len() <= 128);
-    let mut table = [0; 256];
+/// in `PROVIDERS`: provider `i` is bit `i % 128` of word `i / 128`. Most
+/// words start with a letter some prefix starts with, and trying only these
+/// keeps to the order without trying all of them.
+const WORDS: usize = PROVIDERS.len().div_ceil(128);
+const STARTS: [[u128; WORDS]; 256] = {
+    let mut table = [[0; WORDS]; 256];
     let mut i = 0;
     while i < PROVIDERS.len() {
-        table[PROVIDERS[i].prefix.as_bytes()[0] as usize] |= 1 << i;
+        table[PROVIDERS[i].prefix.as_bytes()[0] as usize][i / 128] |= 1 << (i % 128);
         i += 1;
     }
     table
@@ -396,25 +557,27 @@ fn token_counted(
     counted: &mut [(usize, usize); PROVIDERS.len()],
 ) -> Option<(&'static Provider, usize)> {
     let rest = bytes.get(i..)?;
-    let mut candidates = STARTS[usize::from(*rest.first()?)];
-    while candidates != 0 {
-        let k = usize::try_from(candidates.trailing_zeros()).ok()?;
-        // Clear the lowest bit: the next is the next provider in order.
-        candidates &= candidates - 1;
-        let p = PROVIDERS.get(k)?;
-        let body = i + p.prefix.len();
-        let (start, end) = counted.get(k).copied()?;
-        let known = if (start..end).contains(&body) {
-            end - body
-        } else {
-            0
-        };
-        let (len, n) = token_of(p, rest, known);
-        if n > known {
-            counted[k] = (body, body + n);
-        }
-        if let Some(len) = len {
-            return Some((p, len));
+    for (w, bits) in STARTS[usize::from(*rest.first()?)].iter().enumerate() {
+        let mut candidates = *bits;
+        while candidates != 0 {
+            let k = w * 128 + usize::try_from(candidates.trailing_zeros()).ok()?;
+            // Clear the lowest bit: the next is the next provider in order.
+            candidates &= candidates - 1;
+            let p = PROVIDERS.get(k)?;
+            let body = i + p.prefix.len();
+            let (start, end) = counted.get(k).copied()?;
+            let known = if (start..end).contains(&body) {
+                end - body
+            } else {
+                0
+            };
+            let (len, n) = token_of(p, rest, known);
+            if n > known {
+                counted[k] = (body, body + n);
+            }
+            if let Some(len) = len {
+                return Some((p, len));
+            }
         }
     }
     None
@@ -442,6 +605,9 @@ fn token_of(p: &Provider, rest: &[u8], known: usize) -> (Option<usize>, usize) {
 /// The length of the token of this provider whose prefix `body` follows,
 /// with `n` characters a token's body may hold before anything else.
 fn token_body(p: &Provider, body: &[u8], n: usize) -> Option<usize> {
+    if !p.parts.is_empty() {
+        return token_in_parts(p, body, n);
+    }
     // Databricks: the characters may be followed by "-" and one digit.
     let suffix = p.prefix == "dapi"
         && n == p.max
@@ -457,6 +623,49 @@ fn token_body(p: &Provider, body: &[u8], n: usize) -> Option<usize> {
     }
     let text = std::str::from_utf8(&body[..n]).ok()?;
     (text.contains(p.must) && plausible(text)).then_some(p.prefix.len() + n + extra)
+}
+
+/// As `token_body`, for a format made of parts. The token ends where its
+/// parts do. What follows may be a separator such as "." or "/", but not
+/// more of a word or a character one of its parts could hold: that would be
+/// a longer string the format does not describe.
+fn token_in_parts(p: &Provider, body: &[u8], n: usize) -> Option<usize> {
+    // `body` allows every character of a part, so a shorter run has no token.
+    if n < p.min {
+        return None;
+    }
+    let len = parts_at(p.parts, body)?;
+    let more = |b: &u8| {
+        word(*b)
+            || p.parts
+                .iter()
+                .any(|part| !matches!(part, Text(_)) && part.holds(*b))
+    };
+    if body.get(len).is_some_and(more) {
+        return None;
+    }
+    let text = std::str::from_utf8(body.get(..len)?).ok()?;
+    (text.contains(p.must) && plausible(text)).then_some(p.prefix.len() + len)
+}
+
+/// How long the text at the start of `body` that has these parts is, if it
+/// has them. Each part takes as many characters as it may, which finds the
+/// one way the parts can match, because a part that may take more or fewer
+/// is followed by one that starts with a character it cannot hold.
+fn parts_at(parts: &[Part], body: &[u8]) -> Option<usize> {
+    let mut at = 0;
+    for part in parts {
+        let rest = body.get(at..)?;
+        at += match *part {
+            Text(text) => rest.starts_with(text.as_bytes()).then_some(text.len())?,
+            One(set) => rest.first().is_some_and(|b| set.contains(b)).then_some(1)?,
+            Run(class, fewest, most) => {
+                let n = rest.iter().take(most).take_while(|b| class(**b)).count();
+                (n >= fewest).then_some(n)?
+            }
+        };
+    }
+    Some(at)
 }
 
 /// Whether a token may start at `i`: not inside a longer word. In a JSON
@@ -488,7 +697,7 @@ fn find(bytes: &[u8]) -> (Vec<(usize, &'static Provider)>, bool) {
     let mut counted = [(0, 0); PROVIDERS.len()];
     let mut i = 0;
     while i < bytes.len() {
-        if STARTS[usize::from(bytes[i])] != 0 && starts_word(bytes, i) {
+        if STARTS[usize::from(bytes[i])] != [0; WORDS] && starts_word(bytes, i) {
             if let Some((p, len)) = token_counted(bytes, i, &mut counted) {
                 let value = &bytes[i..i + len];
                 let new = !values.contains(value);
@@ -714,6 +923,306 @@ mod tests {
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 true,
             ),
+            // Formats added 2026-11-01: AI and developer services.
+            ("AQ.Ab8RN6", "0123456789abcdefghijABCDEFGHIJ0123456789ab_-", true),
+            ("AQ.Ab8RN6", "0123456789abcdefghij", false),
+            (
+                "nvapi-",
+                "0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123",
+                true,
+            ),
+            ("nvapi-", "0123456789abcdefghijABCDEFGHIJ", false),
+            (
+                "lsv2_pt_",
+                "0123456789abcdef0123456789abcdef_0123456789",
+                true,
+            ),
+            (
+                "lsv2_sk_",
+                "0123456789abcdef0123456789abcdef_0123456789",
+                true,
+            ),
+            ("lsv2_pt_", "0123456789abcdef0123456789abcdef", false),
+            (
+                "pcsk_",
+                "2AbCdE_0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ012",
+                true,
+            ),
+            ("pcsk_", "2AbCdE_0123456789abcdefghij", false),
+            (
+                "wandb_v1_",
+                "0123456789abcdefghijABCDEFG_0123456789abcdefghijABCDEFGHIJ0123456789abcdefghi",
+                true,
+            ),
+            ("llx-", "0123456789abcdefghijABCDEFGHIJ0123456789abcdefgh", true),
+            (
+                "ABSK",
+                "QmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVm",
+                true,
+            ),
+            ("LTAI", "5t0123456789abcdefgh", true),
+            ("LTAI", "5t012345", false),
+            (
+                "AKCp",
+                "8nQ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ012345",
+                true,
+            ),
+            (
+                "cmVmd",
+                "Gtu0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEF",
+                true,
+            ),
+            (
+                "xkeysib-",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef-0123456789abcdef",
+                true,
+            ),
+            (
+                "CCIPAT_",
+                "0123456789abcdefghijAB_0123456789abcdefghij0123456789abcdefghij",
+                true,
+            ),
+            ("sha256~", "0123456789abcdefghijABCDEFGHIJ0123456789abc", true),
+            ("sha256~", "0123456789abcdefghij", false),
+            ("figd_", "0123456789abcdefghijABCDEFGHIJ0123456789", true),
+            ("phx_", "0123456789abcdefghijABCDEFGHIJ0123456789abc", true),
+            ("waka_", "01234567-89ab-4cde-8f01-23456789abcd", true),
+            ("mdb_sa_sk_", "0123456789abcdefghijABCDEFGHIJ0123456789", true),
+            ("oy2", "abcdefghijklmnopqrstuvwxyz234567abcdefghija", true),
+            // NuGet keys are lowercase base32.
+            ("oy2", "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJA", false),
+            (
+                "sk.eyJ1Ijoi",
+                "c3ludGhldGljIiwiYSI6ImNsMDEyMzQ1Njc4OWFiY2RlZiJ9.0123456789abcdefghijAw",
+                true,
+            ),
+            ("sgp_", "0123456789abcdef0123456789abcdef01234567", true),
+            (
+                "sgp_",
+                "0123456789abcdef_0123456789abcdef0123456789abcdef01234567",
+                true,
+            ),
+            ("ddp_", "0123456789abcdefghijABCDEFGHIJ012345", true),
+            (
+                "rpa_",
+                "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123abcDEF",
+                true,
+            ),
+            // "sk_" alone is no issuer's prefix, and this is no Stripe key.
+            (
+                "sk_",
+                "0123456789abcdefghijABCDEFGHIJ0123456789abcdefgh",
+                false,
+            ),
+            ("sk-lf-", "01234567-89ab-4cde-8f01-23456789abcd", true),
+            ("csk-", "0123456789abcdefghijklmnopqrstuvwxyz0123456789ab", true),
+            ("squ_", "0123456789abcdef0123456789abcdef01234567", true),
+            ("sqp_", "0123456789abcdef0123456789abcdef01234567", true),
+            // SonarQube tokens are hex.
+            ("squ_", "0123456789abcdefghijklmnopqrstuvwxyz0123", false),
+            (
+                "https://hooks.slack.com/services/",
+                "T0123456789/B0123456789/abcdefghijklmnopqrstuvwx",
+                true,
+            ),
+            ("https://hooks.slack.com/services/", "T0123456789", false),
+            (
+                "https://discord.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                true,
+            ),
+            ("glcbt-", "a1_0123456789abcdefghij", true),
+            ("glffct-", "0123456789abcdefghij", true),
+            ("glimt-", "0123456789abcdefghijklmno", true),
+            ("GR1348941", "0123456789abcdefghij", true),
+            ("tskey-scim-", "k0123456-abcdefghijABCDEFGHIJ01234567", true),
+            (
+                "dt0c01.",
+                "0123456789ABCDEFGHIJKLMN.0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123",
+                true,
+            ),
+            ("NRAK-", "0123456789ABCDEFGHIJKLMNOPQ", true),
+            ("NRII-", "0123456789abcdefghijklmnopqrstuv", true),
+            ("mlsn.", "0123456789abcdefghijABCDEFGHIJ0123456789", true),
+            ("pnu_", "0123456789abcdefghijABCDEFGHIJ012345", true),
+            (
+                "CCDB1_",
+                "0123456789abcdefghijAB_0123456789abcdefghijABCDEFGHIJ0123456789",
+                true,
+            ),
+            (
+                "essu_",
+                "0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789==",
+                true,
+            ),
+            (
+                "pdl_live_apikey_",
+                "0123456789abcdefghijklmnop_0123456789abcdefghijAB_CDE",
+                true,
+            ),
+            // A format made of parts is checked part by part: each body below
+            // has the length of a valid one, with one part out of place.
+            ("glcbt-", "a1b0123456789abcdefghij", false),
+            ("glffct-", "0123456789abcdefghijA", false),
+            ("GR1348941", "0123456789abcdefghijA", false),
+            // GitLab writes this token in base 36, so it can be a character short.
+            ("glimt-", "0123456789abcdefghijklmn", true),
+            ("glimt-", "0123456789abcdefghijABCDE", false),
+            ("sk-lf-", "0123456-789ab-4cde-8f01-23456789abcd", false),
+            // WakaTime's own client takes only a version 4 UUID.
+            ("waka_", "01234567-89ab-1cde-8f01-23456789abcd", false),
+            ("waka_", "01234567-89ab-4cde-cf01-23456789abcd", false),
+            // Upstream rules take hex in either case.
+            ("lsv2_sk_", "0123456789ABCDEF0123456789ABCDEF_0123456789", true),
+            ("lsv2_pt_", "0123456789abcdef0123456789abcde_f0123456789", false),
+            ("lsv2_sk_", "0123456789abcdef0123456789abcde_f0123456789", false),
+            (
+                "pcsk_",
+                "2AbCdEf_0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01",
+                false,
+            ),
+            // Without the underscore after 27 characters.
+            (
+                "wandb_v1_",
+                "0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefg",
+                false,
+            ),
+            ("tskey-scim-", "k0123456abcdefghijABCDEFGHIJ012345678", false),
+            (
+                "CCIPAT_",
+                "0123456789abcdefghijAB_0123456789ABCDEFGHIJ0123456789abcdefghij",
+                false,
+            ),
+            (
+                "CCDB1_",
+                "0123456789abcdefghijABC_0123456789abcdefghijABCDEFGHIJ012345678",
+                false,
+            ),
+            (
+                "pdl_live_apikey_",
+                "0123456789ABCDEFGHIJklmnop_0123456789abcdefghijAB_CDE",
+                false,
+            ),
+            ("rpa_", "0123456789abcdefghijKLMNOPQRSTUVWXYZ0123abcDEF", false),
+            // NuGet's base32 fixes the letters at three places.
+            ("oy2", "zbcdefghijklmnopqrstuvwxyz234567abcdefghija", false),
+            ("oy2", "abcdefghijklmnopbrstuvwxyz234567abcdefghija", false),
+            ("oy2", "abcdefghijklmnopqrstuvwxyz234567abcdefghijb", false),
+            // Sourcegraph's three forms, and lengths between them.
+            ("sgp_", "local_0123456789abcdef0123456789abcdef01234567", true),
+            ("sgp_", "local-0123456789abcdef0123456789abcdef01234567", false),
+            ("sgp_", "0123456789ABCDEF0123456789ABCDEF01234567", true),
+            ("sgp_", "0123456789abcdef0123456789abcdef0123456789abcde", false),
+            (
+                "sgp_",
+                "0123456789abcdef0_123456789abcdef0123456789abcdef01234567",
+                false,
+            ),
+            (
+                "dt0c01.",
+                "0123456789ABCDEFGHIJKLMNO0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123",
+                false,
+            ),
+            (
+                "dt0c01.",
+                "0123456789ABCDEFGHIJKLM.N0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123",
+                false,
+            ),
+            ("NRII-", "0123456789abcdef-hijklmnopqrstuv", true),
+            ("NRII-", "0123456789abcdefghijklmnopqrst_v", false),
+            (
+                "https://hooks.slack.com/services/",
+                "X0123456789/B0123456789/abcdefghijklmnopqrstuvwx",
+                false,
+            ),
+            (
+                "https://hooks.slack.com/services/",
+                "T0123456789/B0123456789/abcdefgh/jklmnopqrstuvwx",
+                false,
+            ),
+            (
+                "https://hooks.slack.com/workflows/",
+                "T0123456789/A0123456789/123456789012345678/abcdefghijklmnopqrstuvwx",
+                true,
+            ),
+            (
+                "https://hooks.slack.com/workflows/",
+                "T0123456789/B0123456789/123456789012345678/abcdefghijklmnopqrstuvwx",
+                false,
+            ),
+            (
+                "https://hooks.slack.com/triggers/",
+                "T0123456789/1234567890123/0123456789abcdef0123456789abcdef",
+                true,
+            ),
+            (
+                "https://hooks.slack.com/triggers/",
+                "T0123456789/B012345678901/0123456789abcdef0123456789abcdef",
+                false,
+            ),
+            (
+                "https://discord.com/api/webhooks/",
+                "12345678901234567a/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                false,
+            ),
+            (
+                "https://discord.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghij/BCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                false,
+            ),
+            // Mapbox: no dot before the signature, and a signature whose last
+            // character no 16 bytes of base64 end in.
+            (
+                "sk.eyJ1Ijoi",
+                "c3ludGhldGljIiwiYSI6ImNsMDEyMzQ1Njc4OWFiY2RlZiJ9x0123456789abcdefghijAw",
+                false,
+            ),
+            (
+                "sk.eyJ1Ijoi",
+                "c3ludGhldGljIiwiYSI6ImNsMDEyMzQ1Njc4OWFiY2RlZiJ9.0123456789abcdefghijAB",
+                false,
+            ),
+            // Bedrock keys are standard base64, padded at the end only.
+            (
+                "ABSK",
+                "QmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZG==",
+                true,
+            ),
+            (
+                "ABSK",
+                "QmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUow.TIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVm",
+                false,
+            ),
+            (
+                "ABSK",
+                "QmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUow=TIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVm",
+                false,
+            ),
+            (
+                "ABSK",
+                "QmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZ===",
+                false,
+            ),
+            (
+                "ABSK",
+                "QmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmQmVkcm9ja0FQSUtleS0wMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmZ2hpakFCQ0RFRkdISUowMTIzNDU2Nzg5YWJjZGVmQmVkcm9ja0FQSUtleS0wMTIzNDU2Nz",
+                false,
+            ),
+            (
+                "essu_",
+                "0123456789abcdefghijABCDEFGHIJ.123456789abcdefghijABCDEFGHIJ0123456789",
+                false,
+            ),
+            (
+                "essu_",
+                "0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijA",
+                false,
+            ),
+            (
+                "essu_",
+                "0123456789abcdefghijABCDEFGHIJ==0123456789abcdefghijABCDEFGHIJ0123456789",
+                false,
+            ),
         ] {
             assert_eq!(has_token(fake(prefix, body).as_bytes()), want, "{prefix}");
         }
@@ -899,12 +1408,23 @@ mod tests {
         // A token of each provider's shortest length, and the same with a
         // character too many; then each prefix cut short and followed by text.
         let pool = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let fill = |class: fn(u8) -> bool, n: usize| {
+            pool.bytes().filter(move |b| class(*b)).cycle().take(n)
+        };
         let mut samples = Vec::new();
         for p in PROVIDERS {
             let lead = if p.prefix == "xox" { "b-" } else { "" };
-            let fill = pool.bytes().filter(|b| (p.body)(*b)).cycle();
             let mut body = format!("{lead}{}", p.must).into_bytes();
-            body.extend(fill.take(p.min.saturating_sub(body.len())));
+            if p.parts.is_empty() {
+                body.extend(fill(p.body, p.min.saturating_sub(body.len())));
+            }
+            for part in p.parts {
+                match *part {
+                    Text(text) => body.extend(text.bytes()),
+                    One(set) => body.extend(set.first()),
+                    Run(class, fewest, _) => body.extend(fill(class, fewest)),
+                }
+            }
             let token = [p.prefix.as_bytes(), &body].concat();
             assert_eq!(indexed(&token).map(|t| t.1), Some(p.prefix), "{}", p.name);
             samples.push([&token[..], b"x"].concat());
@@ -918,6 +1438,81 @@ mod tests {
         // Named by place, so a failure does not print a token.
         for (n, sample) in samples.iter().enumerate() {
             assert_eq!(indexed(sample), in_order(sample), "sample {n}");
+        }
+    }
+
+    #[test]
+    fn the_parts_of_a_format_fit_how_it_is_counted() {
+        for p in PROVIDERS.iter().filter(|p| !p.parts.is_empty()) {
+            // A body is counted with `body` before its parts are matched, so
+            // a character a part holds and `body` does not would cut a token
+            // short.
+            for part in p.parts {
+                assert!(
+                    (0..=255).all(|b| !part.holds(b) || (p.body)(b)),
+                    "{}",
+                    p.name
+                );
+            }
+            // Each part takes all it may, which matches the parts only if one
+            // that may take more or fewer cannot take what starts the next.
+            for pair in p.parts.windows(2) {
+                let Run(class, fewest, most) = pair[0] else {
+                    continue;
+                };
+                let starts = |b: u8| match pair[1] {
+                    Text(text) => text.as_bytes().first() == Some(&b),
+                    _ => pair[1].holds(b),
+                };
+                assert!(
+                    fewest == most || (0..=255).all(|b| !(class(b) && starts(b))),
+                    "{}",
+                    p.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_token_made_of_parts_ends_where_its_parts_do() {
+        // A sentence may end right after a token: the full stop is not part of it.
+        let secret = format!("{}ABCD", "0123456789abcdefghij".repeat(3));
+        let token = fake("dt0c01.", &format!("0123456789ABCDEFGHIJKLMN.{secret}"));
+        let text = format!("The token is {token}.\n");
+        let hits = token_hits(text.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        let start = text.find("dt0c01.").unwrap();
+        assert_eq!(hits[0].span, Some(start..start + token.len()));
+        // Base64 that runs on past the longest key is a longer string, not a
+        // key followed by something else.
+        let long = &"QmVkcm9ja0FQSUtleS0w".repeat(14)[..269];
+        assert!(has_token(fake("ABSK", long).as_bytes()));
+        assert!(!has_token(fake("ABSK", &format!("{long}+")).as_bytes()));
+        assert!(!has_token(fake("ABSK", &format!("{long}/")).as_bytes()));
+    }
+
+    #[test]
+    fn prefixes_that_need_the_services_name_are_not_tokens() {
+        // The upstream rule sets match Mem0's "m0-", Dropbox's "sl." and
+        // ElevenLabs' "sk_" only next to the service's name. Alone they start
+        // ordinary text: a class name, a chain of properties, a cache key.
+        let chain = "settings.display.layout.options.".repeat(5);
+        let hex = "0123456789abcdef".repeat(3);
+        for text in [
+            format!(
+                "<div class=\"{}\">\n",
+                fake("m0-", "paddingTopLargeScreenAuto")
+            ),
+            format!("value = {}enabled;\n", fake("sl.", &chain)),
+            format!("cache_key = \"{}\"\n", fake("sk_", &hex)),
+            fake("m0-", "0123456789abcdefghijABCDEFGHIJ"),
+            fake(
+                "sl.",
+                &format!("u.{}", "0123456789abcdefghijABCDEFGHIJ".repeat(5)),
+            ),
+        ] {
+            // Named by length, so a failure does not print the text.
+            assert!(!has_token(text.as_bytes()), "{}", text.len());
         }
     }
 
