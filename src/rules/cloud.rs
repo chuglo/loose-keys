@@ -81,6 +81,9 @@ pub const KUBE_CREDENTIALS: Rule = Rule {
     samples: &[
         (b"users:\n- name: fixture\n  user:\n    token: synthetic-only\n", true),
         (b"users:\n- name: fixture\n  user:\n    client-key-data: c3ludGhldGlj\n", true),
+        // What an OpenID Connect sign-in leaves, as kubectl writes it.
+        (b"users:\n- name: fixture\n  user:\n    auth-provider:\n      config:\n        client-id: fixture\n        refresh-token: synthetic-only-value\n      name: oidc\n", true),
+        (b"users:\n- name: fixture\n  user:\n    auth-provider:\n      config:\n        client-secret: synthetic-only-value\n      name: oidc\n", true),
         (b"users:\n- name: fixture\n  user:\n    exec:\n      command: aws\n", false),
         (b"users:\n- name: fixture\n  user:\n    client-key: /path/to/key.pem\n    token: #none\n", false),
         // What "kubectl config view" prints in place of the values.
@@ -111,8 +114,13 @@ fn kube_hits(bytes: &[u8]) -> Hits {
                     && value.split('.').all(part);
                 let shown = !matches!(value, "REDACTED" | "DATA+OMITTED")
                     && (key != "token" || signed || plausible(value));
-                (matches!(key, "token" | "password" | "client-key-data") && shown)
-                    .then(|| Hit::line(i + 1))
+                // An OpenID Connect sign-in keeps its refresh token and
+                // client secret under the user's auth-provider config.
+                let named = matches!(
+                    key,
+                    "token" | "password" | "client-key-data" | "refresh-token" | "client-secret"
+                );
+                (named && shown).then(|| Hit::line(i + 1))
             })
             .collect()
     })
@@ -331,6 +339,10 @@ pub const TERRAFORM_STATE: Rule = Rule {
         (br#"{"version":4,"terraform_version":"1.9.0","resources":[{"mode":"managed","type":"fixture_thing","name":"fixture","instances":[{"attributes":{"connection":"synthetic-only-value"},"sensitive_attributes":[[{"type":"get_attr","value":"connection"}]]}]}]}"#, true),
         (br#"{"version":4,"terraform_version":"1.9.0","outputs":{"db_password":{"value":"synthetic-only-value","type":"string","sensitive":true}},"resources":[]}"#, true),
         (br#"{"version":3,"terraform_version":"1.9.0","backend":{"type":"s3","config":{"bucket":"fixture","access_key":null,"secret_key":"synthetic-only-value"}}}"#, true),
+        // Version 3, as Terraform 0.11 and earlier wrote it.
+        (br#"{"version":3,"terraform_version":"0.11.14","modules":[{"path":["root"],"outputs":{},"resources":{"aws_db_instance.fixture":{"type":"aws_db_instance","primary":{"id":"fixture","attributes":{"password":"synthetic-only-value","username":"fixture-user-name"}}}}}]}"#, true),
+        (br#"{"version":3,"terraform_version":"0.11.14","modules":[{"path":["root"],"outputs":{"db_password":{"sensitive":true,"type":"string","value":"synthetic-only-value"}},"resources":{}}]}"#, true),
+        (br#"{"version":3,"terraform_version":"0.11.14","modules":[{"path":["root"],"outputs":{"name":{"sensitive":false,"type":"string","value":"synthetic-only-value"}},"resources":{"aws_db_instance.fixture":{"type":"aws_db_instance","primary":{"id":"fixture","attributes":{"username":"fixture-user-name"}}}}}]}"#, false),
         (br#"{"version":4,"terraform_version":"1.9.0","resources":[{"mode":"managed","type":"aws_db_instance","name":"fixture","instances":[{"attributes":{"password":null,"username":"fixture-user-name"}}]}]}"#, false),
         (br#"{"version":4,"terraform_version":"1.9.0","resources":[]}"#, false),
         // "result" is a secret for a generated password, not for a name suffix.
@@ -434,58 +446,34 @@ pub(super) fn state_secrets(v: &serde_json::Value) -> (Vec<Held<'_>>, bool) {
     if !v["terraform_version"].is_string() {
         return (out, limited);
     }
-    fn stored(v: &serde_json::Value) -> Option<&str> {
-        v.as_str()
-            .filter(|s| s.len() >= 8 && !s.starts_with('$') && plausible(s))
-    }
     for resource in v["resources"].as_array().into_iter().flatten() {
         let kind = resource["type"].as_str().unwrap_or("");
-        // "result" is what was generated: a secret only for a password.
-        let generated = (kind == "random_password").then_some("result");
-        let mut secrets = Vec::new();
+        let name = resource["name"].as_str().unwrap_or("");
         let instances = resource["instances"].as_array().into_iter().flatten();
-        limited |= instances.clone().nth(1000).is_some();
-        for instance in instances.take(1000) {
-            // What Terraform itself marked sensitive, then the usual names.
-            let marked = instance["sensitive_attributes"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|path| path[0]["value"].as_str());
-            let usual = STATE_SECRETS.iter().copied().chain(generated);
-            // Counted by name: a helm_release marks one attribute at a path
-            // for each of its set_sensitive blocks.
-            let mut names: Vec<&str> = Vec::new();
-            for name in marked {
-                if names.contains(&name) {
-                    continue;
-                }
-                if names.len() == 100 {
-                    limited = true;
-                    break;
-                }
-                names.push(name);
-            }
-            names.extend(usual);
-            names.sort_unstable();
-            names.dedup();
-            for name in names {
-                if let Some(value) = stored(&instance["attributes"][name]) {
-                    secrets.push((name, value));
-                }
-            }
-        }
-        secrets.sort_unstable();
-        secrets.dedup();
-        if !secrets.is_empty() {
-            out.push(Held {
-                holder: (kind, resource["name"].as_str().unwrap_or("")),
-                secrets,
-                low: matches!(kind, "aws_eks_cluster_auth" | "aws_ecr_authorization_token"),
-            });
-        }
+        out.extend(resource_secrets(kind, name, instances, &mut limited));
     }
-    for (name, output) in v["outputs"].as_object().into_iter().flatten() {
+    // Version 3, written before Terraform 0.12: the resources of each module
+    // by "type.name", with the attributes under "primary" and those of copies
+    // kept from before a replacement under "deposed".
+    let modules = v["modules"].as_array().into_iter().flatten();
+    for (key, resource) in modules
+        .clone()
+        .filter_map(|m| m["resources"].as_object())
+        .flatten()
+    {
+        let kind = resource["type"].as_str().unwrap_or("");
+        let key = key.strip_prefix("data.").unwrap_or(key);
+        let name = key
+            .strip_prefix(kind)
+            .and_then(|k| k.strip_prefix('.'))
+            .unwrap_or(key);
+        let deposed = resource["deposed"].as_array().into_iter().flatten();
+        let instances = std::iter::once(&resource["primary"]).chain(deposed);
+        out.extend(resource_secrets(kind, name, instances, &mut limited));
+    }
+    let outputs = v["outputs"].as_object().into_iter();
+    let outputs = outputs.chain(modules.filter_map(|m| m["outputs"].as_object()));
+    for (name, output) in outputs.flatten() {
         if let Some(value) = stored(&output["value"]).filter(|_| output["sensitive"] == true) {
             out.push(Held {
                 holder: ("output", name),
@@ -510,10 +498,98 @@ pub(super) fn state_secrets(v: &serde_json::Value) -> (Vec<Held<'_>>, bool) {
     (out, limited)
 }
 
+fn stored(v: &serde_json::Value) -> Option<&str> {
+    v.as_str()
+        .filter(|s| s.len() >= 8 && !s.starts_with('$') && plausible(s))
+}
+
+/// What one resource holds across its instances, if any of it is a secret.
+fn resource_secrets<'a>(
+    kind: &'a str,
+    name: &'a str,
+    instances: impl Iterator<Item = &'a serde_json::Value> + Clone,
+    limited: &mut bool,
+) -> Option<Held<'a>> {
+    // "result" is what was generated: a secret only for a password.
+    let generated = (kind == "random_password").then_some("result");
+    let mut secrets = Vec::new();
+    *limited |= instances.clone().nth(1000).is_some();
+    for instance in instances.take(1000) {
+        // What Terraform itself marked sensitive, then the usual names.
+        let marked = instance["sensitive_attributes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|path| path[0]["value"].as_str());
+        let usual = STATE_SECRETS.iter().copied().chain(generated);
+        // Counted by name: a helm_release marks one attribute at a path
+        // for each of its set_sensitive blocks.
+        let mut names: Vec<&str> = Vec::new();
+        for name in marked {
+            if names.contains(&name) {
+                continue;
+            }
+            if names.len() == 100 {
+                *limited = true;
+                break;
+            }
+            names.push(name);
+        }
+        names.extend(usual);
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            if let Some(value) = stored(&instance["attributes"][name]) {
+                secrets.push((name, value));
+            }
+        }
+    }
+    secrets.sort_unstable();
+    secrets.dedup();
+    (!secrets.is_empty()).then_some(Held {
+        holder: (kind, name),
+        secrets,
+        low: matches!(kind, "aws_eks_cluster_auth" | "aws_ecr_authorization_token"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn version_3_state_is_searched_as_version_4_is() {
+        let attributes =
+            |name: &str| json!({"id": "fixture", "attributes": {name: "synthetic-only-value"}});
+        let state = json!({"version": 3, "terraform_version": "0.11.14", "modules": [
+            {"path": ["root"],
+             "outputs": {"db_password": {"sensitive": true, "type": "string", "value": "synthetic-only-value"}},
+             "resources": {
+                "aws_db_instance.fixture": {"type": "aws_db_instance", "primary": attributes("password")},
+                "data.aws_secret.fixture": {"type": "aws_secret", "primary": attributes("secret")},
+                // Counted, and with a secret only in a copy kept from before
+                // it was replaced.
+                "aws_iam_access_key.fixture.0": {"type": "aws_iam_access_key",
+                    "primary": attributes("user"), "deposed": [attributes("secret")]},
+             }},
+            {"path": ["root", "child"], "outputs": {},
+             "resources": {"random_password.fixture": {"type": "random_password", "primary": attributes("result")}}},
+        ]});
+        let hits = tfstate_hits(state.to_string().as_bytes()).unwrap();
+        let mut subjects: Vec<_> = hits.iter().filter_map(|h| h.subject.clone()).collect();
+        subjects.sort();
+        assert_eq!(
+            subjects,
+            [
+                "aws_db_instance.fixture",
+                "aws_iam_access_key.fixture.0",
+                "aws_secret.fixture",
+                "output.db_password",
+                "random_password.fixture",
+            ]
+        );
+    }
 
     #[test]
     fn sensitive_attributes_are_counted_by_name() {

@@ -92,7 +92,7 @@ fn is_bitwarden_export(v: &serde_json::Value) -> bool {
 }
 
 /// A CSV header with URL, username and password columns, as written by
-/// Chrome, Firefox, Safari, Bitwarden, 1Password and others.
+/// Chrome, Firefox, Safari, Bitwarden, 1Password, RoboForm and others.
 pub fn is_password_export(head: &[u8]) -> bool {
     let text = String::from_utf8_lossy(head);
     let first = text
@@ -110,9 +110,9 @@ pub fn is_password_export(head: &[u8]) -> bool {
         .map(|c| c.trim().trim_matches('"').to_ascii_lowercase())
         .collect();
     let has = |names: &[&str]| cols.iter().any(|c| names.contains(&c.as_str()));
-    has(&["password", "login_password"])
+    has(&["password", "login_password", "pwd"])
         && has(&["url", "login_uri", "website", "web site", "origin"])
-        && has(&["username", "login_username", "user name", "email"])
+        && has(&["username", "login_username", "user name", "email", "login"])
 }
 
 /// Bitwarden writes "encrypted" first, so lockfiles, source maps and other
@@ -174,6 +174,14 @@ mod tests {
             b"Title,URL,Username,Password,Notes,OTPAuth"
         ));
         assert!(is_password_export(b"folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp"));
+        // RoboForm, from its browser extension and from its app.
+        assert!(is_password_export(
+            b"Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2"
+        ));
+        assert!(is_password_export(
+            b"Name,URL,MatchUrl,Login,Password,Note,Folder,RfFieldsV2"
+        ));
+        assert!(!is_password_export(b"name,url,login,notes"));
         assert!(!is_password_export(b"name,url,username,notes"));
         assert!(!is_password_export(b"password,reset,date"));
         assert!(!is_password_export(

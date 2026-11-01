@@ -41,7 +41,12 @@ pub const CHROMIUM_LOGINS: Rule = Rule {
         ],
         link: None,
     },
-    targets: &[Target::Profiles("Login Data")],
+    // Passwords a signed-in profile saves to the account without sync are in
+    // the second database, with the same table.
+    targets: &[
+        Target::Profiles("Login Data"),
+        Target::Profiles("Login Data For Account"),
+    ],
     matcher: Matcher::Whole {
         candidate: any,
         test: chromium_hits,

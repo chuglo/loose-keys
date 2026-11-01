@@ -4466,6 +4466,22 @@ mod tests {
         assert_eq!(change(&f.0, &[], "elsewhere/session.json"), found);
     }
 
+    /// Chrome keeps the passwords a signed-in profile saves to the Google
+    /// account, without sync, in a second database beside the first.
+    #[test]
+    fn passwords_saved_to_the_account_are_found_beside_the_profiles() {
+        let f = Fixture::new("account-logins");
+        let samples = crate::rules::browser::CHROMIUM_LOGINS.samples;
+        let (logins, none) = (samples[0].0, samples[1].0);
+        let profile = "Library/Application Support/Google/Chrome/Default";
+        put(&f.0, &format!("{profile}/Login Data"), none);
+        let account = format!("{profile}/Login Data For Account");
+        put(&f.0, &account, logins);
+        let rule = "browser.chromium.saved-logins";
+        assert_eq!(full(&f.0), (vec![(rule, format!("~/{account}"))], vec![]));
+        assert_eq!(change(&f.0, &[], &account), full(&f.0));
+    }
+
     /// A browser's sign-in database was checked only when a change named the
     /// file itself. A profile moved in as a whole is one change, of its
     /// folder, and its saved passwords and its wallet were not found.
@@ -4767,10 +4783,10 @@ mod tests {
         // Not stopped, the changed browser's folder is listed once for
         // every rule that reads its profiles, and then walked: 2 names and
         // 6. The other browser's is listed only for a link that leads to
-        // the change, its 1 name for each of the 2 files rules read in a
+        // the change, its 1 name for each of the 3 files rules read in a
         // profile, and nothing is looked for in it.
         let (listed, saw, left) = checked(&f.0, &[chrome], limits(1000), false);
-        assert_eq!((listed, saw), (10, (found, vec![])));
+        assert_eq!((listed, saw), (11, (found, vec![])));
         assert_eq!(left, Unreached::default());
         // Above them both, what a scan finds in each.
         let (_, saw, left) = checked(&f.0, &[above], limits(1000), false);
@@ -4823,10 +4839,10 @@ mod tests {
         }
         let limited = |dir: &str| (format!("~/{dir}"), "scan-limit");
         // With entries enough for it, the folder is listed in full, once
-        // for its profiles, and then walked: 42 names and 46. The other 2
+        // for its profiles, and then walked: 42 names and 46. The other 3
         // are the other browser's, looked at for a link that leads here.
         let (listed, saw, left) = checked(&f.0, &[chrome], limits(1000), false);
-        assert_eq!((listed, saw), (90, (found, vec![])));
+        assert_eq!((listed, saw), (91, (found, vec![])));
         assert_eq!(left, Unreached::default());
         // With fewer, no more of it than those. A profile past them may
         // hold what a rule names, so the folder is a gap, said once, and

@@ -606,7 +606,9 @@ vendors change their settings.
   any INI password findings; warehouse configs list up to 100 embedded keys in
   addition to their password fields. Terraform lists 100 holders and examines
   up to 1,000 instances per resource and 100 named sensitive attributes per
-  instance. Service-token matching keeps the first 100 occurrences, then only
+  instance; in a version 3 state (Terraform 0.11 and earlier) a resource's
+  instances are its `primary` and its `deposed` copies, searched under the
+  same limits. Service-token matching keeps the first 100 occurrences, then only
   new values until 100 distinct values have been found; later repeats are
   grouped. When another distinct value or capped match is omitted, or
   Terraform's inspection budget leaves entries unchecked, retained findings

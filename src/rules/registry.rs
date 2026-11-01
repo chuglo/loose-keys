@@ -152,6 +152,9 @@ pub const GEM_KEY: Rule = Rule {
     },
     samples: &[
         (b"---\n:rubygems_api_key: rubygems_synthetic-only\n", true),
+        // A key for another host is kept under its URL.
+        (b"---\nhttps://gems.example.invalid: synthetic-only\n", true),
+        (b"---\nhttps://gems.example.invalid:\n", false),
         (b"---\n", false),
     ],
     ..PYPI_PASSWORD
@@ -162,7 +165,22 @@ fn gem_hits(bytes: &[u8]) -> Hits {
         text.lines()
             .enumerate()
             .filter_map(|(i, raw)| {
-                let (key, value) = raw.trim().strip_prefix(':')?.split_once(':')?;
+                let line = raw.trim();
+                let (key, value) = match line.strip_prefix(':') {
+                    // rubygems.org's key, or one named with --key: ":name: value".
+                    Some(rest) => rest.split_once(':')?,
+                    // Another host's key, under its URL. Only the host is
+                    // shown: a URL can carry a user name and password.
+                    None => {
+                        let (url, value) = line.split_once(": ")?;
+                        let (scheme, rest) = url.split_once("://")?;
+                        if !matches!(scheme, "http" | "https") {
+                            return None;
+                        }
+                        let host = rest.rsplit_once('@').map_or(rest, |(_, host)| host);
+                        (host.split(['/', '?', '#']).next()?, value)
+                    }
+                };
                 scalar_literal(value).map(|_| Hit::line(i + 1).about(key))
             })
             .collect()
@@ -569,6 +587,40 @@ mod tests {
             (hits[1].line, hits[1].subject.as_deref()),
             (Some(4), Some("b.example.invalid"))
         );
+    }
+
+    /// RubyGems keeps the key for rubygems.org, and one named with --key,
+    /// under a symbol, and the key for another host under that host's URL,
+    /// as RubyGems 3.0's `set_api_key` writes it. Only the host is shown: a
+    /// URL can carry a user name and password.
+    #[test]
+    fn a_gem_key_for_another_host_is_found_by_its_host() {
+        let file = concat!(
+            "---\n",
+            ":rubygems_api_key: synthetic-only-value\n",
+            "https://gems.example.invalid: synthetic-only-value\n",
+            "http://fixture:synthetic-sensitive-fragment@gems.private.invalid:8443/org: synthetic-only-value\n",
+            "https://gems.empty.invalid:\n",
+            ":fixture_named: synthetic-only-value\n",
+        );
+        let hits = gem_hits(file.as_bytes()).unwrap();
+        let found: Vec<_> = hits
+            .iter()
+            .map(|h| (h.line, h.subject.as_deref()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (Some(2), Some("rubygems_api_key")),
+                (Some(3), Some("gems.example.invalid")),
+                (Some(4), Some("gems.private.invalid:8443")),
+                (Some(6), Some("fixture_named")),
+            ]
+        );
+        assert!(hits
+            .iter()
+            .filter_map(|h| h.subject.as_deref())
+            .all(|s| !s.contains("synthetic") && !s.contains("fixture:")));
     }
 
     /// The line and the host of each password found in a netrc file.

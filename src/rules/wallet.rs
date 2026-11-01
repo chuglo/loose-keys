@@ -95,9 +95,27 @@ fn has_recovery_phrase(head: &[u8]) -> bool {
     // The current run, as positions in the list, and what came before its next word.
     let mut run: Vec<usize> = Vec::new();
     let mut gap: &[u8] = &[];
-    for chunk in head.chunk_by(|a, b| a.is_ascii_alphabetic() == b.is_ascii_alphabetic()) {
+    let mut chunks = head
+        .chunk_by(|a, b| a.is_ascii_alphabetic() == b.is_ascii_alphabetic())
+        .peekable();
+    while let Some(chunk) = chunks.next() {
         if !chunk[0].is_ascii_alphabetic() {
             gap = chunk;
+            continue;
+        }
+        // "Word 1: velvet": the label of an entry, when a number follows it
+        // and none came before it, as in "11. word 12. velvet".
+        let label = chunk.eq_ignore_ascii_case(b"word")
+            && !gap.iter().any(u8::is_ascii_digit)
+            && chunks.peek().is_some_and(|next| {
+                let next = next.trim_ascii_start();
+                next.first().is_some_and(u8::is_ascii_digit)
+                    || (next.first() == Some(&b'#') && next.get(1).is_some_and(u8::is_ascii_digit))
+            });
+        if label {
+            if !plain_gap(gap) {
+                run.clear();
+            }
             continue;
         }
         // Words are 3 to 8 letters; anything else ends a run without a lookup.
@@ -136,14 +154,48 @@ fn packed(word: &[u8]) -> u64 {
 }
 
 /// What a person puts between the words of a phrase: spaces, line breaks,
-/// commas, list numbers ("3.", "3)", "3:") and a bullet at the start of a line.
+/// commas, list numbers ("3.", "3)", "3:", "#3", "(3)") and a bullet at the
+/// start of a line, indented or not, with a space or a tab after it.
 fn plain_gap(gap: &[u8]) -> bool {
-    gap.iter().enumerate().all(|(i, b)| match b {
-        b' ' | b'\t' | b'\r' | b'\n' | b',' | b'0'..=b'9' => true,
-        b'.' | b')' | b':' => i > 0 && gap[i - 1].is_ascii_digit(),
-        b'-' | b'*' => i > 0 && gap[i - 1] == b'\n' && gap.get(i + 1) == Some(&b' '),
-        _ => false,
-    })
+    const BULLETS: [&str; 6] = ["-", "*", "\u{2022}", "\u{25E6}", "\u{25AA}", "\u{2013}"];
+    // After a line break and any indentation, where a bullet may be.
+    let mut line_start = false;
+    let mut i = 0;
+    while let Some(&b) = gap.get(i) {
+        let before = i.checked_sub(1).and_then(|p| gap.get(p));
+        let rest = gap.get(i..).unwrap_or_default();
+        let bullet = BULLETS
+            .iter()
+            .map(|bullet| bullet.as_bytes())
+            .find(|bullet| rest.starts_with(bullet))
+            .filter(|bullet| line_start && matches!(rest.get(bullet.len()), Some(b' ' | b'\t')));
+        if let Some(bullet) = bullet {
+            line_start = false;
+            i += bullet.len();
+            continue;
+        }
+        let plain = match b {
+            b'\n' => {
+                line_start = true;
+                i += 1;
+                continue;
+            }
+            b' ' | b'\t' | b'\r' => {
+                i += 1;
+                continue;
+            }
+            b',' | b'0'..=b'9' => true,
+            b'.' | b')' | b':' => before.is_some_and(u8::is_ascii_digit),
+            b'#' | b'(' => gap.get(i + 1).is_some_and(u8::is_ascii_digit),
+            _ => false,
+        };
+        if !plain {
+            return false;
+        }
+        line_start = false;
+        i += 1;
+    }
+    true
 }
 
 /// A wallet picks the words at random, so twelve of them almost never hold
@@ -293,6 +345,65 @@ mod tests {
         for code in ["_", "(", " = ", ": ", "-", "\", \""] {
             assert!(!has_recovery_phrase(words.replace(' ', code).as_bytes()));
         }
+    }
+
+    /// Lists are also written with other bullets, indented, and with a tab
+    /// after the bullet, as some editors write them.
+    #[test]
+    fn lists_with_other_bullets_are_phrases() {
+        let words = concat!(
+            "velvet winner thank year wave sausage ",
+            "worth useful legal winner thank yellow"
+        );
+        for bullet in ["-", "*", "\u{2022}", "\u{25E6}", "\u{25AA}", "\u{2013}"] {
+            for (before, after) in [("", " "), ("\t", "\t"), ("  ", " ")] {
+                let list: String = words
+                    .split(' ')
+                    .map(|w| format!("{before}{bullet}{after}{w}\n"))
+                    .collect();
+                assert!(
+                    has_recovery_phrase(list.as_bytes()),
+                    "{bullet:?} {before:?} {after:?}"
+                );
+            }
+            // Between words on one line, a bullet is not a list.
+            let inline = words.replace(' ', &format!(" {bullet} "));
+            assert!(!has_recovery_phrase(inline.as_bytes()), "{bullet:?} inline");
+        }
+    }
+
+    #[test]
+    fn labelled_and_otherwise_numbered_lists_are_phrases() {
+        let words = concat!(
+            "velvet winner thank year wave sausage ",
+            "worth useful legal winner thank yellow"
+        );
+        let list = |words: &str, item: &dyn Fn(usize, &str) -> String| -> String {
+            words
+                .split(' ')
+                .enumerate()
+                .map(|(n, w)| item(n + 1, w))
+                .collect()
+        };
+        // "word" is a list word too, here the label of each entry.
+        for (n, layout) in [
+            list(words, &|n, w| format!("Word {n}: {w}\n")),
+            list(words, &|n, w| format!("word #{n} {w}\n")),
+            list(words, &|n, w| format!("#{n} {w}\n")),
+            list(words, &|n, w| format!("({n}) {w}\n")),
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert!(has_recovery_phrase(layout.as_bytes()), "layout {n}");
+        }
+        // A phrase that holds the word "word" is still one.
+        let holding = words.replacen("wave", "word", 1);
+        let numbered = list(&holding, &|n, w| format!("{n}. {w} "));
+        assert!(has_recovery_phrase(numbered.as_bytes()));
+        // Labels with no numbers are words of the run.
+        let unnumbered = list(words, &|_, w| format!("word {w}\n"));
+        assert!(!has_recovery_phrase(unnumbered.as_bytes()));
     }
 
     #[test]
