@@ -204,9 +204,15 @@ run from the repository or worktree root as their instructions specify.
   and unverified behavior. `README.md` and `docs/usage.md` carry a limit only
   when it changes what a person does or relies on. Do not remove a limitation
   without evidence.
-- **Commits:** one change each, with its docs (`README.md`, `docs/`, the
-  usage text in `src/main.rs`). Subject in plain words, body says why, then
-  the Checked and Not verified paragraphs. `git log` shows the form.
+- **Commits:** on a branch, commit as the work goes. `main` takes each
+  branch as one squash-merged commit, made only when the person directing
+  the session asks for the merge, and the checks for a push to `main` run
+  on that squashed commit. Keep a branch to one change, or a few closely
+  related ones, with its docs (`README.md`, `docs/`, the usage text in
+  `src/main.rs`): the squashed commit is what is reverted or bisected. Keep
+  its message short: a subject in plain words, a sentence or two on why and
+  what changed, then one line each for Checked and Not verified. `git log
+  main` shows the form.
 - **Ask first** before changing a report field, flag or exit code (contracts,
   kept in `schema/report-1.schema.json` and the usage text in `src/main.rs`),
   CI, lint settings, `edition` (2021) or `rust-version` (1.88), or removing
