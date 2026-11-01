@@ -86,6 +86,13 @@ Fetch the remote and check that the tested commit can fast-forward main or
 is already on main. A changed release commit needs new checks and a new
 candidate. Recheck the candidate's `SHA256SUMS` against its files.
 
+Releases are published immutable.
+`gh api 'repos/{owner}/{repo}/immutable-releases' --jq .enabled` must print
+`true`; otherwise stop and ask the person directing the session, and leave
+repository settings to them. Once published, the release's tag and packages
+cannot be changed or deleted, and the tag name cannot be reused even after
+the release is deleted, so a wrong package needs a new patch version.
+
 Merge the tested commit, push main, create and push its signed `v0.y.z` tag,
 then publish both tested packages:
 
@@ -95,8 +102,23 @@ gh release create v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.zip" \
   --verify-tag --title "Loose Keys 0.y.z (beta)" --notes-file "<notes file>"
 ```
 
-Verify the remote commit and tag signatures. Download both published packages
-into a fresh directory and compare their SHA-256 values with the tested copies.
+With packages, `gh release create` uploads them to a draft and publishes only
+after every upload succeeds; a failed upload deletes that draft. If it fails,
+check `gh release view v0.y.z` before retrying: a draft is not locked yet.
+
+Verify the remote commit and tag signatures. Check that the release is
+immutable and that its attestation covers both tested packages. The first
+command must print `true`, and each must exit 0:
+
+```sh
+gh release view v0.y.z --json isImmutable --jq .isImmutable
+gh release verify v0.y.z
+gh release verify-asset v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.zip"
+gh release verify-asset v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.dmg"
+```
+
+Download both published packages into a fresh directory and compare their
+SHA-256 values with the tested copies.
 
 ## Checking these scripts
 
