@@ -416,6 +416,18 @@ changing could keep a folder too large for one check from ever being first,
 and so from the full pass that finishes it. Verification: a helper test checks
 that such a folder is finished while folders that sort before it keep changing.
 
+A slice of a full pass whose entries run out partway through listing a folder
+passes on none of that folder's subfolders. It is the first folder the next
+slice's discovery lists, again from its start and with all of a slice's 20,000
+entries, more than the 10,000 one listing holds, and its subfolders are all
+passed on then. Before, the subfolders passed on from the cut listing were
+queued a second time by that listing and walked twice, with everything in
+them. The files of the cut listing are still checked in both slices.
+Verification: a scanner test checks that no slice leaves a folder to walk
+twice and that each file below is read once; the test of resumed passes
+against an uninterrupted one still passes. Not verified: how much time this
+saves the installed helper on a real home.
+
 The worker remembers when each path was last checked, to space out the checks
 of a file that keeps changing. Past 20,000 such paths it forgets those whose
 wait is over, which loses no change, and asks for a full pass only if the paths

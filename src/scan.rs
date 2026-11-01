@@ -2012,6 +2012,10 @@ impl Scan {
         // A listing the budget cut is some of the entries, in no order: the
         // place reached in it says nothing about the ones it left out.
         let ordered = !interrupted;
+        // A sweep lists it again from its start in its next slice, which
+        // passes all its subfolders on then. Passed on here as well, those
+        // listed now were walked twice, with all they hold.
+        let pass_on = ordered || !self.traversal.resumable();
         let mut reached = after.clone();
         let mut subfolders = Vec::new();
         let mut entries = entries.entries.into_iter().peekable();
@@ -2072,7 +2076,7 @@ impl Scan {
             if ordered {
                 reached = Some(p.clone());
             }
-            if is_dir && !EXCLUDED.iter().any(|name| p.ends_with(name)) && !skipped {
+            if pass_on && is_dir && !EXCLUDED.iter().any(|name| p.ends_with(name)) && !skipped {
                 subfolders.push(p);
             }
         }
@@ -2798,6 +2802,52 @@ mod tests {
                 "~/d/deep/deeper/export.csv",
             ]
         );
+    }
+
+    /// A listing the budget cuts is listed again from its start in a later
+    /// slice, which passes on all its subfolders then. Those passed on from
+    /// the cut listing were walked a second time, with all they hold.
+    #[test]
+    fn a_listing_cut_by_the_budget_passes_on_no_subfolder_twice() {
+        let f = Fixture::new("sweep-cut");
+        for n in 0..6 {
+            put(&f.0, &format!("plain-{n}.txt"), b"fixture\n");
+        }
+        for n in 0..8 {
+            put(
+                &f.0,
+                &format!("D/S{n}/export.csv"),
+                b"url,username,password\n",
+            );
+        }
+        let cancel = || Arc::new(AtomicBool::new(false));
+        let (mut found, mut slices, mut resume) = (Vec::new(), 0, None);
+        loop {
+            let (r, pending) = Scan::sweep(&f.0, &[], resume, limits(8), cancel(), digest);
+            found.extend(r.findings.into_iter().map(|x| x.path));
+            let mut folders: Vec<_> = pending
+                .iter()
+                .filter_map(|step| match step {
+                    Step::Folder(dir, _) | Step::Rest { dir, .. } => Some(dir.clone()),
+                    _ => None,
+                })
+                .collect();
+            let listed = folders.len();
+            folders.sort();
+            folders.dedup();
+            assert_eq!(folders.len(), listed, "slice {slices} left a folder twice");
+            slices += 1;
+            if pending.is_empty() {
+                break;
+            }
+            resume = Some(pending);
+            assert!(slices < 50);
+        }
+        assert!(slices > 2, "the budget must force several slices");
+        // Each subfolder holds one entry, so none is cut: each is read once.
+        found.sort();
+        let expected: Vec<_> = (0..8).map(|n| format!("~/D/S{n}/export.csv")).collect();
+        assert_eq!(found, expected);
     }
 
     #[test]

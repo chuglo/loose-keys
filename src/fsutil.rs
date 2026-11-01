@@ -49,7 +49,7 @@ pub fn read_head_in(dir: &File, name: &OsStr, max: u64) -> Result<Option<Head>, 
 
 fn head_of(file: File, max: u64) -> Result<Head, Gap> {
     let meta = file.metadata().map_err(|e| gap(&e))?;
-    let mut bytes = Vec::new();
+    let mut bytes = with_room(meta.len(), max);
     file.take(max)
         .read_to_end(&mut bytes)
         .map_err(|e| gap(&e))?;
@@ -57,6 +57,13 @@ fn head_of(file: File, max: u64) -> Result<Head, Gap> {
         bytes,
         shared: meta.mode() & 0o044 != 0,
     })
+}
+
+/// An empty buffer with room for a file that says it holds `len` bytes, read
+/// up to `max`, so that one read usually fills it: grown from nothing, it
+/// took a read for each doubling. `max` caps the room, whatever `len` says.
+fn with_room(len: u64, max: u64) -> Vec<u8> {
+    Vec::with_capacity(usize::try_from(len.min(max)).unwrap_or(0))
 }
 
 /// Open a regular file for reading in pieces, with its size and whether
@@ -90,7 +97,7 @@ fn config_of(mut file: File, max: u64) -> Result<Head, Gap> {
     if before.len() > max {
         return Err("too-large");
     }
-    let mut bytes = Vec::new();
+    let mut bytes = with_room(before.len(), max);
     (&mut file)
         .take(max)
         .read_to_end(&mut bytes)
