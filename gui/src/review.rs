@@ -352,10 +352,25 @@ impl Review {
     pub fn number(&mut self) {
         for item in &mut self.items {
             if item.id == 0 {
-                self.next_id += 1;
+                self.next_id = self.next_id.saturating_add(1);
                 item.id = self.next_id;
             }
         }
+    }
+
+    /// Whether each id is one the counter gave out, and no two items have
+    /// one: the window names an item by it. Zero is an item from before ids,
+    /// still to be numbered. The counter needs room to number a whole list
+    /// and then a full list of new findings; one that runs out repeats its
+    /// last id, which this then refuses, instead of wrapping to zero.
+    fn ids_hold(&self) -> bool {
+        if self.next_id.checked_add(2 * MAX_ITEMS as u64).is_none() {
+            return false;
+        }
+        let mut seen = std::collections::HashSet::with_capacity(self.items.len());
+        self.items
+            .iter()
+            .all(|i| i.id == 0 || (i.id <= self.next_id && seen.insert(i.id)))
     }
 
     /// The other places the same credential is stored, plus this one.
@@ -487,6 +502,9 @@ impl Review {
             }
         }
         if self.decisions.len() >= MAX_ITEMS {
+            self.make_room(now);
+        }
+        if self.decisions.len() >= MAX_ITEMS {
             return Err(
                 "Too many findings are set aside. Move some back to Worth Reviewing.".into(),
             );
@@ -505,6 +523,41 @@ impl Review {
             decided_at: now,
         });
         Ok(())
+    }
+
+    /// Room for one more decision, made from those no listed item uses. A
+    /// decision stays when what it was about leaves the list, where the
+    /// person can no longer move it back. Such a decision only sets aside a
+    /// credential found again, so dropping one can make that ask for
+    /// attention again, never hide it. A Kept that has run out sets nothing
+    /// aside, so those go first; then the oldest. A decision a listed item
+    /// uses stays, even a Kept that has run out: `ingest` reads that one to
+    /// tell whether a copy of a credential is news.
+    fn make_room(&mut self, now: u64) {
+        let secrets: std::collections::HashSet<&String> = self
+            .items
+            .iter()
+            .filter_map(|i| i.secret.as_ref())
+            .collect();
+        let places: std::collections::HashSet<(&String, &String, &Option<String>)> = self
+            .items
+            .iter()
+            .map(|i| (&i.rule, &i.path, &i.subject))
+            .collect();
+        // As `forget` matches them: by value where there is one, else by place.
+        let used = |d: &Decision| match &d.secret {
+            Some(secret) => secrets.contains(secret),
+            None => places.contains(&(&d.rule, &d.path, &d.subject)),
+        };
+        let run_out = |d: &Decision| {
+            d.reason == Reason::Kept && now >= d.decided_at.saturating_add(RECONFIRM)
+        };
+        self.decisions.retain(|d| used(d) || !run_out(d));
+        if self.decisions.len() >= MAX_ITEMS {
+            if let Some(oldest) = self.decisions.iter().position(|d| !used(d)) {
+                self.decisions.remove(oldest);
+            }
+        }
     }
 
     /// Remove the person's decisions that set this item aside. The
@@ -749,7 +802,7 @@ impl Review {
                     item.revision = self.revision;
                 }
             }
-            self.next_id += 1;
+            self.next_id = self.next_id.saturating_add(1);
             item.id = self.next_id;
             claimed.insert(item.id);
             self.items.push(item);
@@ -1109,6 +1162,9 @@ impl Store {
             .map_err(|e| e.to_string())?;
         let review: Review = serde_json::from_str(&json)
             .map_err(|_| "The review list file is damaged or in an unknown format.")?;
+        if !review.ids_hold() {
+            return Err("The review list file is damaged or in an unknown format.".into());
+        }
         if review.items.len() > 4096
             || (!review.key.is_empty() && review.key.len() != 32)
             || (review.key.is_empty() && review.items.iter().any(|i| i.fingerprint.is_some()))
@@ -1126,6 +1182,7 @@ impl Store {
 
     pub fn save(&self, review: &Review) -> Result<(), String> {
         if review.items.len() > 4096
+            || !review.ids_hold()
             || review
                 .agent
                 .unread_places
@@ -2321,6 +2378,191 @@ mod tests {
             std::env::temp_dir().join(format!("credential-review-{name}-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         root
+    }
+
+    /// The window names an item by its id, so two items with one id let a
+    /// decision about one land on the other, and a counter below an id gives
+    /// that id out again. A counter at its limit wrapped to zero in a release
+    /// build. Such a list is refused before anything reads or changes it.
+    #[test]
+    fn saved_ids_are_checked_before_the_list_is_used() {
+        let mut accepted = Vec::new();
+        for (name, next_id, ids) in [
+            ("ids-stale-counter", 0, [1, 2]),
+            ("ids-repeated", 2, [1, 1]),
+            ("ids-counter-at-limit", u64::MAX, [1, 2]),
+            ("ids-no-room-to-number", u64::MAX - 1, [0, 0]),
+        ] {
+            let root = synthetic_home(name);
+            let store = Store::open(&root).unwrap();
+            let mut review = Review::default();
+            review.ingest(&report(&[("review", "~/one.csv"), ("review", "~/two.csv")]));
+            review.next_id = next_id;
+            for (item, id) in review.items.iter_mut().zip(ids) {
+                item.id = id;
+            }
+            let state = root.join(STATE_DIR).join("state.json");
+            let json = serde_json::to_string(&review).unwrap();
+            fsutil::write_export(&state, &json, false).unwrap();
+            let before = std::fs::read(&state).unwrap();
+            match store.read() {
+                Ok(_) => accepted.push(name),
+                Err(e) => {
+                    assert_eq!(
+                        e,
+                        "The review list file is damaged or in an unknown format."
+                    );
+                    assert!(store.save(&review).is_err(), "{name}: saved");
+                    let mut called = false;
+                    let changed = store.update(|_| {
+                        called = true;
+                        Ok(())
+                    });
+                    assert!(changed.is_err() && !called, "{name}: changed");
+                    assert_eq!(std::fs::read(&state).unwrap(), before, "{name}");
+                }
+            }
+            drop(store);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+        assert!(accepted.is_empty(), "accepted: {accepted:?}");
+    }
+
+    #[test]
+    fn a_counter_without_room_for_a_full_list_is_not_saved() {
+        let root = synthetic_home("ids-save-at-bound");
+        let store = Store::open(&root).unwrap();
+        let review = Review {
+            next_id: u64::MAX - 2 * MAX_ITEMS as u64,
+            ..Review::default()
+        };
+        store.save(&review).unwrap();
+        assert!(store.read().is_ok());
+        let path = root.join(STATE_DIR).join("state.json");
+        let before = std::fs::read(&path).unwrap();
+        let result = store.update(|state| Ok(state.ingest(&report(&[("review", "~/new.csv")]))));
+        let unchanged = std::fs::read(&path).unwrap() == before;
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(result.is_err(), "a counter without room was saved");
+        assert!(unchanged, "a refused save replaced the list");
+    }
+
+    #[test]
+    fn ids_left_by_older_lists_and_by_removed_items_are_kept() {
+        for (name, next_id, ids, expected) in [
+            ("ids-from-before-ids", 0, [0, 0], [1, 2, 3]),
+            ("ids-some-numbered", 1, [1, 0], [1, 2, 3]),
+            ("ids-after-removals", 10, [5, 8], [5, 8, 11]),
+        ] {
+            let root = synthetic_home(name);
+            let store = Store::open(&root).unwrap();
+            let mut review = Review::default();
+            review.ingest(&report(&[("review", "~/one.csv"), ("review", "~/two.csv")]));
+            review.next_id = next_id;
+            for (item, id) in review.items.iter_mut().zip(ids) {
+                item.id = id;
+            }
+            store.save(&review).unwrap();
+            let (saved, _) = store
+                .update(|state| Ok(state.ingest(&report(&[("review", "~/three.csv")]))))
+                .unwrap();
+            let ids = |r: &Review| r.items.iter().map(|i| i.id).collect::<Vec<_>>();
+            assert_eq!(ids(&saved), expected, "{name}");
+            assert_eq!(ids(&store.read().unwrap()), expected, "{name}");
+            drop(store);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    /// A decision stays when what it was about leaves the list, where the
+    /// person cannot move it back, so such decisions filled the list for
+    /// good. At the cap, room is made from those no listed item uses: a Kept
+    /// that has run out first, then the oldest. One in use is never dropped.
+    #[test]
+    fn a_full_list_of_decisions_makes_room_from_ones_nothing_listed_uses() {
+        let now = 2 * RECONFIRM;
+        let decision = |reason, path: &str, decided_at| Decision {
+            reason,
+            secret: None,
+            rule: "export.password-csv".into(),
+            path: path.into(),
+            subject: None,
+            fingerprint: None,
+            token_type: None,
+            shared: false,
+            severity: "high".into(),
+            decided: "synthetic".into(),
+            decided_at,
+        };
+        let listed = || {
+            let mut state = Review::default();
+            state.ingest(&report(&[
+                ("review", "~/listed.csv"),
+                ("review", "~/other.csv"),
+            ]));
+            state
+        };
+        let paths = |state: &Review| -> Vec<String> {
+            state.decisions.iter().map(|d| d.path.clone()).collect()
+        };
+
+        // A Kept that has run out goes first, while one in use stays.
+        let mut state = listed();
+        state
+            .decisions
+            .push(decision(Reason::Kept, "~/other.csv", 0));
+        state
+            .decisions
+            .push(decision(Reason::NotACredential, "~/gone-first.csv", now));
+        for n in 0..MAX_ITEMS - 3 {
+            let path = format!("~/gone-{n}.csv");
+            state
+                .decisions
+                .push(decision(Reason::NotACredential, &path, now));
+        }
+        state
+            .decisions
+            .push(decision(Reason::Kept, "~/gone-kept.csv", 0));
+        let id = state.items[0].id;
+        state
+            .decide(id, Reason::Testing, now, "synthetic".into())
+            .unwrap();
+        let kept = paths(&state);
+        assert_eq!(kept.len(), MAX_ITEMS);
+        assert!(!kept.contains(&"~/gone-kept.csv".to_string()));
+        assert!(kept.contains(&"~/other.csv".to_string()));
+        assert!(kept.contains(&"~/gone-first.csv".to_string()));
+
+        // Then the oldest decision nothing listed uses.
+        let mut state = listed();
+        for n in 0..MAX_ITEMS {
+            let path = format!("~/gone-{n}.csv");
+            state
+                .decisions
+                .push(decision(Reason::NotACredential, &path, now));
+        }
+        let id = state.items[0].id;
+        state
+            .decide(id, Reason::Testing, now, "synthetic".into())
+            .unwrap();
+        let kept = paths(&state);
+        assert_eq!(kept.len(), MAX_ITEMS);
+        assert_eq!(kept.first().map(String::as_str), Some("~/gone-1.csv"));
+        assert_eq!(kept.last().map(String::as_str), Some("~/listed.csv"));
+
+        // Every one in use: the cap still holds, and the person is told.
+        let mut state = listed();
+        for _ in 0..MAX_ITEMS {
+            state
+                .decisions
+                .push(decision(Reason::Kept, "~/other.csv", 0));
+        }
+        let id = state.items[0].id;
+        assert_eq!(
+            state.decide(id, Reason::Testing, now, "synthetic".into()),
+            Err("Too many findings are set aside. Move some back to Worth Reviewing.".into())
+        );
     }
 
     #[test]

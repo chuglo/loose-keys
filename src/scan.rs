@@ -160,19 +160,30 @@ pub fn recheck_values(
     if forms.is_empty() {
         forms = same().collect();
     }
+    // A rule this build does not have reads nothing, so nothing is known.
+    if forms.is_empty() {
+        return None;
+    }
     for rule in forms {
         match rule.matcher {
             // Presence is the finding: say what is still there, by its name.
             Matcher::Present => {
                 if std::fs::symlink_metadata(path).is_ok() {
-                    still.extend(rule.targets.iter().filter_map(|t| match *t {
+                    let named = rule.targets.iter().filter_map(|t| match *t {
                         Target::Present(_, what) | Target::Extension(_, what)
                             if names(t, path) || linked(t, path, home) =>
                         {
                             Some((crate::rules::label(what), None))
                         }
                         _ => None,
-                    }));
+                    });
+                    let before = still.len();
+                    still.extend(named);
+                    // There, but at a place this rule does not look: its
+                    // presence says nothing about what the item was.
+                    if still.len() == before {
+                        return None;
+                    }
                 } else if !crate::fsutil::checked_or_absent(path, mount, home) {
                     return None;
                 }
@@ -5414,6 +5425,27 @@ mod tests {
         assert_eq!(
             still(&export, "export.password-csv"),
             Some(vec![(None, None)])
+        );
+    }
+
+    /// A recheck this build cannot make says nothing, rather than that the
+    /// item is gone: one saved under a rule this build lacks, or under a rule
+    /// none of whose targets now names its file, would otherwise be marked
+    /// fixed with its file unread.
+    #[test]
+    fn a_recheck_this_build_cannot_make_is_not_a_fix() {
+        let f = Fixture::new("recheck-unknown");
+        let notes = f.0.join("notes.env");
+        fs::write(&notes, "DATABASE_PASSWORD=synthetic-only-value\n").unwrap();
+        assert_eq!(recheck("synthetic.unknown-rule", &notes, &f.0, None), None);
+        // Found by its file being there, at a place no target names.
+        assert_eq!(recheck("app.telegram.session", &notes, &f.0, None), None);
+        // Gone from a place one names: that is known.
+        let session =
+            f.0.join("Library/Application Support/Telegram Desktop/tdata/key_datas");
+        assert_eq!(
+            recheck("app.telegram.session", &session, &f.0, None),
+            Some(vec![])
         );
     }
 

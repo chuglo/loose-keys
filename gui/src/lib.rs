@@ -163,12 +163,24 @@ fn automatic_coverage(agent: &review::Agent) -> AutomaticCoverage {
 /// Change the shared state on disk as one step, and keep this app's copy
 /// current. The agent may have changed the state since this app last read it.
 fn update_state<T>(app: &App, change: impl FnOnce(&mut review::Review) -> T) -> Answer<T> {
+    try_update_state(app, |state| Ok(change(state)))
+}
+
+/// As `update_state`, for a change the command can refuse. A refusal saves
+/// nothing, leaves this app's copy as it was and is not a storage failure.
+fn try_update_state<T>(
+    app: &App,
+    change: impl FnOnce(&mut review::Review) -> Answer<T>,
+) -> Answer<T> {
     let store = app.store.as_ref().map_err(Clone::clone)?;
-    match store.update(|state| Ok(change(state))) {
+    let mut refused = false;
+    let result = store.update(|state| change(state).inspect_err(|_| refused = true));
+    match result {
         Ok((state, out)) => {
             *app.review.lock().unwrap() = state;
             Ok(out)
         }
+        Err(e) if refused => Err(e),
         Err(e) => {
             *app.storage_error.lock().unwrap() = Some(e.clone());
             app.monitor.configure(false, true);
@@ -649,7 +661,7 @@ fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reaso
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Loose Keys could not open its saved data.".into());
     }
-    update_state(app, |state| {
+    try_update_state(app, |state| {
         state.as_shown(id, revision)?;
         match reason {
             Some(reason) => state.decide(id, reason, now(), report::utc_now()),
@@ -658,7 +670,7 @@ fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reaso
                 Ok(())
             }
         }
-    })?
+    })
 }
 
 /// The organization's expected findings, as the window read them from a
@@ -686,7 +698,7 @@ fn set_expected(app: &App, entries: Vec<serde_json::Value>) -> Answer<()> {
 /// item, never a path. The folder stays listed wherever results are shown.
 fn skip_folder(app: &App, id: u64) -> Answer<()> {
     let home = app.home.clone().map_err(|e| e.to_string())?;
-    update_state(app, |state| {
+    try_update_state(app, |state| {
         let item = state
             .items
             .iter()
@@ -703,7 +715,7 @@ fn skip_folder(app: &App, id: u64) -> Answer<()> {
             state.skipped.push(review::Skip { path, added });
         }
         Ok(())
-    })?
+    })
 }
 
 /// `index` is the folder's place in the list the front end drew, and `shown`
@@ -1212,6 +1224,13 @@ fn start_scan(app: &App) -> Answer<ResultsView> {
 const SCAN_BLOCKED: &str =
     "Loose Keys is quitting, so the scan did not start. Open it again to scan.";
 
+/// Said when the list was replaced during the scan, as when its file is
+/// deleted or put back from a copy. The new list has another key, and what
+/// the scan found, digested with the old one, would be taken there for
+/// other values: marked fixed by the next scan and listed again as news.
+const LIST_REPLACED: &str =
+    "The review list was replaced during the scan, so nothing it found was saved. Scan again.";
+
 fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer<ResultsView> {
     let home = app.home.clone().map_err(|e| format!("Cannot scan: {e}."))?;
     if app.store.is_err() {
@@ -1245,6 +1264,7 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
         key = update_state(app, |state| state.key.clone())?;
     }
     let skip = skipped_paths(&state, &home);
+    let made_with = key.clone();
     let r = scan::Scan::report_controlled(
         &home,
         extra,
@@ -1264,6 +1284,9 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
     // have none left, and nothing was marked fixed.
     let saved = if app.storage_error.lock().unwrap().is_none() {
         update_state(app, |review| {
+            if review.key != made_with {
+                return None;
+            }
             let rechecking = std::time::Instant::now();
             // ingest only ever sets `full`, so it is cleared here for this
             // scan to decide again, and put back below unless the scan ran to
@@ -1284,18 +1307,24 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
             if was_full && (app.monitor.cancel.load(Ordering::SeqCst) || !review.has_room()) {
                 review.full = true;
             }
-            new
+            Some(new)
         })
     } else {
         Err("The review list is unavailable.".into())
     };
-    let new = saved.unwrap_or(false);
-    *app.report.lock().unwrap() = Some(r);
+    let replaced = matches!(saved, Ok(None));
+    let new = matches!(saved, Ok(Some(true)));
+    if !replaced {
+        *app.report.lock().unwrap() = Some(r);
+    }
     if new {
         emit(c"review-ready", ());
     }
     drop(_guard);
     emit(c"monitor-status", ());
+    if replaced {
+        return Err(LIST_REPLACED.into());
+    }
     Ok(view)
 }
 
@@ -2538,6 +2567,45 @@ mod tests {
 
     const EXPORT: &str = "url,username,password\nhttps://fixture.invalid,fixture,synthetic\n";
 
+    /// A list replaced during a scan, as when its file is deleted or put
+    /// back from a copy, has another key than the one the scan's digests
+    /// were made with. Saved into it, what the scan found was taken for other
+    /// values: the next scan marked it fixed and listed it again as news.
+    #[test]
+    fn a_scan_whose_list_was_replaced_saves_nothing() {
+        let (home, app) = engine("replaced-list");
+        std::fs::write(home.join("notes.txt"), format!("{}\n", token('A'))).unwrap();
+        let replaced = vec![9u8; 32];
+        let (key, during) = (replaced.clone(), home.clone());
+        let alone = one_scan();
+        *MID_SCAN.lock().unwrap() = Some(Box::new(move || {
+            let store = review::Store::open(&during).unwrap();
+            let fresh = |state: &mut review::Review| {
+                *state = review::Review {
+                    key,
+                    ..review::Review::default()
+                };
+                Ok(())
+            };
+            store.update(fresh).unwrap();
+        }));
+        ch_set_event_handler(Some(mid_scan));
+        let scan = ask(&app, "start_scan", "{}");
+        ch_set_event_handler(None);
+        // The next scan is made with the new list's key, and saved.
+        let next = ask(&app, "start_scan", "{}");
+        drop(alone);
+        let stored = review::Store::open(&home).unwrap().read().unwrap();
+        std::fs::remove_dir_all(&home).unwrap();
+        assert_eq!(
+            scan["error"],
+            "The review list was replaced during the scan, so nothing it found was saved. Scan again."
+        );
+        assert_eq!(next["ok"]["review"], 1);
+        assert_eq!(stored.key, replaced);
+        assert_eq!(stored.items.len(), 1);
+    }
+
     /// The app acts only on a plain name, and it took looking at a listed
     /// file again for acting on it: an item whose name had an accent was
     /// never rechecked, and stayed open after its file was deleted.
@@ -3644,6 +3712,75 @@ mod tests {
             ask(&app, "set_expected", r#"{"entries":[]}"#)["error"],
             "Loose Keys could not open its saved data."
         );
+    }
+
+    /// A refused decision saves nothing: here the person's earlier Move to
+    /// Worth Reviewing must survive a decision refused at the cap, or the
+    /// organization's list sent again sets the row aside against that choice.
+    #[test]
+    fn a_refused_decision_changes_nothing_saved() {
+        let notes = Notes::new("refused-decision", &token('A'));
+        std::fs::create_dir(notes.0.join("other")).unwrap();
+        std::fs::write(notes.0.join("other/notes.txt"), token('B')).unwrap();
+        let app = App::open(Ok(notes.0.clone()));
+        app.ready();
+        update_state(&app, |state| notes.save(state, &notes.scan())).unwrap();
+        let list = |app: &App| ask(app, "pending_review", "{}")["ok"].clone();
+        let row = list(&app)["items"][0].clone();
+        let shown = |app: &App| {
+            let items = list(app)["items"].as_array().unwrap().clone();
+            items.into_iter().find(|i| i["id"] == row["id"]).unwrap()
+        };
+        let entries = json!({ "entries": [{ "rule": row["rule"], "path": row["path"] }] });
+        ask(&app, "set_expected", &entries.to_string());
+        let revision = shown(&app)["revision"].clone();
+        let back = json!({ "id": row["id"], "revision": revision, "reason": null });
+        assert_eq!(
+            ask(&app, "decide_review", &back.to_string()),
+            json!({ "ok": null })
+        );
+        // Decisions about the other note's place fill the list of
+        // decisions. A listed item uses them, so none makes room.
+        update_state(&app, |state| {
+            let other = state
+                .items
+                .iter()
+                .find(|i| json!(i.id) != row["id"])
+                .unwrap()
+                .clone();
+            for _ in 0..review::MAX_ITEMS {
+                state.decisions.push(review::Decision {
+                    reason: review::Reason::Kept,
+                    secret: None,
+                    rule: other.rule.clone(),
+                    path: other.path.clone(),
+                    subject: other.subject.clone(),
+                    fingerprint: None,
+                    token_type: None,
+                    shared: false,
+                    severity: "high".into(),
+                    decided: "2026-01-01T00:00:00Z".into(),
+                    decided_at: 0,
+                });
+            }
+        })
+        .unwrap();
+        let path = notes.0.join(review::STATE_DIR).join("state.json");
+        let before = std::fs::read(&path).unwrap();
+        let press = json!({ "id": row["id"], "revision": revision, "reason": "kept" });
+        assert_eq!(
+            ask(&app, "decide_review", &press.to_string())["error"],
+            "Too many findings are set aside. Move some back to Worth Reviewing."
+        );
+        assert!(
+            std::fs::read(&path).unwrap() == before,
+            "a refused decision rewrote the saved state"
+        );
+        assert_eq!(
+            ask(&app, "set_expected", &entries.to_string()),
+            json!({ "ok": null })
+        );
+        assert_eq!(shown(&app)["state"], "open");
     }
 
     /// An admin's typo in one entry drops that entry, not the list: the

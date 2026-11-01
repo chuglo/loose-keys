@@ -190,7 +190,9 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   load, change and save, so the closure passed to it delays the app or the
   agent for as long as it runs. Keep a new closure to the change itself. The
   item rechecks inside the existing ones are deliberate: the merge has to be
-  one step.
+  one step. A change that fails saves nothing: an engine command that can
+  refuse goes through `try_update_state`, which leaves the saved state and the
+  app's copy as they were and does not count the refusal as a storage failure.
 - `Monitor` is the one condition variable. State is changed under its mutex
   and then notified. `wait` checks the state again in a loop, because a wait
   can return with no notification and a notification with no waiter is lost.
@@ -209,7 +211,13 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
 - Limits and deadlines use `Instant` (`Scan::started`, the monitor's `due`).
   `SystemTime` is only for a timestamp written down (`report::utc_now`,
   `now` in `gui/src/lib.rs`). It can go backwards, so both handle
-  `duration_since` failing. `Instant + Duration` panics on overflow. That is
+  `duration_since` failing. A time stored while the clock was ahead stays in
+  the future after it is put right: the helper counts a last full pass
+  stamped more than a day ahead as long ago (`pass_due`), or the weekly pass
+  would wait until the clock was a week past the stamp. Test:
+  `a_pass_stamped_in_the_future_does_not_hold_off_the_next`. Other stored
+  times (`decided_at`, `retry_at`) are not checked this way.
+  `Instant + Duration` panics on overflow. That is
   fine for a constant such as `CADENCE`, but a duration from input or state
   uses `checked_add`. [14]
 - The worker sets its own priority where its thread starts, in `run`, not
@@ -299,6 +307,42 @@ The threats are a local user racing a root run with links, and hostile files
   nothing to move does not wait for the store, as when the old folder stays
   because something else is in it. A helper from before the move that is
   still running writes to the removed old folder until it restarts.
+- The window names an item by its id, so the ids in `state.json` are input
+  like any other number in a file. `Store::load` refuses a list in which two
+  items share an id, an id is above `next_id`, or `next_id` has no room left
+  to number a whole list and then a full list of new findings
+  (`Review::ids_hold`). `Store::save` refuses the same, so a counter that
+  runs out, which `saturating_add` keeps from wrapping to zero, is never
+  saved. A refused list is shown as unavailable, never as empty. Id 0 is an
+  item from before ids, numbered on the next update. Tests:
+  `saved_ids_are_checked_before_the_list_is_used`,
+  `a_counter_without_room_for_a_full_list_is_not_saved` and
+  `ids_left_by_older_lists_and_by_removed_items_are_kept`.
+- The person's decisions are capped at `MAX_ITEMS`. A decision stays when
+  what it was about leaves the list, where it can no longer be moved back,
+  so at the cap `Review::make_room` drops from those no listed item uses,
+  matched as `forget` matches them (by value where there is one, else by
+  place): every Kept past `RECONFIRM` first, then the oldest. Such a
+  decision only sets aside a credential found again, so dropping it can make
+  that ask for attention again, never hide it. One a listed item uses stays,
+  even a Kept that has run out, because `ingest` reads it to tell whether a
+  copy is news; only when every decision is in use is a new one refused.
+  Test: `a_full_list_of_decisions_makes_room_from_ones_nothing_listed_uses`.
+  Decisions are still limited by number, not measured against the store's
+  size.
+- A scan's digests are made with the key the list had when it began
+  (`perform_scan`, `Agent::fingerprint`). A list replaced while it ran, as
+  when its file is deleted or put back from a copy, has another key, and
+  what the scan found would be taken there for other values: marked fixed
+  by the next scan and listed again as news. So the save compares the two
+  keys and, where they differ, saves nothing the scan found. The app says
+  so (`LIST_REPLACED`) and keeps no report; the helper saves the list
+  unchanged, takes its key and makes the check again, as after any save
+  that failed. Tests: `a_scan_whose_list_was_replaced_saves_nothing`,
+  `a_check_made_with_the_key_of_a_list_since_replaced_is_made_again`. Not
+  covered: a full pass under way when the list is replaced saved its
+  earlier slices into the old list, so it ends without their findings, which
+  return at the next pass or when their files change.
 
 ### Saved automatic coverage
 
@@ -509,6 +553,12 @@ vendors change their settings.
   `tests/detection-corpus.json`, or the coverage test fails. `Case` in
   `tests/support/detection.rs` documents the fields. Write the expected
   findings from the intended behaviour, never by copying a scan's output.
+- A recheck says an item is gone only when this build has its rule and, for a
+  rule found by a file being there, a target that names the item's place.
+  Otherwise `recheck_values` knows nothing (`None`), so an item saved by
+  another build, or under a target list that has changed since, is never
+  marked fixed with its file unread. Test:
+  `a_recheck_this_build_cannot_make_is_not_a_fix` in `src/scan.rs`.
 - Inline environment tables retain each literal secret separately and skip a
   service-token assignment only when its whole value matches the token rule. Quoted
   commas do not separate pairs. The existing scalar parser accepts a limited

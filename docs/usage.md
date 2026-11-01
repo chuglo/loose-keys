@@ -59,7 +59,10 @@ The first three cover matching copies wherever they are stored. If a password
 or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
 or Key**, changed text appears there if it is flagged again. A finding set
 aside under the earlier combined reason, for testing or no longer working,
-stays set aside and is shown as a previous choice.
+stays set aside and is shown as a previous choice. The app keeps up to 4096
+choices. When it needs room for another, it forgets the oldest choices about
+findings no longer on its list, so such a credential found again appears in
+Worth Reviewing.
 
 **Keeping It Here on Purpose** covers one file. The same credential turning
 up elsewhere is still reported. It still applies if you change the value in

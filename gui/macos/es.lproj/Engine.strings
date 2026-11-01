@@ -657,6 +657,9 @@
 /* gui/src/lib.rs:1130 */
 "Loose Keys is quitting, so the scan did not start. Open it again to scan." = "Loose Keys se está cerrando, así que el análisis no empezó. Vuelve a abrirla para analizar.";
 
+/* gui/src/lib.rs:1231 */
+"The review list was replaced during the scan, so nothing it found was saved. Scan again." = "La lista de revisión se reemplazó durante el análisis, así que no se guardó nada de lo que encontró. Vuelve a analizar.";
+
 /* gui/src/lib.rs:1136 */
 "Loose Keys could not open its saved data, maybe because another copy of it is running. Scanning is turned off." = "Loose Keys no pudo abrir sus datos guardados, quizá porque hay otra copia abierta. El análisis está desactivado.";
 

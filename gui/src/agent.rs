@@ -44,6 +44,14 @@ const INBOX_MAX: usize = 5000;
 /// A path whose check was cut short asks for a full pass once in this long.
 const PASS_AGAIN: Duration = Duration::from_secs(24 * 3600);
 
+/// Whether the weekly full pass is due, the last having ended at
+/// `baseline_at`. A time more than a day ahead of the clock was written
+/// while the clock was wrong. Counted from it, the next pass would wait
+/// until the clock was a week past it, so it counts as long ago.
+fn pass_due(baseline_at: u64, now: u64) -> bool {
+    now.saturating_sub(baseline_at) > FULL_PASS_EVERY || baseline_at > now.saturating_add(24 * 3600)
+}
+
 // FSEvents flags: events were dropped or coalesced, so the folder must be
 // walked; and the marker that ends replayed history.
 const MUST_RESCAN: u32 = 0x1 | 0x2 | 0x4 | 0x8;
@@ -160,9 +168,19 @@ impl Agent {
         }
     }
 
-    fn fingerprint(&self) -> impl Fn(&str, &[u8], bool) -> String + Send + 'static {
+    /// The key a check's digests are made with, and a digest made with it.
+    fn fingerprint(
+        &self,
+    ) -> (
+        Vec<u8>,
+        impl Fn(&str, &[u8], bool) -> String + Send + 'static,
+    ) {
         let key = self.known.lock().unwrap().key.clone();
-        move |rule, bytes, shared| crate::material_fingerprint(rule, &key, bytes, shared)
+        let made_with = key.clone();
+        let digest = move |rule: &str, bytes: &[u8], shared| {
+            crate::material_fingerprint(rule, &key, bytes, shared)
+        };
+        (made_with, digest)
     }
 
     /// Save what a check found. `only` limits the recheck of open items to
@@ -170,6 +188,7 @@ impl Agent {
     /// lists a finding in: it read that file, and what it found there may
     /// stand in place of what was listed. `place` is how far in the change
     /// history every change has now been checked, when that has moved.
+    /// `key` is the one the check's digests were made with.
     /// Returns whether it was saved. If not, what was found is on no list,
     /// and the check has to be made again before anything is saved that
     /// says it was made.
@@ -177,12 +196,19 @@ impl Agent {
     fn record(
         &self,
         report: &Report,
+        key: &[u8],
         only: Option<&[PathBuf]>,
         place: Option<u64>,
         health: impl FnOnce(&mut review::Agent),
     ) -> bool {
         let saved = self.store.update(|state| {
-            let key = state.key.clone();
+            // A list replaced while the check ran has another key, and the
+            // check's digests would be taken for other values there. Nothing
+            // it found is saved; the list is, unchanged, so that its key is
+            // known below and the check made again with it.
+            if state.key != key {
+                return Ok(false);
+            }
             // Counted from here: the store is locked from here on.
             let rechecking = Instant::now();
             let found: HashSet<&str> = report.findings.iter().map(|f| f.path.as_str()).collect();
@@ -199,7 +225,7 @@ impl Agent {
                 {
                     return None;
                 }
-                crate::still_there(item, &self.home, &key)
+                crate::still_there(item, &self.home, key)
             });
             state.agent.last_check = Some(report.generated_at.clone());
             state.agent.error = None;
@@ -207,13 +233,15 @@ impl Agent {
                 state.agent.event_id = place;
             }
             health(&mut state.agent);
-            Ok(())
+            Ok(true)
         });
         match saved {
-            Ok((state, ())) => {
-                self.unsaved.store(0, Ordering::SeqCst);
+            Ok((state, merged)) => {
+                if merged {
+                    self.unsaved.store(0, Ordering::SeqCst);
+                }
                 self.remember(&state);
-                true
+                merged
             }
             Err(e) => {
                 eprintln!("loose-keys agent: {e}");
@@ -553,7 +581,7 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
             if let Ok(state) = &state {
                 agent.remember(state);
             }
-            if full_pass.is_none() && crate::now().saturating_sub(last) > FULL_PASS_EVERY {
+            if full_pass.is_none() && pass_due(last, crate::now()) {
                 full_pass = Some(None);
             }
         }
@@ -605,13 +633,14 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
         // against itself.
         let skip = agent.known.lock().unwrap().skip.clone();
         if !ready.is_empty() {
+            let (key, digest) = agent.fingerprint();
             let (report, left) = Scan::changed(
                 &agent.home,
                 &skip,
                 &ready,
                 agent.changes,
                 cancel.clone(),
-                agent.fingerprint(),
+                digest,
             );
             let cancelled = cancel.load(Ordering::SeqCst);
             let (again, pass) = unfinished(left, cancelled, ready.len(), &mut asked, now);
@@ -642,7 +671,7 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 // A full pass stands for changes that were lost, so the place
                 // stays where it was until that pass has ended.
                 let place = (full_pass.is_none() && !owed).then(|| handled(&waiting, event));
-                if !agent.record(&report, Some(&ready), place, |h| h.changes += done) {
+                if !agent.record(&report, &key, Some(&ready), place, |h| h.changes += done) {
                     // Not saved: every path of the batch waits to be checked
                     // again, its change not yet handled, so no later save
                     // puts the place past it. This check counts as one made,
@@ -667,20 +696,21 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                     unread = review::UnreadPlaces::default();
                 }
                 let before = resume.clone();
+                let (key, digest) = agent.fingerprint();
                 let (report, pending) = Scan::sweep(
                     &agent.home,
                     &skip,
                     resume,
                     agent.slice,
                     cancel.clone(),
-                    agent.fingerprint(),
+                    digest,
                 );
                 unread.record(&report);
                 let done = pending.is_empty();
                 let nothing: &[PathBuf] = &[];
                 let place = (done && !owed).then(|| handled(&waiting, event));
                 let not_read = unread.places.len();
-                let saved = agent.record(&report, (!done).then_some(nothing), place, |h| {
+                let saved = agent.record(&report, &key, (!done).then_some(nothing), place, |h| {
                     h.left = folders_left(&pending);
                     if done {
                         h.baseline = Some(report.generated_at.clone());
@@ -800,7 +830,7 @@ pub fn run() -> ! {
         Ok(())
     });
     let (state, ()) = started.unwrap_or_else(|e| stop(&e));
-    let overdue = crate::now().saturating_sub(state.agent.baseline_at) > FULL_PASS_EVERY;
+    let overdue = pass_due(state.agent.baseline_at, crate::now());
     let agent = AGENT.get_or_init(|| Agent {
         state_dir: home.join(review::STATE_DIR),
         home,
@@ -1098,6 +1128,42 @@ mod tests {
         f.stop();
     }
 
+    /// A list replaced while a check ran, as when its file is deleted or put
+    /// back from a copy, has another key. What the check found was digested
+    /// with the old one, and saved into the new list it was taken for
+    /// another value: the next check marked it fixed and listed it as news.
+    #[test]
+    fn a_check_made_with_the_key_of_a_list_since_replaced_is_made_again() {
+        let token = format!("gh{}_0123456789abcdefghijABCDEFGHIJ01234A", "p");
+        let mut f = Fixture::start("replaced-list", &[], |_| {});
+        f.first_pass();
+        // Replaced unseen: the agent is not told, so it checks with the old key.
+        f.app
+            .update(|state| {
+                *state = Review {
+                    monitoring: true,
+                    key: vec![9; 32],
+                    agent: state.agent.clone(),
+                    ..Review::default()
+                };
+                Ok(())
+            })
+            .unwrap();
+        std::fs::write(f.home.join("notes.txt"), format!("{token}\n")).unwrap();
+        f.changes(&["notes.txt"]);
+        let listed = f.wait("the token to be listed", |s| open(s) == ["~/notes.txt"]);
+        let checks = listed.agent.changes;
+        f.changes(&["notes.txt"]);
+        let again = f.wait("the file to be checked again", |s| s.agent.changes > checks);
+        assert_eq!(again.items.len(), 1);
+        assert!(!again.items[0].resolved, "marked fixed");
+        assert_eq!(
+            again.items[0].revision, listed.items[0].revision,
+            "listed as news"
+        );
+        f.stop();
+    }
+
     /// One read of a file keeps only so many tokens. A token listed before,
     /// and now after that many of another type, is not among them, and was
     /// marked fixed: the read found nothing of its type.
@@ -1130,6 +1196,22 @@ mod tests {
         std::fs::remove_file(&notes).unwrap();
         f.changes(&["notes.txt"]);
         f.wait("every token to be fixed", |s| open(s).is_empty());
+        f.stop();
+    }
+
+    /// A pass that ended while the clock was ahead is stamped in the future.
+    /// Counted from that stamp, the weekly pass did not come round again
+    /// until the clock was a week past it, and nothing said so.
+    #[test]
+    fn a_pass_stamped_in_the_future_does_not_hold_off_the_next() {
+        let mut f = Fixture::start("future-pass", &["export.csv"], |_| {});
+        f.first_pass();
+        let ahead = crate::now() + 365 * 24 * 3600;
+        f.app_sets(|state| state.agent.baseline_at = ahead);
+        f.tick();
+        f.wait("a full pass after one stamped a year ahead", |s| {
+            s.agent.baseline_at < ahead
+        });
         f.stop();
     }
 
