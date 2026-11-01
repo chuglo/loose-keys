@@ -367,9 +367,51 @@ pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
     }
     // SAFETY: openat returned a new owned descriptor.
     let mut f = unsafe { File::from_raw_fd(fd) };
-    f.write_all(json.as_bytes())
+    let written = f
+        .write_all(json.as_bytes())
         .and_then(|_| f.write_all(b"\n"))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    if written.is_err() {
+        // Part of a report is not a report, and it would keep the name from
+        // the next try. Removed only while the name is still this file.
+        remove_own(&parent, &name, &f);
+    }
+    written
+}
+
+/// Remove `name` from `dir` if it is still the file `file` has open. A file
+/// put in its place since, even by the same name, is left as it is.
+fn remove_own(dir: &File, name: &CStr, file: &File) {
+    let (mut own, mut there) = (
+        std::mem::MaybeUninit::<libc::stat>::uninit(),
+        std::mem::MaybeUninit::<libc::stat>::uninit(),
+    );
+    // SAFETY: live descriptor and writable stat.
+    if unsafe { libc::fstat(file.as_raw_fd(), own.as_mut_ptr()) } != 0 {
+        return;
+    }
+    // SAFETY: live directory descriptor, NUL-terminated name and writable
+    // stat; the name itself is looked at, not what a link there points to.
+    let found = unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            there.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if found != 0 {
+        return;
+    }
+    // SAFETY: fstat and fstatat reported success, so both are filled.
+    let (own, there) = unsafe { (own.assume_init(), there.assume_init()) };
+    if own.st_dev == there.st_dev && own.st_ino == there.st_ino {
+        // SAFETY: live directory descriptor and NUL-terminated name. This
+        // removes the name, which was just seen to be this file.
+        unsafe {
+            libc::unlinkat(dir.as_raw_fd(), name.as_ptr(), 0);
+        }
+    }
 }
 
 struct Directory(*mut libc::DIR);

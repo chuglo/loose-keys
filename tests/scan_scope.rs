@@ -818,6 +818,44 @@ fn report_export_remains_owner_only_and_create_only() {
     assert_eq!(fs::read(&destination).unwrap(), original);
 }
 
+/// A report that cannot be written in full, as on a full disk, is not left
+/// behind in part: the run says it did not export, and the name stays free.
+#[test]
+fn an_export_that_cannot_be_written_in_full_leaves_no_file() {
+    use std::os::unix::process::CommandExt;
+    let f = Fixture::new();
+    f.csv(&f.home().join("export.csv"));
+    for flag in ["--export", "--feedback"] {
+        let destination = f.0.join(format!("partial{flag}.json"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_loose-keys"));
+        command
+            .env("HOME", f.home())
+            .args(["scan", flag, destination.to_str().unwrap()]);
+        // SAFETY: the closure runs in the child before exec and calls only
+        // signal and setrlimit, which are async-signal-safe.
+        unsafe {
+            command.pre_exec(|| {
+                // A write past 64 bytes then fails instead of ending the child.
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+                let limit = libc::rlimit {
+                    rlim_cur: 64,
+                    rlim_max: 64,
+                };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let out = command.output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{flag}");
+        assert!(
+            fs::symlink_metadata(&destination).is_err(),
+            "{flag} left part of a report behind"
+        );
+    }
+}
+
 #[test]
 fn discovers_nested_exports_across_home() {
     let f = Fixture::new();
@@ -1656,6 +1694,73 @@ fn a_skipped_folder_is_not_read_and_is_always_listed() {
     assert_eq!(out.status.code(), Some(2));
     let out = f.run(&["--exclude", f.0.to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(2));
+}
+
+/// The shell writes `~/corpus` with HOME as it is set. A home reached
+/// through a link is scanned at its real location, so a folder named
+/// through the link has to be the same folder there: excluded, it was read
+/// while the report said it was left out, and selected, it was a gap.
+#[test]
+fn folders_named_through_a_linked_home_are_the_ones_in_it() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    f.csv(&f.home().join("corpus/export.csv"));
+    f.csv(&f.home().join("Documents/export.csv"));
+    let link = f.0.join("home-link");
+    symlink(f.home(), &link).unwrap();
+    // A link inside the home is still not followed when named through it.
+    symlink(f.home().join("Documents"), f.home().join("docs-link")).unwrap();
+    let at_link = |name: &str| link.join(name).to_str().unwrap().to_owned();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", &link)
+            .arg("scan")
+            .args(args)
+            .args(["--export", "-"])
+            .output()
+            .unwrap()
+    };
+    let json = |out: &Output| -> serde_json::Value { serde_json::from_slice(&out.stdout).unwrap() };
+    let paths = |r: &serde_json::Value| {
+        let mut paths: Vec<_> = r["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["path"].as_str().unwrap().to_owned())
+            .collect();
+        paths.sort();
+        paths
+    };
+
+    let out = run(&["--exclude", &at_link("corpus")]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let r = json(&out);
+    assert_eq!(paths(&r), ["~/Documents/export.csv"]);
+    assert_eq!(
+        r["coverage"]["excluded_by_user"],
+        serde_json::json!(["~/corpus"])
+    );
+
+    let out = run(&["--select", &at_link("corpus")]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let r = json(&out);
+    assert_eq!(
+        r["coverage"]["roots"],
+        serde_json::json!(["~/", "~/corpus"])
+    );
+    assert_eq!(paths(&r), ["~/Documents/export.csv", "~/corpus/export.csv"]);
+
+    let out = run(&["--select", &at_link("docs-link")]);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert_eq!(json(&out)["status"], "partial");
+
+    for home in [
+        link.to_str().unwrap(),
+        &format!("{}/", link.to_str().unwrap()),
+    ] {
+        let out = run(&["--exclude", home]);
+        assert_eq!(out.status.code(), Some(2), "{out:?}");
+    }
 }
 
 #[test]

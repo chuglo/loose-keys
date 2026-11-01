@@ -305,7 +305,9 @@ contacts, reminders or photos in the scanner's name. Where a repository's
 not followed. Repeat `--select DIR` to add folders or mounted drives;
 explicitly selecting an excluded directory scans that root, while exclusions
 still apply below it. Relative paths are accepted, but `..` and symlinked path
-components are not followed.
+components are not followed. Where your home folder is reached through a link,
+a path through that link, as the shell writes `~/notes`, names the folder in
+your home.
 
 Both text and JSON reports state the requested roots, exclusions and detection
 limits. Access failures, cloud-only candidates, unavailable roots and work

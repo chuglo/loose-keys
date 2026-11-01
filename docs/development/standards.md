@@ -256,6 +256,16 @@ The threats are a local user racing a root run with links, and hostile files
 - `through_links` is the one deliberate exception to following no links. A
   known sign-in location that is a link is resolved once, used only if the
   real path is inside the home folder, and never as root. Do not add another.
+- `scan::home` resolves `HOME` once, as a relocated home is reached through a
+  link. A folder given to `--select` or `--exclude` that begins with `HOME`
+  as set, as the shell writes `~/notes`, has that prefix replaced by the
+  resolved home (`named_folder`). Nothing else in the path is resolved, so a
+  link after the prefix is still not followed. Before, a folder excluded this
+  way was read while the report said it was left out, a selected one was an
+  `unreadable` gap, and the whole home could be excluded. Test:
+  `folders_named_through_a_linked_home_are_the_ones_in_it`. Not covered: a
+  folder named through another link to the home, and places added in the app
+  (`add_place`), which are taken as given.
 - A cloud-only file (`SF_DATALESS`) is never read, because reading downloads
   it. `fsutil` checks the flag before the open and on the handle.
 - The app's `prepare_access` command takes only an index into Desktop,
@@ -271,9 +281,16 @@ The threats are a local user racing a root run with links, and hostile files
 - There are two ways to write, and a new file uses one of them. An export is
   created with `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 0600, relative to the
   parent handle that was checked (`write_export`); as root the folder must be
-  root-owned and not writable by others. The app's state is written to a new
-  temporary file, synced, renamed over the old one, and the folder synced
-  (`Store::save`).
+  root-owned and not writable by others. A write that fails partway, as on a
+  full disk, removes the name again, but only while `fstatat` on it shows the
+  file just created (same device and inode), so that no part of a report is
+  left and the name can be tried again. A file put in its place since is left
+  as it is. The check and the removal are two steps: something able to write
+  to that folder (as root, only root) could swap the name between them. Test:
+  `an_export_that_cannot_be_written_in_full_leaves_no_file` in
+  `tests/scan_scope.rs`, with a file-size limit on the CLI. The app's state is
+  written to a new temporary file, synced, renamed over the old one, and the
+  folder synced (`Store::save`).
 - Everything read back is bounded and checked before use, the app's own state
   included: `Store::open` and `load` require the user's ownership, no access
   for others, one link, a size limit and sane counts. Code running as the user

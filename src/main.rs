@@ -86,7 +86,8 @@ fn main() -> ExitCode {
                 }
             }
             Some("--exclude") if !pair[1].is_empty() && excluded.len() < 32 => {
-                match scan::skipped_folder(&pair[1], &home) {
+                let named = scan::named_folder(&pair[1], &home);
+                match scan::skipped_folder(named.as_os_str(), &home) {
                     Ok(path) if !excluded.contains(&path) => excluded.push(path),
                     Ok(_) => {}
                     Err(e) => {
@@ -115,14 +116,16 @@ fn main() -> ExitCode {
                 };
                 device = Some(name.to_owned());
             }
-            Some("--select") if !pair[1].is_empty() => match scan::selected_root(&pair[1]) {
-                Ok(path) if !selected.contains(&path) => selected.push(path),
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    return ExitCode::from(2);
+            Some("--select") if !pair[1].is_empty() => {
+                match scan::selected_root(scan::named_folder(&pair[1], &home).as_os_str()) {
+                    Ok(path) if !selected.contains(&path) => selected.push(path),
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return ExitCode::from(2);
+                    }
                 }
-            },
+            }
             _ => {
                 eprintln!("{}", USAGE);
                 return ExitCode::from(2);

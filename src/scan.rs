@@ -102,6 +102,25 @@ pub fn home() -> Result<PathBuf, &'static str> {
     Ok(std::fs::canonicalize(&home).unwrap_or(home))
 }
 
+/// A folder named on the command line, as the scan sees it. The shell writes
+/// `~/notes` with `HOME` as it is set, but a home reached through a link is
+/// scanned where `home` resolved it, and through the link the path names
+/// nothing the scan reads. So a path that begins with `HOME` as set begins
+/// with the home folder instead. Only that prefix, which `home` resolved,
+/// changes: no other link is followed.
+pub fn named_folder(path: &OsStr, home: &Path) -> PathBuf {
+    let given = std::env::var_os("HOME").map(PathBuf::from);
+    in_home(Path::new(path), given.as_deref(), home)
+}
+
+fn in_home(path: &Path, given: Option<&Path>, home: &Path) -> PathBuf {
+    match given.map(|given| path.strip_prefix(given)) {
+        Some(Ok(rest)) if rest.as_os_str().is_empty() => home.to_path_buf(),
+        Some(Ok(rest)) => home.join(rest),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// An extra folder to scan: made absolute, and never containing `..`.
 pub fn selected_root(path: &OsStr) -> Result<PathBuf, &'static str> {
     let path = std::path::absolute(path).map_err(|_| "could not resolve selected path")?;
@@ -2339,6 +2358,21 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[test]
+    fn only_the_home_as_given_is_renamed() {
+        let (given, home) = (Path::new("/link/home"), Path::new("/real/home"));
+        let named = |path: &str| in_home(Path::new(path), Some(given), home);
+        assert_eq!(named("/link/home/notes"), Path::new("/real/home/notes"));
+        assert_eq!(named("/link/home/"), home);
+        // A name that only begins with the same letters is another folder.
+        assert_eq!(named("/link/homework"), Path::new("/link/homework"));
+        assert_eq!(named("/elsewhere/notes"), Path::new("/elsewhere/notes"));
+        assert_eq!(named("notes"), Path::new("notes"));
+        // What follows is kept as it is, for `selected_root` to refuse.
+        assert_eq!(named("/link/home/../x"), Path::new("/real/home/../x"));
+        assert_eq!(in_home(Path::new("/link/home"), None, home), given);
     }
 
     #[test]
