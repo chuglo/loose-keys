@@ -454,7 +454,90 @@ fn entry_is_directory(fd: libc::c_int, name: &CStr, kind: u8) -> Result<bool, Ga
 }
 
 pub fn list_dir(dir: &Path, required: bool, remaining: &mut usize) -> Result<Listing, Gap> {
-    let Some(file) = open_path(dir, true)? else {
+    listing(open_path(dir, true)?, dir, required, remaining)
+}
+
+/// Paths deeper than this are opened from "/" each time, which bounds the
+/// descriptors `Folders` keeps open.
+const KEPT: usize = 32;
+
+/// The folders above the last one `Folders::list` listed, open, so that
+/// listing the next opens only the names below what the two share instead of
+/// walking from "/" again: for a walk breadth-first, that walk was most of
+/// the time spent opening folders. Each is opened from the one above it as
+/// `open_path` opens them, without following links. One kept here is used as
+/// it was opened: if its path is swapped for a link after that, what is
+/// listed is still in the folder, never behind the link, as for the entries
+/// read from a listed folder's `handle`.
+#[derive(Default)]
+pub struct Folders {
+    root: Option<File>,
+    /// Each folder below "/", by name, down to the last listed one's parent.
+    above: Vec<(std::ffi::OsString, File)>,
+}
+
+impl Folders {
+    /// As `list_dir`.
+    pub fn list(
+        &mut self,
+        dir: &Path,
+        required: bool,
+        remaining: &mut usize,
+    ) -> Result<Listing, Gap> {
+        let folder = self.open(dir)?;
+        listing(folder, dir, required, remaining)
+    }
+
+    /// As `open_path(dir, true)`, through the folders kept.
+    fn open(&mut self, dir: &Path) -> Result<Option<File>, Gap> {
+        if !dir.is_absolute() {
+            return Err("unreadable");
+        }
+        let mut names = Vec::new();
+        for component in dir.components() {
+            match component {
+                Component::RootDir | Component::CurDir => {}
+                Component::Normal(name) => names.push(name),
+                _ => return Err("unreadable"),
+            }
+        }
+        let Some((name, parents)) = names.split_last().filter(|_| names.len() <= KEPT) else {
+            return open_path(dir, true);
+        };
+        let shared = self
+            .above
+            .iter()
+            .zip(parents)
+            .take_while(|((kept, _), name)| kept.as_os_str() == **name)
+            .count();
+        self.above.truncate(shared);
+        let root = match &mut self.root {
+            Some(root) => root,
+            empty => empty.insert(File::open("/").map_err(|e| gap(&e))?),
+        };
+        for parent in parents.get(shared..).unwrap_or_default() {
+            let above = self.above.last().map_or(&*root, |(_, folder)| folder);
+            let Some(folder) = open_at(above, parent, true)? else {
+                return Ok(None);
+            };
+            self.above.push((parent.to_os_string(), folder));
+        }
+        open_at(
+            self.above.last().map_or(&*root, |(_, folder)| folder),
+            name,
+            true,
+        )
+    }
+}
+
+/// The listing of the folder `file` opened at `dir`, as `list_dir` gives it.
+fn listing(
+    file: Option<File>,
+    dir: &Path,
+    required: bool,
+    remaining: &mut usize,
+) -> Result<Listing, Gap> {
+    let Some(file) = file else {
         return if required {
             Err("unreadable")
         } else {
@@ -606,6 +689,158 @@ mod tests {
     /// How many names a path has, as `mounted_at` counts a mount point.
     fn names(path: &Path) -> Option<u32> {
         u32::try_from(path.components().count()).ok()
+    }
+
+    #[test]
+    fn cached_parent_reads_stay_on_the_original_directory() {
+        for link in [true, false] {
+            let root = PathBuf::from(std::env::var_os("TMPDIR").unwrap()).join(format!(
+                "credential-cached-reads-{}-{link}",
+                std::process::id()
+            ));
+            fs::create_dir_all(root.join("parent/child")).unwrap();
+            fs::create_dir_all(root.join("replacement/child")).unwrap();
+            fs::write(root.join("parent/child/same"), b"synthetic original").unwrap();
+            fs::write(
+                root.join("replacement/child/same"),
+                b"synthetic replacement",
+            )
+            .unwrap();
+            let mut folders = Folders::default();
+            folders
+                .list(&root.join("parent/child"), true, &mut 100)
+                .unwrap();
+            fs::rename(root.join("parent"), root.join("moved")).unwrap();
+            if link {
+                std::os::unix::fs::symlink(root.join("replacement"), root.join("parent")).unwrap();
+            } else {
+                fs::rename(root.join("replacement"), root.join("parent")).unwrap();
+            }
+            let listing = folders
+                .list(&root.join("parent/child"), true, &mut 100)
+                .unwrap();
+            let handle = listing.handle.unwrap();
+            let read = read_head_in(&handle, "same".as_ref(), 4096)
+                .unwrap()
+                .unwrap();
+            assert!(read.bytes == b"synthetic original");
+            let by_path = read_head(&root.join("parent/child/same"), 4096).unwrap();
+            if link {
+                assert!(by_path.is_none());
+            } else {
+                assert!(by_path.unwrap().bytes == b"synthetic replacement");
+            }
+            drop(handle);
+            drop(folders);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn cached_folder_entry_budgets_match_path_listings() {
+        let root = PathBuf::from(std::env::var_os("TMPDIR").unwrap())
+            .join(format!("credential-cached-budgets-{}", std::process::id()));
+        let dir = root.join("parent/child");
+        fs::create_dir_all(&dir).unwrap();
+        for name in ["one", "two", "three"] {
+            fs::write(dir.join(name), b"synthetic").unwrap();
+        }
+        for warm in [false, true] {
+            for budget in [0, 2, 3, 4] {
+                let mut folders = Folders::default();
+                if warm {
+                    folders.list(&dir, true, &mut 100).unwrap();
+                }
+                let (mut cached_budget, mut path_budget) = (budget, budget);
+                let cached = folders.list(&dir, true, &mut cached_budget).unwrap();
+                let walked = list_dir(&dir, true, &mut path_budget).unwrap();
+                assert_eq!(cached.entries, walked.entries);
+                assert_eq!(cached.gap, walked.gap);
+                assert_eq!(cached.handle.is_some(), walked.handle.is_some());
+                assert_eq!(cached_budget, path_budget);
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folders_listed_in_turn_are_listed_as_paths_are() {
+        let root = PathBuf::from(std::env::var_os("TMPDIR").unwrap())
+            .join(format!("credential-folders-{}", std::process::id()));
+        for dir in ["a/b/c", "a/b/d", "a/e", "f", "elsewhere/c"] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        fs::write(root.join("a/b/c/one"), b"synthetic").unwrap();
+        fs::write(root.join("a/b/d/two"), b"synthetic").unwrap();
+        fs::write(root.join("a/file"), b"synthetic").unwrap();
+        fs::write(root.join("elsewhere/c/other"), b"synthetic elsewhere").unwrap();
+        std::os::unix::fs::symlink(root.join("a/b"), root.join("a/link")).unwrap();
+        // Deeper than the folders kept open, with every folder on the way.
+        let deep = (0..KEPT).fold(root.join("f"), |path, _| path.join("g"));
+        fs::create_dir_all(&deep).unwrap();
+        let listed = |listing: Result<Listing, Gap>| {
+            listing.map(|listing| (listing.entries, listing.gap, listing.handle.is_some()))
+        };
+        let mut folders = Folders::default();
+        // Down, across, up, to the sibling of a parent, through a link, at a
+        // file, at nothing, and below each of those.
+        for (path, required) in [
+            ("a", true),
+            ("a/b", true),
+            ("a/b/c", true),
+            ("a/b/d", false),
+            ("a/e", false),
+            ("a/b", false),
+            ("f", true),
+            ("a/b/c", false),
+            ("a/link", false),
+            ("a/link", true),
+            ("a/link/c", false),
+            ("a/file", false),
+            ("a/file", true),
+            ("a/file/c", false),
+            ("absent", false),
+            ("absent", true),
+            ("absent/c", true),
+            ("a/b/../b", true),
+            ("", true),
+        ] {
+            let dir = root.join(path);
+            let (mut kept, mut walked) = (100, 100);
+            assert_eq!(
+                listed(folders.list(&dir, required, &mut kept)),
+                listed(list_dir(&dir, required, &mut walked)),
+                "{path}"
+            );
+            assert_eq!(kept, walked, "{path}");
+        }
+        for dir in deep
+            .ancestors()
+            .take_while(|dir| dir.starts_with(root.join("f")))
+        {
+            let (mut kept, mut walked) = (100, 100);
+            assert_eq!(
+                listed(folders.list(dir, true, &mut kept)),
+                listed(list_dir(dir, true, &mut walked))
+            );
+        }
+        // The path of a folder kept open swapped for a link: what is listed
+        // below it is in the folder that was opened, never behind the link.
+        let mut remaining = 100;
+        folders
+            .list(&root.join("a/b/c"), true, &mut remaining)
+            .unwrap();
+        fs::rename(root.join("a/b"), root.join("moved")).unwrap();
+        std::os::unix::fs::symlink(root.join("elsewhere"), root.join("a/b")).unwrap();
+        assert_eq!(
+            list_dir(&root.join("a/b/c"), true, &mut remaining).map(|l| l.entries),
+            Err("unreadable")
+        );
+        for (dir, file) in [("a/b/c", "one"), ("a/b/d", "two")] {
+            let listing = folders.list(&root.join(dir), true, &mut remaining).unwrap();
+            assert_eq!(listing.entries, vec![(root.join(dir).join(file), false)]);
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

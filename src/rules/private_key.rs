@@ -124,6 +124,13 @@ pub enum KeyState {
 const PGP: &str = "-----BEGIN PGP PRIVATE KEY BLOCK-----";
 
 pub fn key_protection(head: &[u8]) -> KeyState {
+    // Every key found below opens with PuTTY's version line or with an armor
+    // line `key_header` takes, which begins "-----BEGIN ". A head with
+    // neither is passed over before it is made text: for a binary file, that
+    // was most of the time checking it took.
+    if !head.starts_with(b"PuTTY-User-Key-File-") && !has(head, b"-----BEGIN ") {
+        return KeyState::NotAKey;
+    }
     let text = String::from_utf8_lossy(head);
     // PuTTY's own format: a version line, then "Encryption: none" or a cipher.
     if text.starts_with("PuTTY-User-Key-File-") {
@@ -197,7 +204,8 @@ fn key_block_protection(text: &str, first: &str) -> KeyState {
 /// comes before it but what tools write there: blank lines, other PEM blocks
 /// (a certificate, or the key's parameters), and the attributes that
 /// `openssl pkcs12` prints. Prose or code before it means the file is about
-/// keys, not a key.
+/// keys, not a key. The line begins "-----BEGIN ": `key_protection` passes
+/// over a head without that before it gets here.
 fn key_header(text: &str) -> Option<(usize, &str)> {
     let (mut block, mut bag) = (false, false);
     for (i, raw) in text.lines().enumerate() {
@@ -249,6 +257,24 @@ fn base64_decode(s: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_prefilter_keeps_supported_preambles_and_binary_negatives() {
+        let key = concat!("-----BEGIN RSA ", "PRIVATE KEY-----\nsynthetic\n");
+        for preamble in [
+            "\u{feff}",
+            "\r\n  ",
+            "-----BEGIN CERTIFICATE-----\nsynthetic\n-----END CERTIFICATE-----\n",
+        ] {
+            assert_eq!(
+                key_protection(format!("{preamble}{key}").as_bytes()),
+                KeyState::Unprotected
+            );
+        }
+        for binary in [&b"\x00\xff\xfe"[..], &b"PuTTY-not-a-key\x00"[..], &b""[..]] {
+            assert_eq!(key_protection(binary), KeyState::NotAKey);
+        }
+    }
 
     #[test]
     fn an_encrypted_key_does_not_hide_an_unprotected_key_in_the_same_file() {

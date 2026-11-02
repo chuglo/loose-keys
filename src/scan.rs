@@ -554,6 +554,9 @@ pub struct Scan {
     /// The folder discovery is checking the files of, open, as it was
     /// listed: its files are opened from it, not walked to from "/" again.
     folder: Option<(PathBuf, std::fs::File)>,
+    /// The folders above the last one discovery listed, open, so the next
+    /// is not walked to from "/" again either.
+    folders: crate::fsutil::Folders,
     /// How long a cancellable scan may run.
     limit: Duration,
     /// How long a cancellable scan may spend reading one record through.
@@ -675,6 +678,7 @@ impl Scan {
             profiles: HashMap::new(),
             cloud_dir: None,
             folder: None,
+            folders: Default::default(),
             limit: Duration::from_secs(30),
             record_time: Duration::from_secs(60),
             skip: Vec::new(),
@@ -2054,7 +2058,9 @@ impl Scan {
         // the first entry left in it, so the listing counts as part of that
         // entry's time.
         let mut listed = Some(self.started.elapsed());
-        let listing = list_dir(dir, required, &mut self.traversal.remaining);
+        let listing = self
+            .folders
+            .list(dir, required, &mut self.traversal.remaining);
         self.counts.entries += before - self.traversal.remaining;
         self.publish(false);
         let entries = match listing {

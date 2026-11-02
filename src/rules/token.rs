@@ -534,6 +534,54 @@ const STARTS: [[u128; WORDS]; 256] = {
     table
 };
 
+/// As `STARTS`, by the second byte of each prefix. With it, a place where
+/// no prefix starts with the two bytes there is passed over without a prefix
+/// compared, as most places where a word starts are.
+const SECONDS: [[u128; WORDS]; 256] = {
+    let mut table = [[0; WORDS]; 256];
+    let mut i = 0;
+    while i < PROVIDERS.len() {
+        let prefix = PROVIDERS[i].prefix.as_bytes();
+        assert!(prefix.len() >= 2, "a prefix has a second byte");
+        table[prefix[1] as usize][i / 128] |= 1 << (i % 128);
+        i += 1;
+    }
+    table
+};
+
+/// The providers whose prefix starts as `rest` does, in its first two bytes.
+fn starting(rest: &[u8]) -> [u128; WORDS] {
+    let (Some(&first), Some(&second)) = (rest.first(), rest.get(1)) else {
+        return [0; WORDS];
+    };
+    let (first, second) = (&STARTS[usize::from(first)], &SECONDS[usize::from(second)]);
+    std::array::from_fn(|w| first[w] & second[w])
+}
+
+/// Whether some prefix starts with each two bytes, one bit for each: bytes
+/// `a` and `b` are bit `b % 8` of entry `a * 32 + b / 8`. `find` asks at
+/// every byte, and one bit is cheaper to look at than `starting`'s sets.
+const PAIRS: [u8; 256 * 32] = {
+    let mut table = [0; 256 * 32];
+    let mut i = 0;
+    while i < PROVIDERS.len() {
+        let prefix = PROVIDERS[i].prefix.as_bytes();
+        let (a, b) = (prefix[0] as usize, prefix[1] as usize);
+        table[a * 32 + b / 8] |= 1 << (b % 8);
+        i += 1;
+    }
+    table
+};
+
+/// Whether `starting` gives any provider at `i`.
+fn may_start(bytes: &[u8], i: usize) -> bool {
+    let (Some(&a), Some(&b)) = (bytes.get(i), bytes.get(i + 1)) else {
+        return false;
+    };
+    let entry = PAIRS.get(usize::from(a) * 32 + usize::from(b / 8));
+    entry.is_some_and(|bits| bits & (1 << (b % 8)) != 0)
+}
+
 pub fn links() -> impl Iterator<Item = &'static str> {
     PROVIDERS.iter().filter_map(|p| p.advice.link)
 }
@@ -557,7 +605,7 @@ fn token_counted(
     counted: &mut [(usize, usize); PROVIDERS.len()],
 ) -> Option<(&'static Provider, usize)> {
     let rest = bytes.get(i..)?;
-    for (w, bits) in STARTS[usize::from(*rest.first()?)].iter().enumerate() {
+    for (w, bits) in starting(rest).iter().enumerate() {
         let mut candidates = *bits;
         while candidates != 0 {
             let k = w * 128 + usize::try_from(candidates.trailing_zeros()).ok()?;
@@ -697,7 +745,7 @@ fn find(bytes: &[u8]) -> (Vec<(usize, &'static Provider)>, bool) {
     let mut counted = [(0, 0); PROVIDERS.len()];
     let mut i = 0;
     while i < bytes.len() {
-        if STARTS[usize::from(bytes[i])] != [0; WORDS] && starts_word(bytes, i) {
+        if may_start(bytes, i) && starts_word(bytes, i) {
             if let Some((p, len)) = token_counted(bytes, i, &mut counted) {
                 let value = &bytes[i..i + len];
                 let new = !values.contains(value);
@@ -1394,6 +1442,24 @@ mod tests {
             assert_eq!(found, afresh(sample.as_bytes()), "sample {n}");
         }
         assert!(!counted(samples[3].as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn a_place_is_looked_at_when_a_prefix_starts_with_its_two_bytes() {
+        // Every pair of bytes against every prefix, as `find` and
+        // `token_counted` look at a place before comparing any prefix.
+        for a in 0..=255 {
+            for b in 0..=255 {
+                let pair = [a, b];
+                let set = starting(&pair);
+                for (k, p) in PROVIDERS.iter().enumerate() {
+                    let starts = p.prefix.as_bytes().starts_with(&pair);
+                    assert_eq!(set[k / 128] & (1 << (k % 128)) != 0, starts, "{a} {b} {k}");
+                }
+                assert_eq!(may_start(&pair, 0), set != [0; WORDS], "{a} {b}");
+            }
+            assert!(!may_start(&[a], 0) && starting(&[a]) == [0; WORDS], "{a}");
+        }
     }
 
     #[test]

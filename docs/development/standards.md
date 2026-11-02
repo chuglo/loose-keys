@@ -246,6 +246,23 @@ The threats are a local user racing a root run with links, and hostile files
   `entries_read_from_a_listed_folder_are_checked_as_paths_are` in
   `src/fsutil.rs`, and `special_files_links_and_large_headers_do_not_break_discovery`
   through the CLI.
+- Discovery opens each folder it lists the same way from the folders above
+  it that it opened for the last one (`fsutil::Folders`), not from `/`: in a
+  walk breadth-first, consecutive folders share most of their path, and that
+  walk was about a quarter of a scan's time on a synthetic home. Each folder
+  is still opened relative to its open parent with the checks above, so no
+  link is followed. A folder kept open is used as it was opened, as
+  `Listing.handle` is: if its path is swapped for a link or another folder
+  afterwards, what is listed below it is in the folder that was opened, never
+  behind the link. At most 32 names of a path are kept open; a deeper folder
+  is walked to from `/`. Test: `folders_listed_in_turn_are_listed_as_paths_are`
+  in `src/fsutil.rs`; the scanner's discovery tests run through it. Additional
+  tests read through the returned handle after a cached ancestor is replaced
+  by a symlink or a regular directory, and compare cold/warm cache listings
+  with zero, partial and exact entry budgets. These synthetic checks do not
+  verify macOS privacy prompts, real cloud placeholders, root behavior or a
+  simultaneous cross-process rename race. Paths can still change after a
+  handle is opened; the reported spelling identifies the path as listed.
 - Check, then use, the same handle. Size, type, owner and cloud flags come
   from the open file, not from the path a second time. `read_config` compares
   the size before and after reading. A path can be swapped between two calls;

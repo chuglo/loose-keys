@@ -94,7 +94,10 @@ fn is_bitwarden_export(v: &serde_json::Value) -> bool {
 /// A CSV header with URL, username and password columns, as written by
 /// Chrome, Firefox, Safari, Bitwarden, 1Password, RoboForm and others.
 pub fn is_password_export(head: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(head);
+    // Only the first line can be the header, so only it is made text: a
+    // binary head was otherwise converted to its end.
+    let line = head.split_inclusive(|b| *b == b'\n').next();
+    let text = String::from_utf8_lossy(line.unwrap_or_default());
     let first = text
         .trim_start_matches('\u{feff}')
         .lines()
@@ -162,6 +165,25 @@ mod tests {
         assert!(!is_bitwarden_export(
             &serde_json::json!({"encrypted": false, "folders": [], "items": []})
         ));
+    }
+
+    #[test]
+    fn export_header_byte_boundaries_do_not_change_detection() {
+        for header in [
+            &b"url,username,password\r\n\xff\x00"[..],
+            &b"\xef\xbb\xbfurl,username,password\n\xff"[..],
+            &b"url,username,password"[..],
+        ] {
+            assert!(is_password_export(header));
+        }
+        for other in [
+            &b"\nurl,username,password\n"[..],
+            &b"\r\nurl,username,password\n"[..],
+            &b"\xff\nurl,username,password\n"[..],
+            &b""[..],
+        ] {
+            assert!(!is_password_export(other));
+        }
     }
 
     #[test]
