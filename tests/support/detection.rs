@@ -191,6 +191,7 @@ pub fn assert_no_values(bytes: &[u8]) {
     for value in [
         "synthetic-only-value",
         "synthetic,first-value",
+        "synthetic,only-value",
         "synthetic-second-value",
         "synthetic-access-id",
         "c3ludGhldGlj",

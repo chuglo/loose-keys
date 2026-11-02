@@ -332,6 +332,25 @@ mod tests {
     }
 
     #[test]
+    fn inline_tables_keep_commas_inside_quoted_values() {
+        for line in [
+            r#"env = { DATABASE_PASSWORD = "synthetic,only-value" }"#,
+            r#"env = { DATABASE_PASSWORD = 'synthetic,only-value' }"#,
+            r#"env = { NOTE = "fixture,notes", DATABASE_PASSWORD = "synthetic,only-value" }"#,
+            r#"env = { NOTE = "fixture\",notes", DATABASE_PASSWORD = "synthetic,only-value" }"#,
+            r#"env = { NOTE = "fixture\\", DATABASE_PASSWORD = "synthetic,only-value" }"#,
+            r#"env = { NOTE = 'fixture\', DATABASE_PASSWORD = "synthetic,only-value" }"#,
+        ] {
+            let hits = env_hits(line.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].line, Some(1));
+            assert_eq!(hits[0].subject.as_deref(), Some("DATABASE_PASSWORD"));
+            let span = hits[0].span.clone().expect("literal has a value span");
+            assert!(line.get(span) == Some("synthetic,only-value"));
+        }
+    }
+
+    #[test]
     fn commas_inside_an_inline_environment_value_are_not_pair_separators() {
         let line = "env = { FIRST_PASSWORD = 'synthetic,first-value', SECOND_PASSWORD = 'synthetic-second-value' }";
         let hits = env_hits(line.as_bytes()).unwrap();

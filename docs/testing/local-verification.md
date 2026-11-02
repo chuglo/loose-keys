@@ -55,6 +55,16 @@ sh security-tests/check_detection.sh
 With `--workspace` it also runs every workspace test, so one run replaces
 this and `cargo test --locked --workspace`.
 
+The retained `codex-inline-comma` case checks double-quoted comma values
+and rejects assignment-looking text inside a nonsecret value. The inline
+table unit test also covers escaped quotes, escaped backslashes and literal
+strings ending in a backslash. `poetry-comment` checks positive and negative
+Poetry `auth.toml` inputs through the CLI and engine, supplementing the
+matcher unit test. Both were preserved from the older bug-audit worktree;
+the production fixes were already present. Temporary regressions that split
+at quoted commas or count commented Poetry entries must make these checks
+fail; restore the production code before the full verification run.
+
 ## App bundle
 
 Needs Apple's command-line tools and Node. It builds the app and does not
