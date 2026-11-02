@@ -158,11 +158,49 @@ pub fn recheck_values(
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
+    recheck_by(rule, path, home, mount, digest, false)
+}
+
+/// As `recheck_values`, with private registry-place identities instead of
+/// display labels where available. Only for private review-state comparisons.
+pub fn recheck_identities(
+    rule: &str,
+    path: &Path,
+    home: &Path,
+    mount: Option<u32>,
+    digest: &dyn Fn(&str, &[u8], bool) -> String,
+) -> Option<Vec<(Option<String>, Option<String>)>> {
+    recheck_by(rule, path, home, mount, digest, true)
+}
+
+fn scope_digest(
+    hit: &Hit,
+    bytes: &[u8],
+    digest: &dyn Fn(&str, &[u8], bool) -> String,
+) -> Option<String> {
+    let key = bytes.get(hit.scope.clone()?)?;
+    // Domain-separated from secret values and material fingerprints. The
+    // bytes are bounded by the file read and are discarded with this call.
+    let material = [b"loose-keys/registry-scope/1\0".as_slice(), key].concat();
+    Some(digest("", &material, false))
+}
+
+fn recheck_by(
+    rule: &str,
+    path: &Path,
+    home: &Path,
+    mount: Option<u32>,
+    digest: &dyn Fn(&str, &[u8], bool) -> String,
+    identities: bool,
+) -> Option<Vec<(Option<String>, Option<String>)>> {
     let mut still = Vec::new();
     // The value alone, under no rule's name, as `Scan::add_from` asks for it.
     let valued = |hit: Hit, bytes: &[u8]| {
+        let scope = identities
+            .then(|| scope_digest(&hit, bytes, digest))
+            .flatten();
         let value = hit.span.and_then(|s| bytes.get(s));
-        (hit.subject, value.map(|v| digest("", v, false)))
+        (scope.or(hit.subject), value.map(|v| digest("", v, false)))
     };
     // One id can have a rule for each format its files come in. The rules
     // whose targets are this file, by its name or through a link, are the
@@ -1835,7 +1873,12 @@ impl Scan {
         // Asked only where a review list is kept, as the digests are.
         let listed = self.fingerprint.as_ref();
         let mount = listed.and_then(|_| crate::fsutil::mounted_at(p, &self.home));
+        let scope = self
+            .fingerprint
+            .as_ref()
+            .and_then(|digest| scope_digest(&hit, source.unwrap_or(bytes), digest.as_ref()));
         self.findings.push(Finding {
+            scope,
             fingerprint,
             secret,
             shared,
@@ -5945,23 +5988,37 @@ mod tests {
         )
         .unwrap();
         let hashed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let scopes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let count = hashed.clone();
+        let scope_count = scopes.clone();
         let r = Scan::report_controlled(
             &f.0,
             &[],
             &[],
             Arc::new(AtomicBool::new(false)),
-            move |_, _, _| {
-                count.fetch_add(1, Ordering::SeqCst);
-                "private-synthetic-digest".into()
+            move |rule, bytes, shared| {
+                if rule.is_empty() {
+                    // Private scope identity is separate from the file's
+                    // material fingerprint and excludes the stored value.
+                    assert!(bytes == b"loose-keys/registry-scope/1\0_authToken");
+                    assert!(!shared);
+                    scope_count.fetch_add(1, Ordering::SeqCst);
+                    "private-synthetic-scope-digest".into()
+                } else {
+                    assert_eq!(rule, "dev.npm.inline-credentials");
+                    count.fetch_add(1, Ordering::SeqCst);
+                    "private-synthetic-digest".into()
+                }
             },
             |_| {},
         );
         assert_eq!(r.findings.len(), 4096);
         assert_eq!(hashed.load(Ordering::SeqCst), 1);
+        assert_eq!(scopes.load(Ordering::SeqCst), 4096);
         assert_eq!(r.status, "partial");
         let export = crate::report::to_ascii_json(&r);
         assert!(!export.contains("private-synthetic-digest"));
+        assert!(!export.contains("private-synthetic-scope-digest"));
         assert!(!export.contains("synthetic-only"));
     }
 

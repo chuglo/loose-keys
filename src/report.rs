@@ -7,6 +7,9 @@ pub struct Finding {
     /// Private keyed material digest. Never included in exports.
     #[serde(skip)]
     pub fingerprint: Option<String>,
+    /// Private keyed registry-place identity, independent of its display label.
+    #[serde(skip)]
+    pub scope: Option<String>,
     pub rule: &'static str,
     pub category: &'static str,
     pub kind: &'static str,
@@ -50,6 +53,13 @@ pub struct Finding {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
+}
+
+impl Finding {
+    /// Private place identity for review comparisons; not for display/export.
+    pub fn identity(&self) -> Option<&str> {
+        self.scope.as_deref().or(self.subject.as_deref())
+    }
 }
 
 #[derive(Serialize)]
@@ -520,6 +530,7 @@ mod tests {
             coverage: None,
             findings: vec![Finding {
                 fingerprint: Some("synthetic-file-digest".into()),
+                scope: Some("synthetic-scope-digest".into()),
                 rule: "secret.service-token",
                 category: "developer-cloud",
                 kind: "review",

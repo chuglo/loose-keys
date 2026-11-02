@@ -160,6 +160,42 @@ fn help_works_without_a_home_or_a_scan() {
 }
 
 #[test]
+fn npm_registry_credentials_do_not_leave_through_cli_outputs() {
+    let f = Fixture::new();
+    let password = ["synthetic-userinfo", "private-suffix"].join("-");
+    let value = ["synthetic-stored", "value-suffix"].join("-");
+    fs::write(
+        f.home().join(".npmrc"),
+        format!("//fixture:{password}@registry.invalid/:_authToken={value}\n"),
+    )
+    .unwrap();
+    for args in [&[][..], &["--export", "-"], &["--feedback", "-"]] {
+        let output = f.run(args);
+        assert_eq!(output.status.code(), Some(0));
+        for bytes in [&output.stdout, &output.stderr] {
+            let text = String::from_utf8_lossy(bytes);
+            for secret in [&password, &value] {
+                for fragment in [secret.as_str(), &secret[..12], &secret[secret.len() - 12..]] {
+                    assert!(
+                        !text.contains(fragment),
+                        "registry credential appeared in CLI output"
+                    );
+                }
+            }
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        if args.is_empty() {
+            assert!(text.contains("registry.invalid"));
+        } else if args.contains(&"--export") {
+            let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(report["findings"].as_array().unwrap().len(), 1);
+            assert_eq!(report["findings"][0]["rule"], "dev.npm.inline-credentials");
+            assert!(report["findings"][0].get("subject").is_none());
+        }
+    }
+}
+
+#[test]
 fn compact_xml_passwords_are_found_without_exporting_values() {
     let f = Fixture::new();
     let values = [

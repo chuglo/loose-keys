@@ -35,6 +35,9 @@ pub struct Item {
     /// What the item concerns (profile, host, variable or token type). Never a value.
     #[serde(default)]
     pub subject: Option<String>,
+    /// Private keyed registry-place identity; never sent to the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     #[serde(default)]
     pub first_seen: Option<String>,
     #[serde(default)]
@@ -93,6 +96,9 @@ pub struct Decision {
     pub path: String,
     #[serde(default)]
     pub subject: Option<String>,
+    /// Private keyed registry-place identity; never sent to the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// What the place held when decided, where there is no `secret`.
     #[serde(default)]
     pub fingerprint: Option<String>,
@@ -170,8 +176,8 @@ pub const MAX_SKIPS: usize = 32;
 const HITS_PER_FILE: usize = 50;
 
 /// What reading an item's file again finds there now, as
-/// `scan::recheck_values` gives it: the subject of each thing still found
-/// and, where it has one value, that value's digest.
+/// `scan::recheck_identities` gives it: the private scope identity (or
+/// subject for other rules) and, where it has one value, that value's digest.
 pub type Still = Vec<(Option<String>, Option<String>)>;
 
 /// Said to a press on a row that was drawn for something else.
@@ -227,6 +233,10 @@ pub struct Review {
     /// turns it off. With `monitoring` it also puts the app in Login Items.
     #[serde(default)]
     pub menu_bar_off: bool,
+    /// Registry-label privacy generation. Absent in legacy state. Older
+    /// builds drop it when saving, so their labels are invalidated again.
+    #[serde(default)]
+    pub(crate) registry_labels: u8,
 }
 
 /// What the background agent last did, and where its file-change history is.
@@ -323,16 +333,66 @@ fn absent(item: &Item, still: &Still) -> bool {
     if still.len() >= HITS_PER_FILE {
         return false;
     }
+    // Redacted legacy labels cannot identify their old scope. Retain that
+    // history while any credential of this rule remains; only an empty,
+    // complete recheck establishes its removal.
+    if registry_rule(&item.rule)
+        && item.scope.is_none()
+        && item.subject.is_none()
+        && !still.is_empty()
+    {
+        return false;
+    }
     let mut here = still
         .iter()
-        .filter(|(subject, _)| *subject == item.subject)
+        .filter(|(identity, _)| identity.as_deref() == item.identity())
         .peekable();
     here.peek().is_none()
         || (item.secret.is_some()
             && here.all(|(_, value)| value.is_some() && *value != item.secret))
 }
 
+impl Item {
+    fn identity(&self) -> Option<&str> {
+        self.scope.as_deref().or(self.subject.as_deref())
+    }
+}
+
+impl Decision {
+    fn identity(&self) -> Option<&str> {
+        self.scope.as_deref().or(self.subject.as_deref())
+    }
+}
+
+fn registry_rule(rule: &str) -> bool {
+    matches!(
+        rule,
+        "dev.npm.inline-credentials" | "dev.rubygems.inline-key" | "dev.bundler.inline-credentials"
+    )
+}
+
 impl Review {
+    fn upgrade_registry_labels(&mut self) {
+        if self.registry_labels == 0 {
+            for item in &mut self.items {
+                if registry_rule(&item.rule) {
+                    item.subject = None;
+                    item.scope = None;
+                }
+            }
+            // Include orphaned decisions: a future scope must not inherit
+            // one merely because its safe label happens to match.
+            self.decisions.retain(|d| !registry_rule(&d.rule));
+            for expected in &mut self.expected {
+                if registry_rule(&expected.rule) {
+                    expected.subject = None;
+                    expected.scope = None;
+                }
+            }
+            self.registry_labels = 1;
+        }
+    }
+
     /// Whether an item is still what the front end drew when it was given
     /// `revision` for it. The front end names an item by its id, and an id
     /// stays with its place when the value there is replaced: the revision
@@ -389,7 +449,8 @@ impl Review {
     /// about the value: that is what the person said of this very credential.
     pub fn decision(&self, item: &Item, now: u64) -> Option<&Decision> {
         let mut applying = self.decisions.iter().chain(&self.expected).filter(|d| {
-            let place = d.rule == item.rule && d.path == item.path && d.subject == item.subject;
+            let place =
+                d.rule == item.rule && d.path == item.path && d.identity() == item.identity();
             match d.reason {
                 // The organization's: the rule at the file, whatever it concerns.
                 Reason::Expected => d.rule == item.rule && d.path == item.path,
@@ -460,6 +521,7 @@ impl Review {
                 rule: e.rule,
                 path: e.path,
                 subject: None,
+                scope: None,
                 fingerprint: None,
                 token_type: None,
                 shared: false,
@@ -514,6 +576,7 @@ impl Review {
             secret: item.secret.clone().filter(|_| value),
             rule: item.rule,
             path: item.path,
+            scope: item.scope,
             subject: item.subject,
             fingerprint: item.fingerprint,
             token_type: item.token_type,
@@ -539,15 +602,15 @@ impl Review {
             .iter()
             .filter_map(|i| i.secret.as_ref())
             .collect();
-        let places: std::collections::HashSet<(&String, &String, &Option<String>)> = self
+        let places: std::collections::HashSet<_> = self
             .items
             .iter()
-            .map(|i| (&i.rule, &i.path, &i.subject))
+            .map(|i| (&i.rule, &i.path, i.identity()))
             .collect();
         // As `forget` matches them: by value where there is one, else by place.
         let used = |d: &Decision| match &d.secret {
             Some(secret) => secrets.contains(secret),
-            None => places.contains(&(&d.rule, &d.path, &d.subject)),
+            None => places.contains(&(&d.rule, &d.path, d.identity())),
         };
         let run_out = |d: &Decision| {
             d.reason == Reason::Kept && now >= d.decided_at.saturating_add(RECONFIRM)
@@ -564,7 +627,8 @@ impl Review {
     /// organization's list is left as it is.
     fn forget(&mut self, item: &Item) {
         self.decisions.retain(|d| {
-            let place = d.rule == item.rule && d.path == item.path && d.subject == item.subject;
+            let place =
+                d.rule == item.rule && d.path == item.path && d.identity() == item.identity();
             match &d.secret {
                 Some(secret) => item.secret.as_ref() != Some(secret),
                 None => !place,
@@ -636,6 +700,7 @@ impl Review {
     }
 
     pub fn ingest(&mut self, report: &Report) -> bool {
+        self.upgrade_registry_labels();
         self.number();
         let mut new = false;
         // Measured when the first new finding arrives, and once more if room is made.
@@ -662,8 +727,9 @@ impl Review {
         // which `resolve` does on a fresh read (`merge` asks it first), or
         // one stored with no value to lose. An open item keeps its value, and
         // what was decided about another value cannot come to cover it.
-        let place =
-            |i: &Item, f: &Finding| i.rule == f.rule && i.path == f.path && i.subject == f.subject;
+        let place = |i: &Item, f: &Finding| {
+            i.rule == f.rule && i.path == f.path && i.identity() == f.identity()
+        };
         let mut claimed: std::collections::HashSet<u64> = self
             .items
             .iter()
@@ -717,6 +783,7 @@ impl Review {
                 item.resolved = false;
                 item.resolved_at = None;
                 item.line = f.line;
+                item.subject = f.subject.clone();
                 item.title = f.title.into();
                 item.explanation = f.explanation.into();
                 item.reason = f.reason.clone();
@@ -741,6 +808,7 @@ impl Review {
                 severity: f.severity.into(),
                 steps: f.steps.iter().map(|s| s.to_string()).collect(),
                 link: f.link.map(str::to_string),
+                scope: f.scope.clone(),
                 subject: f.subject.clone(),
                 first_seen: Some(report.generated_at.clone()),
                 resolved_at: None,
@@ -782,7 +850,7 @@ impl Review {
                     d.reason == Reason::Kept
                         && d.rule == i.rule
                         && d.path == i.path
-                        && d.subject == i.subject
+                        && d.identity() == i.identity()
                 }) || self
                     .expected
                     .iter()
@@ -841,7 +909,7 @@ impl Review {
         let mut seen: std::collections::HashMap<_, Vec<Option<&str>>> = Default::default();
         let mut hits: std::collections::HashMap<&str, usize> = Default::default();
         for f in report.findings.iter().filter(|f| f.kind == "review") {
-            seen.entry((f.rule, f.path.as_str(), f.subject.as_deref()))
+            seen.entry((f.rule, f.path.as_str(), f.identity()))
                 .or_default()
                 .push(f.secret.as_deref());
             *hits.entry(f.path.as_str()).or_default() += 1;
@@ -868,9 +936,7 @@ impl Review {
             if i.resolved || skipped {
                 continue;
             }
-            if let Some(values) =
-                seen.get(&(i.rule.as_str(), i.path.as_str(), i.subject.as_deref()))
-            {
+            if let Some(values) = seen.get(&(i.rule.as_str(), i.path.as_str(), i.identity())) {
                 // The file was read and had something of this kind. A value
                 // the report leaves out may be gone from it, unless the
                 // report cannot tell: a finding with no value to compare, a
@@ -1138,7 +1204,10 @@ impl Store {
         };
         if fd < 0 {
             return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-                Ok(Review::default())
+                Ok(Review {
+                    registry_labels: 1,
+                    ..Review::default()
+                })
             } else {
                 Err("Could not read the review list.".into())
             };
@@ -1160,9 +1229,9 @@ impl Store {
         file.take(STORE_BYTES as u64 + 1)
             .read_to_string(&mut json)
             .map_err(|e| e.to_string())?;
-        let review: Review = serde_json::from_str(&json)
+        let mut review: Review = serde_json::from_str(&json)
             .map_err(|_| "The review list file is damaged or in an unknown format.")?;
-        if !review.ids_hold() {
+        if !review.ids_hold() || review.registry_labels > 1 {
             return Err("The review list file is damaged or in an unknown format.".into());
         }
         if review.items.len() > 4096
@@ -1177,6 +1246,7 @@ impl Store {
         {
             return Err("The review list is too large for automatic scanning.".into());
         }
+        review.upgrade_registry_labels();
         Ok(review)
     }
 
@@ -1391,7 +1461,7 @@ mod tests {
             let there = there.filter(|f| f.rule == item.rule && f.path == item.path);
             Some(
                 there
-                    .map(|f| (f.subject.clone(), f.secret.clone()))
+                    .map(|f| (f.identity().map(str::to_string), f.secret.clone()))
                     .collect(),
             )
         }
@@ -2380,6 +2450,110 @@ mod tests {
         root
     }
 
+    #[test]
+    fn saved_registry_labels_are_invalidated_once_before_use() {
+        let home = synthetic_home("legacy-registry-labels");
+        let store = Store::open(&home).unwrap();
+        let rules = [
+            "dev.npm.inline-credentials",
+            "dev.rubygems.inline-key",
+            "dev.bundler.inline-credentials",
+        ];
+        let mut state = Review {
+            key: vec![7; 32],
+            ..Review::default()
+        };
+        for rule in rules {
+            state.ingest(&found(&[(
+                rule,
+                "~/fixture-config",
+                Some("legacy-synthetic-private-tail"),
+                None,
+            )]));
+        }
+        state.ingest(&found(&[(
+            "dev.cargo.inline-token",
+            "~/safe-config",
+            Some("safe-profile"),
+            None,
+        )]));
+        for id in state.items.iter().map(|i| i.id).collect::<Vec<_>>() {
+            state.decide(id, Reason::Kept, 10, "then".into()).unwrap();
+        }
+        // Resolved history must be sanitized too, without losing its metadata.
+        state.items[1].resolved = true;
+        state.items[1].resolved_at = Some("fixed-before-upgrade".into());
+        state.items[1].first_seen = Some("first-before-upgrade".into());
+        let mut orphan = state.decisions[0].clone();
+        orphan.path = "~/no-longer-listed".into();
+        state.decisions.push(orphan);
+        state.expected = vec![state.decisions[0].clone()];
+        state.expected[0].reason = Reason::Expected;
+        let ids: Vec<_> = state.items.iter().map(|i| i.id).collect();
+        let path = home.join(STATE_DIR).join("state.json");
+        let mut old = serde_json::to_value(&state).unwrap();
+        old.as_object_mut().unwrap().remove("registry_labels");
+        fsutil::write_export(&path, &old.to_string(), false).unwrap();
+        let read = store.read().unwrap();
+        let encoded = serde_json::to_string(&read).unwrap();
+        assert!(
+            !encoded.contains("synthetic-private"),
+            "legacy subject escaped the loader"
+        );
+        assert!(
+            !encoded.contains("private-tail"),
+            "legacy fragment escaped the loader"
+        );
+        assert_eq!(read.items.iter().map(|i| i.id).collect::<Vec<_>>(), ids);
+        assert!(read.items[1].resolved);
+        assert_eq!(
+            read.items[1].resolved_at.as_deref(),
+            Some("fixed-before-upgrade")
+        );
+        assert_eq!(
+            read.items[1].first_seen.as_deref(),
+            Some("first-before-upgrade")
+        );
+        assert_eq!(
+            read.decisions.len(),
+            1,
+            "affected and orphaned decisions must be removed"
+        );
+        assert_eq!(read.decisions[0].rule, "dev.cargo.inline-token");
+        assert_eq!(
+            read.expected.len(),
+            1,
+            "organization expectations concern the file, not its subject"
+        );
+        assert!(read.expected[0].subject.is_none());
+        // A newly generated safe label and private identity survive every
+        // later read/save; older builds dropping the marker migrate again.
+        store
+            .update(|state| {
+                let mut fresh =
+                    found(&[(rules[0], "~/new-config", Some("registry.invalid"), None)]);
+                fresh.findings[0].scope = Some("synthetic-private-scope-digest".into());
+                state.ingest(&fresh);
+                let id = state.items.last().unwrap().id;
+                state.decide(id, Reason::Kept, 10, "now".into())
+            })
+            .unwrap();
+        for _ in 0..3 {
+            let (state, ()) = store.update(|_| Ok(())).unwrap();
+            let fresh = state.items.last().unwrap();
+            assert_eq!(fresh.subject.as_deref(), Some("registry.invalid"));
+            assert_eq!(
+                fresh.scope.as_deref(),
+                Some("synthetic-private-scope-digest")
+            );
+            assert!(state.decision(fresh, 20).is_some());
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(!saved.contains("legacy-synthetic"));
+        }
+        drop(store);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
     /// The window names an item by its id, so two items with one id let a
     /// decision about one land on the other, and a counter below an id gives
     /// that id out again. A counter at its limit wrapped to zero in a release
@@ -2488,6 +2662,7 @@ mod tests {
             rule: "export.password-csv".into(),
             path: path.into(),
             subject: None,
+            scope: None,
             fingerprint: None,
             token_type: None,
             shared: false,

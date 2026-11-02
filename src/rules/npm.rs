@@ -76,7 +76,8 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
             let registry = key
                 .rsplit_once(':')
                 .map_or("", |(r, _)| r.trim_matches('/'));
-            scalar_literal(value).map(|_| Hit::line(i + 1).about(registry))
+            scalar_literal(value)
+                .map(|_| Hit::line(i + 1).about(url_host(registry)).scoped(text, key))
         })
         .collect()
 }
@@ -84,6 +85,46 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_subjects_exclude_userinfo_and_paths() {
+        for registry in [
+            "fixture:synthetic-pass@registry.invalid",
+            "fixture:synthetic@pass@registry.invalid",
+            "registry.invalid/private-scope",
+            "registry.invalid/path://synthetic-tail",
+            "registry.invalid?synthetic-query",
+            "registry.invalid#synthetic-fragment",
+        ] {
+            let file = format!("//{registry}/:_authToken=synthetic-stored-value\n");
+            let hits = npm_hits(file.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].line, Some(1));
+            assert!(
+                hits[0].subject.as_deref() == Some("registry.invalid"),
+                "only the registry host may be shown"
+            );
+        }
+    }
+
+    // Registry keys can themselves hold credentials. Ambiguous tails keep
+    // their findings, but supply no display subject.
+    #[test]
+    fn ambiguous_registry_keys_have_no_label() {
+        for key in [
+            "//fixture:synthetic/pass@registry.invalid/:_authToken",
+            "//registry.invalid/path@synthetic-tail/:_authToken",
+            "//fixture:synthetic-pass@/:_auth",
+            "_authToken",
+        ] {
+            let file = format!("{key}=synthetic-stored-value\n");
+            let hits = npm_hits(file.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1);
+            assert!(hits[0].subject.is_none());
+        }
+        let hits = npm_hits(b"//registry.invalid:8443/:password=synthetic-stored-value\n").unwrap();
+        assert_eq!(hits[0].subject.as_deref(), Some("registry.invalid:8443"));
+    }
 
     #[test]
     fn a_byte_order_mark_does_not_hide_the_first_line() {

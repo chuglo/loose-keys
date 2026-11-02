@@ -523,6 +523,41 @@ checker does not catch either. [8]
   `Hit`s holding a line, a `span` (a position) and labels. `rules::label`
   accepts only short printable text, and callers pass it names and hosts,
   never a field that stores a secret. `Progress` and events carry counts.
+- Registry URL subjects are display labels, never review identities. npm,
+  RubyGems and Bundler keep only the authority's host and optional port; an
+  at-sign after `/`, `?` or `#`, or a backslash, makes the label ambiguous and
+  omits it without omitting the finding. An encoded slash in userinfo still
+  permits a host label. This conservative extraction is not URL or credential
+  validation and makes no network request.
+- Those registry entries carry a separate private scope identity: `Hit::scope`
+  holds only a byte range for the original key, which can itself contain
+  credentials. The scanner computes a domain-separated keyed digest with the
+  install's existing HMAC key, discards the bytes and keeps the digest only in
+  private review state. Ingest, decisions, pruning and fresh rechecks compare
+  this identity, not the host label or line number. It never enters reports,
+  events, summaries or window responses. Changing a key's spelling or embedded
+  userinfo can create a new item; this errs toward asking for attention.
+- `registry_labels` marks the private state's label generation. Missing/zero
+  means legacy: loading clears npm, RubyGems and Bundler subjects, including
+  resolved history, and removes their personal decisions, including orphaned
+  ones. Organization expectations still concern the rule/file and retain that
+  scope, with their subjects cleared. IDs, timestamps and resolution flags
+  stay intact. New safe labels and scope identities survive later loads; an
+  older build saving state drops the marker and causes migration again.
+  Reads alone do not rewrite disk: the next successful update persists it.
+  Old unresolved items have unknown scopes, so they remain alongside fresh
+  scoped findings until a complete recheck finds no credential of that rule
+  at the file. Never infer their removal from redaction or a host collision.
+  This cannot erase earlier exports, logs, backups or copies, or prevent an
+  older running app/helper from writing unsafe labels again.
+  Regression checks cover matcher labels, CLI outputs, engine responses and
+  events, summaries, exports, private state, same-host decisions, reordered
+  scopes, migrated collisions, resolved metadata, orphaned decisions and
+  repeated load/save. The bounded-scan regression still requires exactly one
+  material fingerprint per file, and counts the bounded per-entry scope
+  digests separately, checking their domain and absence from exports.
+  Real window/clipboard behavior and older concurrent
+  app/helper behavior remain unverified.
 - A type that holds file bytes has no `Debug` or `Display` (`Head` has
   neither), and `Incomplete`'s `Debug` shows only its fixed reason and hit
   count. What goes to the window is rebuilt field by field: `shown` clears

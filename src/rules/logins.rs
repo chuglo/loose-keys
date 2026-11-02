@@ -435,14 +435,14 @@ fn bundler_hits(bytes: &[u8]) -> Hits {
                     };
                 // Of a URL only the host is shown: it can carry a password.
                 let shown = match name.split_once("://") {
-                    Some((_, rest)) => {
-                        let host = rest.rsplit_once('@').map_or(rest, |(_, host)| host);
-                        host.split(['/', '?', '#']).next().unwrap_or("")
-                    }
+                    Some((_, rest)) => url_host(rest),
                     None => &name,
                 };
-                (!own)
-                    .then(|| Hit::line(i + 1).about(&shown.replace("__", ".").to_ascii_lowercase()))
+                (!own).then(|| {
+                    Hit::line(i + 1)
+                        .about(&shown.replace("__", ".").to_ascii_lowercase())
+                        .scoped(text, key)
+                })
             })
             .collect()
     })

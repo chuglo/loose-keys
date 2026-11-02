@@ -110,6 +110,8 @@ pub struct Hit {
     /// Where the secret sits in the bytes that were tested: a position, not
     /// a value. Lets the scanner tell two different secrets apart.
     pub span: Option<std::ops::Range<usize>>,
+    /// Registry key bytes used only for keyed place identity, never display.
+    pub scope: Option<std::ops::Range<usize>>,
     /// A count or other detail that can change while the finding stays the
     /// same finding, such as how many logins a browser has saved. Shown, but
     /// not part of what identifies the finding.
@@ -133,6 +135,12 @@ impl Hit {
 
     pub fn about(mut self, subject: &str) -> Hit {
         self.subject = label(subject);
+        self
+    }
+
+    /// As `at`, but for a registry key that may itself hold credentials.
+    pub fn scoped(mut self, text: &str, key: &str) -> Hit {
+        self.scope = Hit::file().at(text, key).span;
         self
     }
 
@@ -162,6 +170,21 @@ pub fn label(s: &str) -> Option<String> {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b" ._-:/@".contains(&b)))
     .then(|| s.to_string())
+}
+
+/// A registry URL's host and optional port, or no label when an at-sign
+/// after the authority could be unescaped userinfo. Never show URL tails.
+/// This is conservative display extraction, not URL validation.
+fn url_host(value: &str) -> &str {
+    let value = value.strip_prefix("//").unwrap_or(value);
+    let end = value.find(['/', '?', '#']).unwrap_or(value.len());
+    if value[end..].contains('@') || value.contains('\\') {
+        return "";
+    }
+    let authority = &value[..end];
+    authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host)
 }
 
 /// Complete matches, or an incomplete check with any matches already found.
@@ -762,6 +785,54 @@ mod rule_samples {
     use super::*;
 
     #[test]
+    fn registry_url_labels_omit_ambiguous_tails() {
+        let mut unsafe_rules = Vec::new();
+        for rule in [registry::GEM_KEY, logins::BUNDLER_CREDENTIALS] {
+            let Matcher::Whole { test, .. } = rule.matcher else {
+                unreachable!()
+            };
+            for (url, expected) in [
+                (
+                    "https://fixture:synthetic%2Fpass@registry.invalid/scope",
+                    Some("registry.invalid"),
+                ),
+                (
+                    "https://fixture:synthetic/pass@registry.invalid/scope",
+                    None,
+                ),
+                ("https://registry.invalid/path@synthetic-tail", None),
+                (
+                    concat!("https://registry.invalid", "?query", "@synthetic-tail"),
+                    None,
+                ),
+                (
+                    concat!("https://registry.invalid", "#fragment", "@synthetic-tail"),
+                    None,
+                ),
+                (
+                    "https://registry.invalid:8443/scope",
+                    Some("registry.invalid:8443"),
+                ),
+            ] {
+                let body = if rule.id == "dev.rubygems.inline-key" {
+                    format!("{url}: synthetic-stored-value\n")
+                } else {
+                    format!("BUNDLE_{url}: synthetic-stored-value\n")
+                };
+                let hits = test(body.as_bytes()).unwrap();
+                assert_eq!(hits.len(), 1, "ambiguous labels must not remove findings");
+                if hits[0].subject.as_deref() != expected {
+                    unsafe_rules.push(rule.id);
+                }
+            }
+        }
+        assert!(
+            unsafe_rules.is_empty(),
+            "unsafe URL rules: {unsafe_rules:?}"
+        );
+    }
+
+    #[test]
     fn incomplete_debug_excludes_match_labels() {
         let incomplete = Incomplete {
             reason: "scan-limit",
@@ -1162,13 +1233,15 @@ mod rule_samples {
                 Some("gems.my-company.invalid".to_string())
             ]
         );
-        // A URL key is shown as its host: a key can carry a password.
+        // An unescaped slash makes userinfo ambiguous: omit its label, not
+        // its finding. An encoded slash still permits the actual host label.
         assert_eq!(
             subjects(
                 &logins::BUNDLER_CREDENTIALS,
-                "---\nBUNDLE_HTTPS://FIXTUREUSER:SYNTHETIC/PASS@GEMS__EXAMPLE__INVALID/FIXTURE/: \"fixture:synthetic-only\"\nBUNDLE_HTTP://NEXUS:8081/REPOSITORY/GEMS/: \"fixture:synthetic-only\"\n"
+                "---\nBUNDLE_HTTPS://FIXTUREUSER:SYNTHETIC/PASS@GEMS__EXAMPLE__INVALID/FIXTURE/: \"fixture:synthetic-only\"\nBUNDLE_HTTPS://FIXTUREUSER:SYNTHETIC%2FPASS@GEMS__EXAMPLE__INVALID/FIXTURE/: \"fixture:synthetic-only\"\nBUNDLE_HTTP://NEXUS:8081/REPOSITORY/GEMS/: \"fixture:synthetic-only\"\n"
             ),
             [
+                None,
                 Some("gems.example.invalid".to_string()),
                 Some("nexus:8081".to_string())
             ]

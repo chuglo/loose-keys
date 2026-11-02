@@ -166,9 +166,12 @@ fn gem_hits(bytes: &[u8]) -> Hits {
             .enumerate()
             .filter_map(|(i, raw)| {
                 let line = raw.trim();
-                let (key, value) = match line.strip_prefix(':') {
+                let (key, value, shown) = match line.strip_prefix(':') {
                     // rubygems.org's key, or one named with --key: ":name: value".
-                    Some(rest) => rest.split_once(':')?,
+                    Some(rest) => {
+                        let (key, value) = rest.split_once(':')?;
+                        (key, value, key)
+                    }
                     // Another host's key, under its URL. Only the host is
                     // shown: a URL can carry a user name and password.
                     None => {
@@ -177,11 +180,10 @@ fn gem_hits(bytes: &[u8]) -> Hits {
                         if !matches!(scheme, "http" | "https") {
                             return None;
                         }
-                        let host = rest.rsplit_once('@').map_or(rest, |(_, host)| host);
-                        (host.split(['/', '?', '#']).next()?, value)
+                        (url, value, url_host(rest))
                     }
                 };
-                scalar_literal(value).map(|_| Hit::line(i + 1).about(key))
+                scalar_literal(value).map(|_| Hit::line(i + 1).about(shown).scoped(text, key))
             })
             .collect()
     })

@@ -540,7 +540,7 @@ fn shown(item: &review::Item) -> review::Item {
     let mut shown = item.clone();
     shown.path = report::escape(&shown.path);
     shown.reason = shown.reason.as_ref().map(|s| report::escape(s));
-    (shown.fingerprint, shown.secret, shown.mount) = (None, None, None);
+    (shown.fingerprint, shown.secret, shown.mount, shown.scope) = (None, None, None, None);
     shown
 }
 
@@ -1451,7 +1451,7 @@ fn recheck_path(rel: &str, home: Option<&Path>) -> Option<PathBuf> {
 fn still_there(item: &review::Item, home: &Path, key: &[u8]) -> Option<review::Still> {
     let path = recheck_path(&item.path, Some(home))?;
     let digest = |rule: &str, bytes: &[u8], shared| material_fingerprint(rule, key, bytes, shared);
-    scan::recheck_values(&item.rule, &path, home, item.mount, &digest)
+    scan::recheck_identities(&item.rule, &path, home, item.mount, &digest)
 }
 
 fn gap_text(reason: &str) -> (&str, &str) {
@@ -1562,6 +1562,264 @@ mod tests {
     /// reads it.
     fn ask(app: &App, command: &str, args: &str) -> Value {
         serde_json::from_str(&call(Some(app), command, args)).unwrap()
+    }
+
+    #[test]
+    fn npm_registry_credentials_do_not_leave_the_engine() {
+        let _alone = one_scan();
+        let (home, app) = engine("npm-registry-label");
+        let password = ["synthetic-userinfo", "private-suffix"].join("-");
+        let value = ["synthetic-stored", "value-suffix"].join("-");
+        std::fs::write(
+            home.join(".npmrc"),
+            format!("//fixture:{password}@registry.invalid/:_authToken={value}\n"),
+        )
+        .unwrap();
+        for (file, prefix) in [(".gem/credentials", ""), (".bundle/config", "BUNDLE_")] {
+            let path = home.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                path,
+                format!(
+                    "{prefix}https://fixture:{password}@registry.invalid/private-scope: {value}\n"
+                ),
+            )
+            .unwrap();
+        }
+        SEEN.lock().unwrap().clear();
+        ch_set_event_handler(Some(seen));
+        let scanned = ask(&app, "start_scan", "{}");
+        ch_set_event_handler(None);
+        let events = std::mem::take(&mut *SEEN.lock().unwrap());
+        let review = ask(&app, "pending_review", "{}");
+        let summary = ask(&app, "summary_text", "{}");
+        let mut outputs = vec![
+            scanned.to_string(),
+            review.to_string(),
+            summary.to_string(),
+            serde_json::to_string(&events).unwrap(),
+        ];
+        let state = app.store.as_ref().unwrap().read().unwrap();
+        let scopes: Vec<_> = state
+            .items
+            .iter()
+            .map(|i| i.scope.clone().expect("registry identity"))
+            .collect();
+        let saved_state =
+            std::fs::read_to_string(home.join(review::STATE_DIR).join("state.json")).unwrap();
+        for feedback in [false, true] {
+            let export = home.with_extension(if feedback {
+                "feedback.json"
+            } else {
+                "report.json"
+            });
+            let saved = ask(
+                &app,
+                "save_report",
+                &json!({"path": export, "feedback": feedback}).to_string(),
+            );
+            assert!(saved.get("ok").is_some());
+            outputs.push(saved.to_string());
+            outputs.push(std::fs::read_to_string(&export).unwrap());
+            std::fs::remove_file(export).unwrap();
+        }
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 3);
+        assert_eq!(review["ok"]["items"].as_array().unwrap().len(), 3);
+        for text in &outputs {
+            for scope in &scopes {
+                assert!(
+                    !text.contains(scope),
+                    "private scope digest left through public output"
+                );
+            }
+        }
+        outputs.push(saved_state);
+        assert!(summary["ok"].as_str().unwrap().contains("registry.invalid"));
+        for text in outputs {
+            for secret in [&password, &value] {
+                for fragment in [secret.as_str(), &secret[..12], &secret[secret.len() - 12..]] {
+                    assert!(
+                        !text.contains(fragment),
+                        "registry credential appeared in engine output or state"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn npm_scopes_on_one_host_keep_separate_decisions() {
+        let _alone = one_scan();
+        let (home, app) = engine("npm-scope-identity");
+        let path = home.join(".npmrc");
+        let root = "//registry.invalid/:_authToken=synthetic-root-value\n";
+        let a = "//registry.invalid/team-a/:_authToken=synthetic-a-value\n";
+        let b = "//registry.invalid/team-b/:_authToken=synthetic-b-value\n";
+        std::fs::write(&path, root).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 1);
+        let store = app.store.as_ref().unwrap();
+        let before = store.read().unwrap();
+        let root_id = before.items[0].id;
+        let scope = before.items[0].scope.clone();
+        std::fs::write(
+            &path,
+            root.replace("synthetic-root-value", "synthetic-rotated-value"),
+        )
+        .unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 1);
+        let rotated = store.read().unwrap();
+        assert_eq!(rotated.items.len(), 1);
+        assert_eq!(rotated.items[0].id, root_id);
+        assert_eq!(
+            rotated.items[0].scope, scope,
+            "place identity must not include the stored value"
+        );
+        store
+            .update(|state| state.decide(root_id, review::Reason::Kept, now(), "then".into()))
+            .unwrap();
+        std::fs::write(&path, format!("{root}{a}{b}")).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 3);
+        let state = store.read().unwrap();
+        assert_eq!(
+            state.items.len(),
+            3,
+            "same-host scopes must remain separate items"
+        );
+        assert_eq!(
+            state
+                .items
+                .iter()
+                .filter(|i| state.decision(i, now()).is_some())
+                .count(),
+            1,
+            "keeping the root must not keep newly found scopes"
+        );
+        assert_eq!(
+            state.items.iter().find(|i| i.id == root_id).unwrap().line,
+            Some(1)
+        );
+        let a_id = state.items.iter().find(|i| i.line == Some(2)).unwrap().id;
+        let b_id = state.items.iter().find(|i| i.line == Some(3)).unwrap().id;
+        std::fs::write(&path, format!("{b}{root}")).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 2);
+        let state = store.read().unwrap();
+        assert!(state.items.iter().find(|i| i.id == a_id).unwrap().resolved);
+        assert!(!state.items.iter().find(|i| i.id == b_id).unwrap().resolved);
+        assert_eq!(
+            state.items.iter().find(|i| i.id == b_id).unwrap().line,
+            Some(1)
+        );
+        assert!(state
+            .decision(state.items.iter().find(|i| i.id == root_id).unwrap(), now())
+            .is_some());
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn other_registry_url_scopes_keep_separate_decisions() {
+        let _alone = one_scan();
+        for (name, file, prefix) in [
+            ("gem-scopes", ".gem/credentials", ""),
+            ("bundler-scopes", ".bundle/config", "BUNDLE_"),
+        ] {
+            let (home, app) = engine(name);
+            let path = home.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let a = format!("{prefix}https://registry.invalid/team-a: synthetic-a-value\n");
+            let b = format!("{prefix}https://registry.invalid/team-b: synthetic-b-value\n");
+            std::fs::write(&path, &a).unwrap();
+            assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 1);
+            let store = app.store.as_ref().unwrap();
+            let id = store.read().unwrap().items[0].id;
+            store
+                .update(|state| state.decide(id, review::Reason::Kept, now(), "then".into()))
+                .unwrap();
+            std::fs::write(&path, format!("{b}{a}")).unwrap();
+            assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 2);
+            let state = store.read().unwrap();
+            assert_eq!(
+                state.items.len(),
+                2,
+                "{name}: URL scopes must remain distinct"
+            );
+            assert_eq!(
+                state
+                    .items
+                    .iter()
+                    .filter(|i| state.decision(i, now()).is_some())
+                    .count(),
+                1
+            );
+            assert_eq!(
+                state.items.iter().find(|i| i.id == id).unwrap().line,
+                Some(2)
+            );
+            drop(app);
+            std::fs::remove_dir_all(home).unwrap();
+        }
+    }
+
+    #[test]
+    fn migrated_registry_collisions_stay_separate_after_rescanning() {
+        let _alone = one_scan();
+        let (home, app) = engine("migrated-registry-collisions");
+        let config = home.join(".npmrc");
+        let entries = "//registry.invalid/team-a/:_authToken=synthetic-a-value\n//registry.invalid/team-b/:_authToken=synthetic-b-value\n";
+        std::fs::write(&config, entries).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 2);
+        let store = app.store.as_ref().unwrap();
+        store
+            .update(|state| {
+                let id = state.items[0].id;
+                state.decide(id, review::Reason::Kept, now(), "then".into())
+            })
+            .unwrap();
+        let path = home.join(review::STATE_DIR).join("state.json");
+        let mut legacy: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("registry_labels");
+        for item in legacy["items"].as_array_mut().unwrap() {
+            item.as_object_mut().unwrap().remove("scope");
+            item["subject"] = json!("fixture:synthetic-legacy-private-tail@registry.invalid/team");
+        }
+        std::fs::write(&path, legacy.to_string()).unwrap();
+        let pending = ask(&app, "pending_review", "{}");
+        assert!(!pending.to_string().contains("legacy-private"));
+        assert!(store.read().unwrap().decisions.is_empty());
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 2);
+        let state = store.read().unwrap();
+        let old: Vec<_> = state.items.iter().filter(|i| i.scope.is_none()).collect();
+        assert_eq!(old.len(), 2, "legacy history is retained, not collapsed");
+        assert!(
+            old.iter().all(|i| !i.resolved),
+            "an unknown legacy scope is not evidence of removal"
+        );
+        let fresh: Vec<_> = state.items.iter().filter(|i| i.scope.is_some()).collect();
+        assert_eq!(fresh.len(), 2);
+        assert!(fresh.iter().all(|i| state.decision(i, now()).is_none()));
+        let a_id = fresh.iter().find(|i| i.line == Some(1)).unwrap().id;
+        store
+            .update(|state| state.decide(a_id, review::Reason::Kept, now(), "now".into()))
+            .unwrap();
+        // A later scan cannot merge the distinct scopes or spread that choice.
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 2);
+        let state = store.read().unwrap();
+        assert_eq!(state.items.len(), 4);
+        assert_eq!(
+            state
+                .items
+                .iter()
+                .filter(|i| state.decision(i, now()).is_some())
+                .count(),
+            1
+        );
+        std::fs::write(config, "").unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 0);
+        assert!(store.read().unwrap().items.iter().all(|i| i.resolved));
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
     }
 
     #[test]
@@ -3329,7 +3587,7 @@ mod tests {
         fn save(&self, state: &mut review::Review, report: &Report) -> bool {
             state.merge(report, |item| {
                 let path = recheck_path(&item.path, Some(&self.0))?;
-                scan::recheck_values(&item.rule, &path, &self.0, item.mount, &stand_in)
+                scan::recheck_identities(&item.rule, &path, &self.0, item.mount, &stand_in)
             })
         }
     }
@@ -3755,6 +4013,7 @@ mod tests {
                     rule: other.rule.clone(),
                     path: other.path.clone(),
                     subject: other.subject.clone(),
+                    scope: other.scope.clone(),
                     fingerprint: None,
                     token_type: None,
                     shared: false,

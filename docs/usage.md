@@ -67,7 +67,15 @@ Worth Reviewing.
 **Keeping It Here on Purpose** covers one file. The same credential turning
 up elsewhere is still reported. It still applies if you change the value in
 that file, and ends if the file becomes readable by others, if a different kind
-of credential appears there, or after six months.
+of credential appears there, or after six months. For npm, RubyGems and Bundler
+registry entries, it covers that entry's scope, not a new scope in the same file.
+
+An update that removes unsafe registry labels clears earlier personal choices
+for npm, RubyGems and Bundler, so those findings may need review again. Old
+labels are removed even from fixed history. An old unresolved entry whose scope
+cannot be recovered can remain beside newly found entries until a full recheck
+finds none of that credential kind in its file; it is not marked fixed merely
+because its label was removed.
 
 **Expected by your organization** appears when a managed setting from your
 organization lists the finding's rule and file. It covers only that file; a
