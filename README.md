@@ -9,7 +9,7 @@ to deal with it.
 
 Loose Keys works offline and never changes the files it scans.
 
-Version 0.5.0 · MIT licensed
+Version 0.6.0 · MIT licensed
 
 ## Install the beta
 
