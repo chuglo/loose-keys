@@ -40,6 +40,8 @@ pub const ENV_SECRET: Rule = Rule {
         (b"DATABASE_PASSWORD=synthetic-only-value\n", true),
         (b"\xef\xbb\xbfDATABASE_PASSWORD=synthetic-only-value\n", true),
         (b": 1700000000:0;export API_TOKEN=\"synthetic-only-value\"\n", true),
+        (b"fixtureSecretKey=synthetic-only-value\n", true),
+        (b"fixtureAccessKeyId=synthetic-only-value\nsecretKeyFile=/run/secrets/fixture\n", false),
         (b"API_TOKEN=${OTHER}\nDB_PASSWORD=changeme\nPORT=8080\nAUTHOR=someone-else\n", false),
         (b"# API_TOKEN=synthetic-only-value\nPASSWORD_MIN_LENGTH=12\n", false),
         // A value runs to the end of its line here, and this one is prose.
@@ -275,7 +277,10 @@ fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
         "API_KEY",
         "APIKEY",
         "ACCESS_KEY",
+        "ACCESSKEY",
         "PRIVATE_KEY",
+        "PRIVATEKEY",
+        "SECRETKEY",
         "CREDENTIAL",
     ]
     .iter()
@@ -747,6 +752,23 @@ mod tests {
                 "ossrhPassword = synthetic-only-value",
                 Some("ossrhPassword"),
             ),
+            // Joined forms of the names, as Gradle's AwsCredentials reads
+            // "<repo>AccessKey" and "<repo>SecretKey".
+            (
+                "awsSecretKey=synthetic-only-value",
+                Some("awsSecretKey"),
+            ),
+            ("secretKey=synthetic-only-value", Some("secretKey")),
+            ("SECRETKEY=synthetic-only-value", Some("SECRETKEY")),
+            ("privateKey=synthetic-only-value", Some("privateKey")),
+            ("accessKey=synthetic-only-value", Some("accessKey")),
+            (
+                "awsSecretAccessKey=synthetic-only-value",
+                Some("awsSecretAccessKey"),
+            ),
+            ("awsAccessKeyId=synthetic-only-value", None),
+            ("secretKeyFile=/run/secrets/fixture", None),
+            ("SECRETKEY_PATH=/run/secrets/fixture", None),
         ] {
             assert_eq!(
                 secret_assignment(line, true).map(|found| found.0),
