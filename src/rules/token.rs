@@ -237,7 +237,12 @@ fn dotted(b: u8) -> bool {
 }
 
 fn base64ish(b: u8) -> bool {
-    dotted(b) || b == b'+' || b == b'/' || b == b','
+    dotted(b) || b == b'+' || b == b'/'
+}
+
+/// Fly.io joins the macaroons of one token with commas.
+fn macaroons(b: u8) -> bool {
+    base64ish(b) || b == b','
 }
 
 /// Standard base64, without its padding.
@@ -437,7 +442,7 @@ const PROVIDERS: &[Provider] = &[
     p("Supabase access token", "sbp_", alnum, 40, 40, Some("https://supabase.com/dashboard/account/tokens")),
     p("Supabase secret key", "sb_secret_", word, 20, 60, None),
     p("Fly.io token", "fo1_", base64ish, 43, 60, Some("https://fly.io/user/personal_access_tokens")),
-    p("Fly.io token", "fm2_", base64ish, 100, 2000, Some("https://fly.io/user/personal_access_tokens")),
+    p("Fly.io token", "fm2_", macaroons, 100, 2000, Some("https://fly.io/user/personal_access_tokens")),
     p("Doppler personal token", "dp.pt.", alnum, 40, 44, None),
     p("Doppler CLI token", "dp.ct.", alnum, 40, 44, None),
     p("Doppler service account token", "dp.sa.", alnum, 40, 44, None),
@@ -1353,10 +1358,10 @@ mod tests {
 
     #[test]
     fn a_long_run_of_token_characters_is_not_read_again_from_every_start() {
-        // Every "," starts a candidate, and "," is also one of the characters
+        // Every "/" starts a candidate, and "/" is also one of the characters
         // this token may contain, so each candidate runs to the end. It has
         // too few different characters to be reported as a token anywhere.
-        let run = format!(",{}", "ATATT3").repeat(256 * 1024 / 7);
+        let run = format!("/{}", "ATATT3").repeat(256 * 1024 / 7);
         let started = std::time::Instant::now();
         assert!(!has_token(run.as_bytes()));
         let took = started.elapsed();
@@ -1389,7 +1394,7 @@ mod tests {
     fn a_run_longer_than_any_token_is_counted_once() {
         // As above, for formats that allow 2,000 characters: each start
         // counted that many again, about a second for each MiB of a record.
-        for repeated in [",fm2_", ",ops_eyJ"] {
+        for repeated in [",fm2_", "/ops_eyJ"] {
             let run = repeated.repeat(1024 * 1024 / repeated.len());
             let started = std::time::Instant::now();
             find(run.as_bytes());
@@ -1435,6 +1440,8 @@ mod tests {
             format!("{}{fm2},{fm2} {ops}", ",fm2_".repeat(450)),
             format!("{fm2},fm2_,{ops},ops_eyJ,{gh} {gh}x {gh}\n,fm2_{fm2}"),
             format!("{},{gh}", "glc_".repeat(150)),
+            "/ops_eyJ".repeat(400),
+            format!("{ops},{gh},{fm2},{gh}"),
         ];
         // Named by place, so a failure does not print a token.
         for (n, sample) in samples.iter().enumerate() {
@@ -1555,6 +1562,50 @@ mod tests {
         assert!(has_token(fake("ABSK", long).as_bytes()));
         assert!(!has_token(fake("ABSK", &format!("{long}+")).as_bytes()));
         assert!(!has_token(fake("ABSK", &format!("{long}/")).as_bytes()));
+    }
+
+    #[test]
+    fn a_comma_ends_a_token_whose_format_has_none() {
+        // Only Fly.io joins tokens with commas. Any other token ends at a
+        // comma: what follows is not taken into it, nor does it make the
+        // token too long to report.
+        let gh = fake("ghp_", "0123456789abcdefghijABCDEFGHIJ012345");
+        let found = |text: &str| -> Vec<(&str, std::ops::Range<usize>)> {
+            let hits = token_hits(text.as_bytes()).unwrap();
+            hits.iter()
+                .map(|h| (h.token_type.unwrap(), h.span.clone().unwrap()))
+                .collect()
+        };
+        for (prefix, length) in [
+            ("glc_", 200),
+            ("ATATT3", 180),
+            ("sntrys_", 100),
+            ("fo1_", 43),
+            ("ops_eyJ", 300),
+        ] {
+            let p = PROVIDERS.iter().find(|p| p.prefix == prefix).unwrap();
+            let token = fake(prefix, &"abcDEF0123".repeat(30)[..length]);
+            let end = 7 + token.len();
+            let text = format!("tokens={token},{gh}\n");
+            assert_eq!(
+                found(&text),
+                [
+                    (p.name, 7..end),
+                    ("GitHub personal access token", end + 1..end + 1 + gh.len())
+                ],
+                "{prefix}"
+            );
+            let more = "abcDEF0123".repeat(p.max / 10 + 1);
+            assert_eq!(
+                found(&format!("tokens={token},{more}\n")),
+                [(p.name, 7..end)],
+                "{prefix}"
+            );
+        }
+        // Fly.io's macaroons joined by a comma are one token.
+        let fm2 = fake("fm2_", &"abcDEF0123".repeat(12));
+        let text = format!("FLY_API_TOKEN=FlyV1 {fm2},{fm2}\n");
+        assert_eq!(found(&text), [("Fly.io token", 20..text.len() - 1)]);
     }
 
     #[test]

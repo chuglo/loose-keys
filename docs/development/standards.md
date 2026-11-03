@@ -774,7 +774,12 @@ vendors change their settings.
   a separator, but not a word character or a character one of the format's
   parts can hold: that makes a longer string, which is not reported. So "/"
   ends a Slack or Discord webhook URL but continues an AWS Bedrock key, whose
-  base64 holds "/" and "+". Mapbox secret tokens follow Betterleaks' pattern
+  base64 holds "/" and "+". A comma ends every token but Fly.io's, which
+  joins its macaroons with commas
+  (`a_comma_ends_a_token_whose_format_has_none`). So a token after a Fly.io
+  token and a comma is taken into it, and when the two together are longer
+  than 2,000 characters the Fly.io token is not reported.
+  Mapbox secret tokens follow Betterleaks' pattern
   without its offline filter, which decodes the middle part and drops one that
   is not a `{"u":...,"a":...}` object; a string of the right shape with another
   middle part is reported. `formats_are_strict` has a body of the
