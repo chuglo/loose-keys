@@ -277,10 +277,22 @@ The threats are a local user racing a root run with links, and hostile files
   the scan, a check of changes and a recheck resolve it this way before the
   `symlink_metadata` that tells it is there. Before, that call followed a
   linked `Local Extension Settings` wherever it led, also as root, and
-  reported a wallet in the home with no gap. Test:
-  `a_wallet_store_behind_a_link_out_of_the_home_is_not_followed`. Not
-  covered: a run as root, and a link changed between the resolution and the
-  presence check.
+  reported a wallet in the home with no gap. A profile that is a link is
+  looked in as for its sign-ins, and a check of changes finds the storage
+  at the real place a link in the browser's folder leads to, as
+  `linked_targets` finds a file in a profile. Before, a linked profile was
+  passed over with no gap. An entry of the browser's folder that is not a
+  folder is looked in only if it is a link that leads to one: it is
+  resolved once with `through_links`, and of a link out of the home folder
+  only whether it leads to a folder is asked, by one `fs::metadata`, for
+  `targeted` to give the gap below it. A link to a file, as Chrome's
+  `SingletonSocket` is, is passed by with one look and no gap. Tests:
+  `a_wallet_store_behind_a_link_out_of_the_home_is_not_followed`,
+  `a_wallet_store_in_a_linked_profile_is_found_where_it_is`,
+  `an_entry_that_leads_to_no_folder_is_no_profile`. Not covered: a run as
+  root, a link changed between the resolution and the presence check, and
+  a change at the real place a storage folder that is itself a link leads
+  to, which a scan finds and a check of changes does not.
 - `scan::home` resolves `HOME` once, as a relocated home is reached through a
   link. A folder given to `--select` or `--exclude` that begins with `HOME`
   as set, as the shell writes `~/notes`, has that prefix replaced by the

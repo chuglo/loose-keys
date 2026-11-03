@@ -419,10 +419,34 @@ impl Scan {
                             if !self.extension_store(&at, id) {
                                 continue;
                             }
+                            // In a profile that is a folder or leads to one.
+                            let profile = at.parent().and_then(Path::parent);
+                            if !profile.is_some_and(|p| folder(p) || self.leads_to_folder(p)) {
+                                continue;
+                            }
                             // A link on the way, the changed path too, is
                             // followed as a scan follows it.
                             if let Some(store) = self.targeted(&at).filter(|s| folder(s)) {
                                 self.add(rule, &store, Hit::file().about(what), false, &[]);
+                            }
+                        }
+                        // Or where a link in a browser's folder puts a
+                        // profile's storage folder: at or under the change,
+                        // or the folder the changed storage is in.
+                        let real = browsers.iter().filter_map(|b| b[1].as_ref());
+                        for real in real.filter(|_| leads) {
+                            let led = self.linked_targets(real, settings, p);
+                            let mut stores: Vec<_> = led.iter().map(|s| s.join(id)).collect();
+                            if let Some(above) = p.parent().filter(|_| named(id)) {
+                                let led = self.linked_targets(real, settings, above);
+                                if led.iter().any(|s| s == above) {
+                                    stores.push(p.to_path_buf());
+                                }
+                            }
+                            for at in stores {
+                                if let Some(store) = self.targeted(&at).filter(|s| folder(s)) {
+                                    self.add(rule, &store, Hit::file().about(what), false, &[]);
+                                }
                             }
                         }
                     }

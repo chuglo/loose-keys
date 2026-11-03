@@ -3868,6 +3868,101 @@ fn a_wallet_store_behind_a_link_out_of_the_home_is_not_followed() {
     }
 }
 
+/// A wallet extension's storage was looked for only in the entries of a
+/// browser's folder that are folders, and a change was matched to it only
+/// in a profile there. In a profile that is a link inside the home, as the
+/// sign-ins beside it are read, neither a scan nor a check of a change at
+/// the real place found it, and no gap said so.
+#[test]
+fn a_wallet_store_in_a_linked_profile_is_found_where_it_is() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new("store-linked-profile");
+    let rule = "wallet.extension.vault";
+    let id = "nkbihfbeogaeaoehlefnkodbefgpgknn";
+    let chrome = "Library/Application Support/Google/Chrome";
+    let linked = f.0.join(chrome).join("Profile 2");
+    let settings = "Sync/profile/Local Extension Settings";
+    let store = format!("{settings}/{id}");
+    fs::create_dir_all(f.0.join(chrome)).unwrap();
+    fs::create_dir_all(f.0.join(&store)).unwrap();
+    symlink(f.0.join("Sync/profile"), &linked).unwrap();
+    let found = (vec![(rule, format!("~/{store}"))], vec![]);
+    assert_eq!(full(&f.0), found);
+    for path in [store.as_str(), settings, "Sync/profile", "Sync", chrome] {
+        assert_eq!(change(&f.0, &[], path), found, "{path}");
+    }
+    // And a change at the link itself.
+    let link = format!("{chrome}/Profile 2");
+    assert_eq!(change(&f.0, &[], &link), found);
+    // The same where the link is a profile's storage folder.
+    fs::remove_file(&linked).unwrap();
+    let settings = "Sync/settings";
+    let store = format!("{settings}/{id}");
+    fs::create_dir_all(f.0.join(&store)).unwrap();
+    fs::create_dir_all(f.0.join(chrome).join("Default")).unwrap();
+    let at = f.0.join(chrome).join("Default/Local Extension Settings");
+    symlink(f.0.join(settings), at).unwrap();
+    fs::remove_dir_all(f.0.join("Sync/profile")).unwrap();
+    let found = (vec![(rule, format!("~/{store}"))], vec![]);
+    assert_eq!(full(&f.0), found);
+    for path in [store.as_str(), settings, "Sync", chrome] {
+        assert_eq!(change(&f.0, &[], path), found, "{path}");
+    }
+    // A profile that leads out of the home folder is not followed, and
+    // both say so.
+    fs::remove_dir_all(f.0.join(chrome).join("Default")).unwrap();
+    let outside = Fixture::new("store-linked-profile-out");
+    fs::create_dir_all(outside.0.join("Local Extension Settings").join(id)).unwrap();
+    symlink(&outside.0, &linked).unwrap();
+    let out = format!("~/{chrome}/Profile 2/Local Extension Settings/{id}");
+    let gap = (vec![], vec![(out, "symlink")]);
+    assert_eq!(full(&f.0), gap);
+    assert_eq!(change(&f.0, &[], chrome), gap);
+    assert_eq!(change(&f.0, &[], &link), gap);
+}
+
+/// Each entry of a browser's folder was looked in for every wallet's
+/// storage, files too. Below a link to a file, as Chrome's SingletonSocket
+/// is, each look was a "symlink" gap, so the scan was said to be partial,
+/// and a folder of many such entries cost a look per wallet for each.
+#[test]
+fn an_entry_that_leads_to_no_folder_is_no_profile() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new("store-no-profile");
+    let outside = Fixture::new("store-no-profile-target");
+    let chrome = "Library/Application Support/Google/Chrome";
+    let dir = f.0.join(chrome);
+    fs::create_dir_all(dir.join("Default")).unwrap();
+    let stores = |s: &Scan| {
+        let below = |k: &&PathBuf| k.to_string_lossy().contains("Local Extension Settings");
+        s.links.keys().filter(below).count()
+    };
+    let profiles = stores(&Scan::run(&f.0, &[]));
+    // A file outside the home folder, a file in it, nothing, and plain
+    // files, as a browser's folder has.
+    let socket = outside.0.join("SingletonSocket");
+    fs::write(&socket, b"synthetic").unwrap();
+    put(&f.0, "Sync/notes", b"synthetic");
+    symlink(&socket, dir.join("SingletonSocket")).unwrap();
+    symlink(f.0.join("Sync/notes"), dir.join("Notes")).unwrap();
+    symlink("host-1234", dir.join("SingletonLock")).unwrap();
+    for i in 0..50 {
+        put(&dir, &format!("file-{i}"), b"synthetic");
+    }
+    // None is looked in for storage, and none is a gap there.
+    assert_eq!(stores(&Scan::run(&f.0, &[])), profiles);
+    let store = |(found, gaps): Seen| {
+        assert_eq!(found, []);
+        let below = |(p, _): &(String, &str)| p.contains("Local Extension Settings");
+        gaps.into_iter().filter(below).collect::<Vec<_>>()
+    };
+    assert_eq!(store(full(&f.0)), []);
+    for entry in ["", "/SingletonSocket", "/Notes"] {
+        let path = format!("{chrome}{entry}");
+        assert_eq!(store(change(&f.0, &[], &path)), [], "{path}");
+    }
+}
+
 #[test]
 fn a_recheck_reads_a_linked_history_entry_as_the_scan_did() {
     // A file in Terminal's history folder that is a link to a file whose

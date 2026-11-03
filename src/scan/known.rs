@@ -2,7 +2,7 @@
 //! name, checked before discovery.
 
 use super::{trees, Scan, EXCLUDED, TREE_DEPTH, TREE_ENTRIES, TREE_SKIP};
-use crate::fsutil::list_dir;
+use crate::fsutil::{list_dir, through_links};
 use crate::rules::browser::CHROMIUM;
 use crate::rules::{Hit, Rule, Target, RULES};
 use std::collections::VecDeque;
@@ -155,7 +155,12 @@ impl Scan {
                 self.unread_once(dir);
                 break;
             }
-            for &(rule, id, what) in wanted.iter().filter(|_| is_dir) {
+            // A profile folder may itself be a link. An entry that leads to
+            // no folder, as a link to a file does, has nothing below it.
+            if !is_dir && !self.leads_to_folder(&profile) {
+                continue;
+            }
+            for &(rule, id, what) in &wanted {
                 // A link on the way is followed as for any known location.
                 let at = profile.join("Local Extension Settings").join(id);
                 let Some(store) = self.targeted(&at) else {
@@ -165,6 +170,22 @@ impl Scan {
                     self.add(rule, &store, Hit::file().about(what), false, &[]);
                 }
             }
+        }
+    }
+
+    /// Whether `p`, listed as no folder, is a link to one. Where it leads is
+    /// resolved once, as `targeted` resolves it, which then says how far a
+    /// look below it may follow it. Of a link out of the home folder, or one
+    /// that cannot be resolved, only whether it leads to a folder is asked:
+    /// nothing in it is looked at here.
+    pub(super) fn leads_to_folder(&self, p: &Path) -> bool {
+        let folder = |m: std::io::Result<std::fs::Metadata>| m.is_ok_and(|m| m.is_dir());
+        let link = std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+        link && match through_links(p, &self.home) {
+            // Nothing there.
+            None => false,
+            Some(Ok(real)) => folder(std::fs::symlink_metadata(real)),
+            Some(Err(())) => folder(std::fs::metadata(p)),
         }
     }
 
