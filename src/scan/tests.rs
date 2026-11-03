@@ -1405,6 +1405,58 @@ fn a_step_in_a_folder_skipped_since_is_dropped() {
     assert_eq!(slice, at_once);
 }
 
+/// A scan reads some known locations in a folder the person skipped, and
+/// the app looks again at an item only where it does. `read_when_skipped`
+/// names a place found with no skip exactly when a scan with the skip
+/// still finds it there.
+#[test]
+fn what_a_scan_reads_in_a_skipped_folder_is_what_read_when_skipped_names() {
+    let f = Fixture::new("read-when-skipped");
+    let matching = |target: Target| {
+        let rule = RULES.iter().find(|r| r.targets.contains(&target)).unwrap();
+        rule.samples.iter().find(|sample| sample.1).unwrap().0
+    };
+    let key = ["-----BEGIN RSA ", "PRIVATE KEY-----\nsynthetic\n"].concat();
+    let token = format!("hf{}{}", "_", "abcdefghijABCDEFGHIJabcdefghijABCD");
+    let chrome = "Library/Application Support/Google/Chrome";
+    let firefox = "Library/Application Support/Firefox/Profiles";
+    let id = "nkbihfbeogaeaoehlefnkodbefgpgknn";
+    let hosts = ".config/gh/hosts.yml";
+    let logins = crate::rules::browser::CHROMIUM_LOGINS.samples[0].0;
+    // One of each kind of known location.
+    put(&f.0, hosts, matching(Target::File(hosts)));
+    put(&f.0, ".ssh/id_fixture", key.as_bytes());
+    put(&f.0, ".claude/history.jsonl", record(&token).as_bytes());
+    let saved = matching(Target::Each(firefox, "logins.json"));
+    put(&f.0, &format!("{firefox}/x/logins.json"), saved);
+    put(&f.0, &format!("{chrome}/Login Data"), logins);
+    put(&f.0, &format!("{chrome}/Default/Login Data"), logins);
+    let store = format!("{chrome}/Default/Local Extension Settings/{id}");
+    fs::create_dir_all(f.0.join(store)).unwrap();
+    fs::create_dir_all(f.0.join(".electrum/wallets")).unwrap();
+    // And beside or below them, what only discovery or a deeper walk reads.
+    put(&f.0, ".config/gh/export.csv", b"url,username,password\n");
+    put(&f.0, ".ssh/old/id_fixture", key.as_bytes());
+    put(
+        &f.0,
+        ".claude/projects/client/a.jsonl",
+        record(&token).as_bytes(),
+    );
+    let found = full(&f.0).0;
+    let skip = [".config", ".ssh", ".claude", "Library", ".electrum"].map(|s| f.0.join(s));
+    let home = std::slice::from_ref(&f.0);
+    let skipped = Scan::run_budgeted(&f.0, home, &skip, None, None, None, 1000);
+    let still: Vec<_> = skipped.findings.iter().map(|x| (x.rule, &x.path)).collect();
+    let mut named = 0;
+    for (rule, path) in &found {
+        let rel = Path::new(path.strip_prefix("~/").unwrap());
+        let read = still.contains(&(*rule, path));
+        assert_eq!(read_when_skipped(rule, rel), read, "{rule} {path}");
+        named += usize::from(read);
+    }
+    assert_eq!((named, found.len() - named), (8, 3), "{found:?}");
+}
+
 #[test]
 fn a_folder_of_records_is_resumed_at_the_file_it_had_reached() {
     let f = Fixture::new("records-resume");

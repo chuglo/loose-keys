@@ -3227,6 +3227,52 @@ mod tests {
         std::fs::remove_dir_all(home).unwrap();
     }
 
+    /// A scan still reads a known sign-in file in a folder the person
+    /// stopped checking, so its item is marked fixed when that read shows
+    /// the credential gone. Any other file there is not read, and its item
+    /// stays as it was.
+    #[test]
+    fn a_known_file_in_a_skipped_folder_is_still_marked_fixed() {
+        let _alone = one_scan();
+        let (home, app) = engine("skipped-known-file");
+        let folder = home.join(".config/gh");
+        std::fs::create_dir_all(&folder).unwrap();
+        let host = ["git", "hub.com"].concat();
+        let hosts = folder.join("hosts.yml");
+        std::fs::write(
+            &hosts,
+            format!("{host}:\n    oauth_token: synthetic-only\n"),
+        )
+        .unwrap();
+        let export = folder.join("export.csv");
+        std::fs::write(
+            &export,
+            "url,username,password\nhttps://fixture.invalid,fixture,synthetic\n",
+        )
+        .unwrap();
+        let first = ask(&app, "start_scan", "{}");
+        let items = || ask(&app, "pending_review", "{}")["ok"]["items"].clone();
+        let listed = items();
+        let at = |items: &Value, path: &str| {
+            let items = items.as_array().unwrap();
+            items.iter().find(|i| i["path"] == path).unwrap().clone()
+        };
+        let skip = json!({ "id": at(&listed, "~/.config/gh/hosts.yml")["id"] }).to_string();
+        let skipped = ask(&app, "skip_folder", &skip);
+        // Signed out, and the other file removed.
+        std::fs::write(&hosts, format!("{host}:\n    user: fixture\n")).unwrap();
+        std::fs::remove_file(&export).unwrap();
+        let second = ask(&app, "start_scan", "{}");
+        let after = items();
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(first["ok"]["review"], 2, "{first}");
+        assert_eq!(skipped, json!({ "ok": null }));
+        assert_eq!(second["ok"]["review"], 0, "{second}");
+        assert_eq!(at(&after, "~/.config/gh/hosts.yml")["state"], "fixed");
+        assert_eq!(at(&after, "~/.config/gh/export.csv")["state"], "open");
+    }
+
     #[test]
     fn a_command_that_panics_is_an_error_and_the_next_one_still_works() {
         let (home, app) = engine("panic");

@@ -377,6 +377,21 @@ The threats are a local user racing a root run with links, and hostile files
   covered: a full pass under way when the list is replaced saved its
   earlier slices into the old list, so it ends without their findings, which
   return at the next pass or when their files change.
+- In a folder the person stopped checking, a scan still reads the known
+  locations: a rule's own file, a file directly in a folder a rule covers or
+  at the top of a tree of records, and a place whose presence is the
+  finding. `scan::read_when_skipped` names those from the rules' targets, by
+  rule and place, and `Review::resolve` looks again at an item in a skipped
+  folder only where it says so, at every check as for any other item. Any
+  other item there is not read and stays as it is. Before, every item in a
+  skipped folder stayed open after its credential was removed. Tests:
+  `a_known_file_in_a_skipped_folder_is_still_marked_fixed` in
+  `gui/src/lib.rs`, and
+  `what_a_scan_reads_in_a_skipped_folder_is_what_read_when_skipped_names`,
+  which compares it with what a scan given the skip finds. Not covered: a
+  known location that is a link into a skipped folder is listed where the
+  link leads, which the function does not follow, so that item stays open
+  until the folder is included again.
 
 ### Saved automatic coverage
 

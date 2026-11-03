@@ -933,9 +933,19 @@ impl Review {
             })
             .map(String::as_str)
             .collect();
-        let skipped: Vec<bool> = self.items.iter().map(|i| self.skips(&i.path)).collect();
+        // In a folder the person asked not to be checked, a scan reads only
+        // the known locations it reads whatever is skipped. An item there is
+        // looked at again as a scan would look at it, and no other is.
+        let read = |i: &Item| {
+            let rel = i.path.strip_prefix("~/").map(Path::new);
+            rel.is_some_and(|rel| crate::scan::read_when_skipped(&i.rule, rel))
+        };
+        let skipped: Vec<bool> = self
+            .items
+            .iter()
+            .map(|i| self.skips(&i.path) && !read(i))
+            .collect();
         for (i, skipped) in self.items.iter_mut().zip(skipped) {
-            // Nothing is read in a folder the person asked not to be checked.
             if i.resolved || skipped {
                 continue;
             }

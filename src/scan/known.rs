@@ -9,6 +9,36 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
+/// Whether a scan reads `rel`, a path below the home folder, with the rule
+/// `rule` even inside a folder the person asked not to be checked: as
+/// `known_files` and the trees of records read it, that rule's own file, a
+/// file directly in a folder it covers or at the top of its tree, or a
+/// place whose presence is its finding. Nothing else in such a folder is
+/// read. By the place's own name: a known location that is a link is read
+/// where the link leads, which this does not follow.
+pub fn read_when_skipped(rule: &str, rel: &Path) -> bool {
+    let at = |up: usize, place: &str| rel.ancestors().nth(up) == Some(Path::new(place));
+    let named = |name: &str| rel.file_name() == Some(name.as_ref());
+    let stores = rel.parent().and_then(Path::file_name);
+    let mut targets = RULES
+        .iter()
+        .filter(|r| r.id == rule)
+        .flat_map(|r| r.targets);
+    targets.any(|target| match *target {
+        Target::File(f) | Target::Present(f, _) => at(0, f),
+        Target::Dir(d) | Target::Tree(d) => at(1, d),
+        Target::Each(d, f) => named(f) && at(2, d),
+        // At the top of the browser's folder, or in one of its profiles.
+        Target::Profiles(f) => named(f) && CHROMIUM.iter().any(|b| at(1, b) || at(2, b)),
+        Target::Extension(id, _) => {
+            named(id)
+                && stores == Some("Local Extension Settings".as_ref())
+                && CHROMIUM.iter().any(|b| at(2, b) || at(3, b))
+        }
+        Target::Discovery | Target::Name(_) | Target::Repo(_) => false,
+    })
+}
+
 impl Scan {
     /// Check every known location, before any discovery.
     pub(super) fn known(&mut self) {

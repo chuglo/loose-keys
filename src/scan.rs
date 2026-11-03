@@ -10,6 +10,7 @@ mod read;
 mod recheck;
 mod traversal;
 
+pub use known::read_when_skipped;
 pub use paths::{change_at, home, is_root, named_folder, selected_root, skipped_folder};
 pub use recheck::{recheck, recheck_identities, recheck_values};
 
