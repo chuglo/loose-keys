@@ -86,7 +86,16 @@ pub const SHELL_SECRET: Rule = Rule {
             true,
         ),
         (
+            b": 1700000001:0;PGUSER=fixture PGPASSWORD=synthetic-only-value psql shop\n",
+            true,
+        ),
+        (b"cd app && env DB_PASSWORD=synthetic-only-value ./run\n", true),
+        (
             b"PASSWORD_MIN_LENGTH=12 make check\nDB_PASSWORD=$(pass show db) psql\n",
+            false,
+        ),
+        (
+            b"make deploy DEPLOY_TOKEN=synthetic-only-value\necho 'cd app && DB_PASSWORD=synthetic-only-value ./run'\n",
             false,
         ),
     ],
@@ -117,16 +126,26 @@ fn assignments(bytes: &[u8], shell: bool) -> Hits {
                     .then(|| value.trim().strip_prefix('{'))
                     .flatten()
             });
+            let first = table
+                .is_none()
+                .then(|| secret_assignment(raw, shell))
+                .flatten();
+            // A shell line can give a command several variables, or run
+            // several commands. Each assignment after the first is read too.
+            let more = (shell && table.is_none())
+                .then(|| shell_assignments(raw))
+                .into_iter()
+                .flatten()
+                .filter_map(|(name, value)| secret(name, value))
+                .filter(move |(name, _)| {
+                    first.is_none_or(|(seen, _)| seen.as_ptr() != name.as_ptr())
+                });
             let pairs = table
                 .into_iter()
                 .flat_map(inline_table_pairs)
                 .filter_map(|(name, value)| secret(unquoted(name), value))
-                .chain(
-                    table
-                        .is_none()
-                        .then(|| secret_assignment(raw, shell))
-                        .flatten(),
-                );
+                .chain(first)
+                .chain(more);
             pairs.filter_map(move |(name, value)| {
                 // A recognizable service token is reported by its own rule.
                 if token::is_token(value.as_bytes()) {
@@ -278,6 +297,78 @@ fn shell_word(value: &str) -> &str {
     }
 }
 
+/// Each "NAME=value" word a shell takes as an assignment: before a command,
+/// after "env" or "sudo", or after "export" and its kin, at the start of the
+/// line or after a ";", "&" or "|". A word ends at a blank or one of those
+/// outside quotes, and the value is the rest of it, quotes and all. Other
+/// words are a command's arguments, where "a=b" is only text.
+fn shell_assignments(raw: &str) -> impl Iterator<Item = (&str, &str)> {
+    #[derive(Clone, Copy)]
+    enum At {
+        Command,
+        Env,
+        Export,
+        Arguments,
+    }
+    let line = raw.trim_start();
+    // fish history: "- cmd: command". zsh's ": <time>:<duration>;command"
+    // needs nothing: it is the ":" command, then this one after the ";".
+    let mut rest = line.strip_prefix("- cmd: ").unwrap_or(line);
+    let mut at = At::Command;
+    std::iter::from_fn(move || loop {
+        rest = rest.trim_start();
+        let next = rest.chars().next()?;
+        if matches!(next, ';' | '&' | '|') {
+            rest = &rest[1..];
+            at = At::Command;
+            continue;
+        }
+        // A comment runs to the end of the line.
+        if next == '#' {
+            return None;
+        }
+        let (mut quote, mut escaped) = (None, false);
+        let end = rest
+            .char_indices()
+            .find_map(|(i, c)| {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' && quote != Some('\'') {
+                    escaped = true;
+                } else if quote == Some(c) {
+                    quote = None;
+                } else if quote.is_none() && matches!(c, '\'' | '"') {
+                    quote = Some(c);
+                } else if quote.is_none() && (c.is_whitespace() || matches!(c, ';' | '&' | '|')) {
+                    return Some(i);
+                }
+                None
+            })
+            .unwrap_or(rest.len());
+        let word = &rest[..end];
+        rest = &rest[end..];
+        let assignment = word.split_once('=').filter(|(name, _)| {
+            name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        });
+        match (at, assignment) {
+            (At::Arguments, _) => {}
+            (_, Some(pair)) => return Some(pair),
+            // env's and sudo's options come before their variables.
+            (At::Env, None) if word.starts_with('-') => {}
+            // What env or sudo runs is a command, as "sudo env" is.
+            (At::Command | At::Env, None) => {
+                at = match word {
+                    "env" | "sudo" => At::Env,
+                    "export" | "declare" | "typeset" | "local" | "readonly" => At::Export,
+                    _ => At::Arguments,
+                }
+            }
+            (At::Export, None) => {}
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,6 +491,96 @@ mod tests {
         let incomplete = env_hits(more.as_bytes()).err().expect("assignment limit");
         assert_eq!(incomplete.reason, "scan-limit");
         assert_eq!(incomplete.hits.len(), 100);
+    }
+
+    #[test]
+    fn every_assignment_a_shell_gives_a_command_is_read() {
+        for (line, want) in [
+            (
+                "PGUSER=fixture PGPASSWORD=synthetic-only-value psql -h db.example.invalid shop",
+                &[("PGPASSWORD", "synthetic-only-value")][..],
+            ),
+            (
+                ": 1700000001:0;PGHOST=db.example.invalid PGPASSWORD=synthetic-only-value psql shop",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "- cmd: PGUSER=fixture PGPASSWORD=synthetic-only-value psql shop",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "env PGPASSWORD=synthetic-only-value psql -h db.example.invalid",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "env -i PGUSER=fixture PGPASSWORD='synthetic-only-value' psql",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "sudo -E PGPASSWORD=synthetic-only-value psql",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "sudo env PGPASSWORD=synthetic-only-value psql",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "cd app && DB_PASSWORD=synthetic-only-value ./run",
+                &[("DB_PASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "make check; PGPASSWORD=\"synthetic-only-value\" psql | grep fixture",
+                &[("PGPASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "make check || API_TOKEN=synthetic-only-value make deploy",
+                &[("API_TOKEN", "synthetic-only-value")],
+            ),
+            (
+                "export LOG_LEVEL=debug DB_PASSWORD=synthetic-only-value",
+                &[("DB_PASSWORD", "synthetic-only-value")],
+            ),
+            (
+                "declare -x LOG_LEVEL=debug API_TOKEN=synthetic-only-value",
+                &[("API_TOKEN", "synthetic-only-value")],
+            ),
+            (
+                "DB_PASSWORD=synthetic-only-value API_TOKEN=synthetic-second-value ./run",
+                &[
+                    ("DB_PASSWORD", "synthetic-only-value"),
+                    ("API_TOKEN", "synthetic-second-value"),
+                ],
+            ),
+            // Text after the command is its arguments, not assignments, and
+            // a separator or blank inside quotes splits nothing.
+            ("make deploy DEPLOY_TOKEN=synthetic-only-value", &[]),
+            ("sudo -n make deploy DEPLOY_TOKEN=synthetic-only-value", &[]),
+            ("psql --password=synthetic-only-value shop", &[]),
+            (
+                "curl https://api.example.invalid/?api_token=synthetic-only-value",
+                &[],
+            ),
+            (
+                "[[ $DB_PASSWORD == synthetic-only-value ]] && echo API_TOKEN=synthetic-only-value",
+                &[],
+            ),
+            ("echo 'cd app && DB_PASSWORD=synthetic-only-value ./run'", &[]),
+            ("echo \"done; API_TOKEN=synthetic-only-value\"", &[]),
+            ("# PGUSER=fixture PGPASSWORD=synthetic-only-value psql", &[]),
+            ("PGUSER=fixture PGPASSWORD=$(pass show db) psql", &[]),
+            ("PGUSER=fixture PGPASSWORD=changeme psql", &[]),
+        ] {
+            let hits = shell_hits(line.as_bytes()).unwrap();
+            let found: Vec<_> = hits
+                .iter()
+                .map(|hit| {
+                    let span = hit.span.clone().expect("literal has a value span");
+                    (hit.subject.as_deref().unwrap(), line.get(span).unwrap())
+                })
+                .collect();
+            assert_eq!(found, want, "{line}");
+            assert!(hits.iter().all(|hit| hit.line == Some(1)));
+        }
     }
 
     #[test]
