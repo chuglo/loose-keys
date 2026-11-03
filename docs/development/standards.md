@@ -799,6 +799,36 @@ Finder installation flow. See [disk image checks](../testing/local-verification.
 for verification and remaining unverified behavior. Packaging does not add
 notarization or change signing.
 
+### Update check
+
+The app's only network request. `gui/app/Updates.swift` sends one GET to
+`api.github.com/repos/chuglo/loose-keys/releases/latest` with an ephemeral
+session: no cookies, cache or saved credentials, a fixed User-Agent, a
+30-second timeout, and no redirect followed. It accepts only a 200 reply
+from that host over HTTPS and reads at most 1 MiB. `check_release` in
+`gui/src/release.rs` caps the reply again, reads only `tag_name`, `draft`
+and `prerelease`, accepts only `vX.Y.Z` with 1 to 9 digits a part, and
+answers with fixed text that never contains the reply. The window shows
+only the version numbers the engine returns, and Download opens a fixed
+URL. The automatic checks look every hour and check once a day has passed
+by the wall clock, because a timer stops while the Mac sleeps. The person's answer is `update_check` in the app's private state. The
+sample and model-check builds compile no fetcher, and the picture build
+uses none.
+
+Checked by: `release.rs` tests (parsing, caps, errors, and
+`network_code_lives_only_in_updates_swift`, which fails if a network name
+on its lists appears in any other window, engine, bridge or scanner source;
+build scripts are not read, and a remote URL passed to a reader such as
+`Data(contentsOf:)` would not be caught), the model check's `updates:`
+cases, and the window check's update steps.
+
+Remaining risks: a compromised GitHub account or API can announce a fake
+newer version, though Download still opens the real release page; TLS trust
+is the system's, with no pinning; GitHub sees the IP address and that the
+app checked. Not verified by any check: a live request from the built app,
+and that a refused redirect reaches the app as a non-200 reply (unverified
+URLSession behaviour).
+
 ### Building and starting
 
 - `sh gui/build-macos.sh` builds the engine with cargo, links the window to

@@ -128,10 +128,14 @@ struct LooseKeysApp: App {
     @StateObject private var model: AppModel
 
     init() {
+        // Only the app itself asks GitHub. The sample window has a sample
+        // reply, and the picture-taking build none.
         #if PREVIEW
-        let model = AppModel(engine: SampleEngine())
-        #else
+        let model = AppModel(engine: SampleEngine(), releases: SampleReleases())
+        #elseif SNAPSHOTS
         let model = AppModel(engine: LiveEngine())
+        #else
+        let model = AppModel(engine: LiveEngine(), releases: GitHubReleases())
         #endif
         _model = StateObject(wrappedValue: model)
         AppDelegate.model = model
@@ -146,6 +150,10 @@ struct LooseKeysApp: App {
         }
         .defaultSize(width: 1180, height: 720)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { model.checkForUpdates() }
+                    .disabled(model.checkingUpdates)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Scan Now") { model.startScan() }
                     .keyboardShortcut("r")

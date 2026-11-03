@@ -7,7 +7,8 @@ It looks for password exports, private keys, API tokens, saved sign-ins, and
 secrets left by AI agents. For each finding, it explains what it found and how
 to deal with it.
 
-Loose Keys works offline and never changes the files it scans.
+Loose Keys never changes the files it scans, and it goes online only to
+check for a new version, if you let it.
 
 Version 0.6.0 · MIT licensed
 

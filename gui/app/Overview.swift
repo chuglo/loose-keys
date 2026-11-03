@@ -15,6 +15,19 @@ struct OverviewView: View {
             } else if model.showsWelcome {
                 welcome
             } else {
+                if let update = model.availableUpdate, let newer = update.newer {
+                    Section {
+                        LabeledContent {
+                            Button("Download") { model.openURL(Releases.page) }
+                                .buttonStyle(.borderedProminent)
+                        } label: {
+                            Text(String(localized: "Loose Keys \(newer) Is Available",
+                                        comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0."))
+                            Text(String(localized: "You have \(update.current).",
+                                        comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0."))
+                        }
+                    }
+                }
                 background
 
                 if model.phase == .scanning {

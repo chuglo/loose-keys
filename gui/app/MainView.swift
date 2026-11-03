@@ -1,6 +1,12 @@
 // The window: a sidebar, the selected list, and an inspector.
 import SwiftUI
 
+/// What the update alert asks or says.
+enum UpdateAlert: Equatable {
+    case question
+    case result(UpdateResult)
+}
+
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -23,6 +29,14 @@ struct MainView: View {
                     Inspector()
                         .inspectorColumnWidth(min: 270, ideal: 320, max: 460)
                 }
+                // One alert for the question and for what Check for Updates…
+                // found, on a view of its own: a view drops one of two alerts.
+                .alert(Text(updateAlert.map(updateTitle) ?? ""), isPresented: updateAlertShown,
+                       presenting: updateAlert) { alert in
+                    updateButtons(alert)
+                } message: { alert in
+                    Text(updateMessage(alert))
+                }
         }
         // A sidebar the person has used is not hidden from them again: not on
         // coming back to Overview, nor when the first page's question returns.
@@ -42,6 +56,63 @@ struct MainView: View {
         }
         // For a notification click or the Dock once this window has closed.
         .onAppear { model.openMainWindow = { openWindow(id: "main") } }
+    }
+
+    /// What the update alert is showing: a result first, then the question.
+    private var updateAlert: UpdateAlert? {
+        if let result = model.updateResult { return .result(result) }
+        return model.shouldAskAboutUpdates ? .question : nil
+    }
+
+    /// Closed only by its buttons, which say what was chosen.
+    private var updateAlertShown: Binding<Bool> {
+        Binding(get: { updateAlert != nil }, set: { _ in })
+    }
+
+    private func updateTitle(_ alert: UpdateAlert) -> String {
+        switch alert {
+        case .question:
+            return String(localized: "Check for Updates Automatically?",
+                          comment: "The title of the alert the first time the window opens, asking whether the app may check GitHub for a newer version.")
+        case .result(.newer(let release)):
+            return String(localized: "Loose Keys \(release.newer ?? "") Is Available",
+                          comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0.")
+        case .result(.upToDate):
+            return String(localized: "Loose Keys Is Up to Date",
+                          comment: "The title of the alert after Check for Updates… when no newer version is out.")
+        case .result(.failed):
+            return String(localized: "Could Not Check for Updates",
+                          comment: "The title of the alert after Check for Updates… when the check failed.")
+        }
+    }
+
+    private func updateMessage(_ alert: UpdateAlert) -> String {
+        switch alert {
+        case .question:
+            return String(localized: "Loose Keys can ask GitHub once a day whether a newer version is out.",
+                          comment: "Under the title of the alert asking whether the app may check for updates.")
+        case .result(.newer(let release)), .result(.upToDate(let release)):
+            return String(localized: "You have \(release.current).",
+                          comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0.")
+        case .result(.failed(let reason)):
+            return reason
+        }
+    }
+
+    @ViewBuilder private func updateButtons(_ alert: UpdateAlert) -> some View {
+        switch alert {
+        case .question:
+            Button("Check Automatically") { model.answerUpdateQuestion(true) }
+            Button("Don’t Check", role: .cancel) { model.answerUpdateQuestion(false) }
+        case .result(.newer):
+            Button("Download") {
+                model.updateResult = nil
+                model.openURL(Releases.page)
+            }
+            Button("Not Now", role: .cancel) { model.updateResult = nil }
+        case .result:
+            Button("OK") { model.updateResult = nil }
+        }
     }
 
     /// Only lists have something to inspect.

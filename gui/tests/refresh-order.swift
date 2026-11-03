@@ -107,6 +107,43 @@ func check(_ holds: Bool, _ what: String) {
     }
 }
 
+/// GitHub's latest-release reply, held until the test gives it.
+final class HeldReleases: ReleaseSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiting: [CheckedContinuation<Data, Error>] = []
+    private var asked = 0
+
+    func latest() async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            asked += 1
+            waiting.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    /// How many times GitHub has been asked.
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return asked
+    }
+
+    /// Answers the oldest request still held.
+    func answer(_ result: Result<Data, Error>) {
+        lock.lock()
+        let continuation = waiting.removeFirst()
+        lock.unlock()
+        continuation.resume(with: result)
+    }
+}
+
+/// The wall clock, moved by the test: a day can pass while the Mac sleeps
+/// and no timer fires.
+@MainActor final class FakeNow {
+    var date = Date(timeIntervalSince1970: 1_800_000_000)
+}
+
 typealias Asked = (call: HeldCall, done: Task<Void, Never>)
 
 /// How many requests the test has put to the model.
@@ -119,9 +156,10 @@ typealias Asked = (call: HeldCall, done: Task<Void, Never>)
     let model: AppModel
     private let made = Made()
 
-    init(clock: HeldSleep? = nil) {
-        if let clock { model = AppModel(engine: engine, sleep: clock.sleep) }
-        else { model = AppModel(engine: engine) }
+    init(clock: HeldSleep? = nil, releases: ReleaseSource = NoReleases(), now: FakeNow? = nil) {
+        let time: @MainActor () -> Date = now.map { fake in { fake.date } } ?? { Date() }
+        if let clock { model = AppModel(engine: engine, releases: releases, now: time, sleep: clock.sleep) }
+        else { model = AppModel(engine: engine, releases: releases, now: time) }
     }
 
     /// Starts work that sends `command` and waits until the engine holds the
@@ -387,9 +425,11 @@ func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> 
           "an unavailable Set Aside list shows no count and never claims an empty result")
 }
 
-func monitorStatus(enabled: Bool, paused: Bool = false, menuBar: Bool = false, running: Bool? = nil) -> String {
+func monitorStatus(enabled: Bool, paused: Bool = false, menuBar: Bool = false, running: Bool? = nil,
+                   updateCheck: Bool? = nil, error: String? = nil) -> String {
     json(["enabled": enabled, "paused": paused, "scanning": false, "login": enabled ? 2 : 1,
           "menu_bar": menuBar, "app_login": menuBar && enabled ? 2 : 1,
+          "update_check": updateCheck.map { $0 as Any } ?? NSNull(), "error": error.map { $0 as Any } ?? NSNull(),
           "health": running.map { ["running": $0] } ?? [String: Any](), "pending_delivery": false, "attempts": 0])
 }
 
@@ -815,6 +855,180 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 // came. These cases look it up in a made-up table instead, so that what they
 // check does not depend on the shipped translation.
 
+// MARK: Checking for updates
+
+/// A status read, answered.
+@MainActor func status(_ bench: Bench, _ answer: Result<String, EngineError>) async {
+    let read = await bench.ask("monitor_status") { await $0.refreshMonitor() }
+    await bench.answer(read, answer)
+}
+
+@MainActor func updatesAskOnlyWhenStateUsable() async {
+    let bench = Bench()
+    check(!bench.model.shouldAskAboutUpdates, "updates: nothing is asked before the saved state has been read")
+    await status(bench, refused)
+    check(!bench.model.shouldAskAboutUpdates, "updates: nothing is asked when the status could not be read")
+    await status(bench, .success(monitorStatus(enabled: false, error: "The review list is unavailable.")))
+    check(!bench.model.shouldAskAboutUpdates,
+          "updates: nothing is asked while the saved state cannot be used, since the answer could not be kept")
+    await status(bench, .success(monitorStatus(enabled: false)))
+    check(bench.model.shouldAskAboutUpdates, "updates: asked once the saved state says it never was")
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true)))
+    check(!bench.model.shouldAskAboutUpdates, "updates: not asked again once answered yes")
+    await status(bench, .success(monitorStatus(enabled: false)))
+    bench.model.answerUpdateQuestion(false)
+    check(!bench.model.shouldAskAboutUpdates, "updates: an answer closes the question at once, before it is saved")
+    let saved = await bench.next("set_update_check")
+    check(saved.args["enabled"] as? Bool == false, "updates: Don't Check saves no")
+    bench.answer(saved, .success("null"))
+    bench.answer(await bench.next("monitor_status", after: 5), .success(monitorStatus(enabled: false, updateCheck: false)))
+    await eventually("the status after the answer is read") { bench.model.monitor?.updateCheck == false }
+
+    let quiet = Bench()
+    await status(quiet, .success(monitorStatus(enabled: false)))
+    quiet.model.quietLaunch = true
+    check(!quiet.model.shouldAskAboutUpdates, "updates: nothing is asked while the app is only in the menu bar")
+}
+
+@MainActor func updatesCheckAtStartAndDaily() async {
+    let clock = HeldSleep()
+    let releases = HeldReleases()
+    let now = FakeNow()
+    let bench = Bench(clock: clock, releases: releases, now: now)
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true)))
+    await eventually("the first check asks GitHub") { releases.count == 1 }
+    let reply = #"{"tag_name":"v0.7.0","draft":false,"prerelease":false}"#
+    releases.answer(.success(Data(reply.utf8)))
+    let judged = await bench.next("check_release")
+    check(judged.args["body"] as? String == reply, "updates: the engine is given GitHub's reply as it came")
+    bench.answer(judged, .success(#"{"newer":"0.7.0","current":"0.6.0"}"#))
+    await eventually("the newer version is shown") { bench.model.availableUpdate?.newer == "0.7.0" }
+    check(bench.model.availableUpdate?.current == "0.6.0", "updates: the notice says which version this is")
+    check(bench.model.updateResult == nil, "updates: an automatic check opens no alert")
+    now.date += 3_600
+    await clock.wake(after: 3_600_000_000_000)
+    await eventually("the checks look again an hour later") { clock.isWaiting }
+    check(releases.count == 1, "updates: an hour after a check, GitHub is not asked again")
+    // The Mac slept through the day: a day passed with only one more look.
+    now.date += 86_400
+    await clock.wake(after: 3_600_000_000_000)
+    await eventually("a look a day after the last check asks GitHub") { releases.count == 2 }
+    releases.answer(.success(Data(reply.utf8)))
+    bench.answer(await bench.next("check_release", after: 1), .success(#"{"newer":null,"current":"0.7.0"}"#))
+    await eventually("a check that finds nothing newer takes the notice away") { bench.model.availableUpdate == nil }
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true)))
+    check(releases.count == 2, "updates: a later status read starts no second loop of checks")
+}
+
+@MainActor func updatesDailyLoopSurvivesFailure() async {
+    let clock = HeldSleep()
+    let releases = HeldReleases()
+    let now = FakeNow()
+    let bench = Bench(clock: clock, releases: releases, now: now)
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true)))
+    await eventually("the first check asks GitHub") { releases.count == 1 }
+    releases.answer(.failure(URLError(.notConnectedToInternet)))
+    now.date += 3_600
+    await clock.wake(after: 3_600_000_000_000)
+    check(bench.model.availableUpdate == nil && bench.model.failure == nil && bench.model.updateResult == nil,
+          "updates: an automatic check that fails shows nothing")
+    await eventually("the checks look again an hour later") { clock.isWaiting }
+    check(releases.count == 1, "updates: a failed check waits for the next day")
+    now.date += 86_400
+    await clock.wake(after: 3_600_000_000_000)
+    await eventually("the check after a failed one asks GitHub") { releases.count == 2 }
+}
+
+@MainActor func updatesLateResultAfterTurningOff() async {
+    let clock = HeldSleep()
+    let releases = HeldReleases()
+    let bench = Bench(clock: clock, releases: releases)
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true)))
+    await eventually("the first check asks GitHub") { releases.count == 1 }
+    releases.answer(.success(Data(#"{"tag_name":"v0.7.0"}"#.utf8)))
+    let judged = await bench.next("check_release")
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: false)))
+    bench.answer(judged, .success(#"{"newer":"0.7.0","current":"0.6.0"}"#))
+    await drainMainActor()
+    check(bench.model.availableUpdate == nil, "updates: a check that ends after checks were turned off shows nothing")
+    check(!clock.isWaiting, "updates: checks turned off do not wait for the next day")
+}
+
+@MainActor func updatesFailures() async {
+    let releases = HeldReleases()
+    let bench = Bench(releases: releases)
+    bench.model.checkForUpdates()
+    await eventually("Check for Updates asks GitHub") { releases.count == 1 }
+    check(bench.model.checkingUpdates, "updates: Check for Updates… is busy while it runs")
+    bench.model.checkForUpdates()
+    releases.answer(.failure(URLError(.notConnectedToInternet)))
+    await eventually("the failed check is shown") { bench.model.updateResult != nil }
+    check(releases.count == 1, "updates: Check for Updates… while one runs asks GitHub once")
+    check(bench.model.updateResult == .failed(URLError(.notConnectedToInternet).localizedDescription),
+          "updates: a check that could not reach GitHub says why")
+    check(!bench.model.checkingUpdates, "updates: Check for Updates… can be chosen again after a failure")
+
+    bench.model.updateResult = nil
+    bench.model.checkForUpdates()
+    await eventually("the second check asks GitHub") { releases.count == 2 }
+    releases.answer(.success(Data([0xff, 0xfe])))
+    await eventually("the unreadable reply is shown") { bench.model.updateResult != nil }
+    check(bench.model.updateResult == .failed("GitHub's answer was not in the expected form.")
+          && bench.engine.held("check_release").isEmpty,
+          "updates: a reply that is not text is refused before the engine is given it")
+
+    bench.model.updateResult = nil
+    bench.model.checkForUpdates()
+    await eventually("the third check asks GitHub") { releases.count == 3 }
+    releases.answer(.success(Data("{}".utf8)))
+    bench.answer(await bench.next("check_release"), refused)
+    await eventually("the refused reply is shown") { bench.model.updateResult != nil }
+    check(bench.model.updateResult == .failed("That action stopped unexpectedly."),
+          "updates: a reply the engine refuses says why")
+
+    let latest = ReleaseCheck(newer: nil, current: "0.6.0")
+    bench.model.updateResult = nil
+    bench.model.checkForUpdates()
+    await eventually("the fourth check asks GitHub") { releases.count == 4 }
+    releases.answer(.success(Data("{}".utf8)))
+    bench.answer(await bench.next("check_release", after: 1), .success(#"{"newer":null,"current":"0.6.0"}"#))
+    await eventually("the result is shown") { bench.model.updateResult != nil }
+    check(bench.model.updateResult == .upToDate(latest) && bench.model.availableUpdate == nil,
+          "updates: Check for Updates… says when this is the latest version")
+
+    let newer = ReleaseCheck(newer: "0.7.0", current: "0.6.0")
+    bench.model.updateResult = nil
+    bench.model.checkForUpdates()
+    await eventually("the fifth check asks GitHub") { releases.count == 5 }
+    releases.answer(.success(Data("{}".utf8)))
+    bench.answer(await bench.next("check_release", after: 2), .success(#"{"newer":"0.7.0","current":"0.6.0"}"#))
+    await eventually("the result is shown") { bench.model.updateResult != nil }
+    check(bench.model.updateResult == .newer(newer) && bench.model.availableUpdate == newer,
+          "updates: Check for Updates… that finds a newer version also puts it on Overview")
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: false)))
+    check(bench.model.availableUpdate == newer,
+          "updates: with automatic checks off, a version found by Check for Updates… stays on Overview")
+
+    bench.model.updateResult = nil
+    bench.model.checkForUpdates()
+    await eventually("the sixth check asks GitHub") { releases.count == 6 }
+    releases.answer(.success(Data("{}".utf8)))
+    bench.answer(await bench.next("check_release", after: 3), .success(#"{"newer":null,"current":"0.7.0"}"#))
+    await eventually("the result is shown") { bench.model.updateResult != nil }
+    check(bench.model.availableUpdate == nil,
+          "updates: Check for Updates… that finds nothing newer takes the Overview notice away")
+}
+
+@MainActor func updatesSettingFailure() async {
+    let bench = Bench()
+    await status(bench, .success(monitorStatus(enabled: false)))
+    bench.model.answerUpdateQuestion(true)
+    bench.answer(await bench.next("set_update_check"), refused)
+    bench.answer(await bench.next("monitor_status", after: 1), .success(monitorStatus(enabled: false)))
+    await eventually("the refusal is shown") { bench.model.failure != nil }
+    check(!bench.model.shouldAskAboutUpdates, "updates: a refused answer is not asked for again in this launch")
+}
+
 let madeUpEngineText: [String: String] = [
     "Saved password": "Contraseña guardada",
     "Cloud key": "Llave de la nube",
@@ -1212,6 +1426,12 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("menu bar: a refused switch or failed read keeps the icon", menuBarSettingFailures),
             ("menu bar: quitting stops its reads", quittingStopsMenuBarReads),
             ("menu bar: says only what the list says", menuBarSaysOnlyWhatTheListSays),
+            ("updates: asked only when the answer can be kept", updatesAskOnlyWhenStateUsable),
+            ("updates: checked at start and every day", updatesCheckAtStartAndDaily),
+            ("updates: a failed check waits for the next day", updatesDailyLoopSurvivesFailure),
+            ("updates: a late result after turning checks off", updatesLateResultAfterTurningOff),
+            ("updates: Check for Updates… results and failures", updatesFailures),
+            ("updates: a refused save", updatesSettingFailure),
             ("engine text: exact keys and templates", engineTextMatches),
             ("engine text: the table for the window's language", engineTextTableChoice),
             ("engine text: filter and sort by what is shown", engineTextFilterAndSort),

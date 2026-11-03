@@ -1,4 +1,5 @@
-// Settings: automatic scanning, its helper, notifications and the menu bar.
+// Settings: automatic scanning, its helper, notifications, the menu bar and
+// update checks.
 import SwiftUI
 
 struct SettingsView: View {
@@ -9,6 +10,7 @@ struct SettingsView: View {
             if let monitor = model.monitor {
                 scanning(monitor)
                 menuBar(monitor)
+                updates(monitor)
             } else {
                 Section {
                     Text("Automatic scanning is not available.").foregroundStyle(.secondary)
@@ -146,6 +148,16 @@ struct SettingsView: View {
                     Text("Shown only while the app is open, because Loose Keys is not in Login Items.").foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// As the engine last said. Check for Updates… in the app menu checks once.
+    @ViewBuilder private func updates(_ monitor: MonitorStatus) -> some View {
+        Section {
+            Toggle("Check for Updates Automatically", isOn: Binding(
+                get: { monitor.updateCheck == true },
+                set: { model.setUpdateCheck($0) }))
+                .disabled(model.monitorFailure != nil)
         }
     }
 

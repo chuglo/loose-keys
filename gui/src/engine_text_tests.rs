@@ -21,6 +21,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("gui/src/review.rs", include_str!("review.rs")),
     ("gui/src/agent.rs", include_str!("agent.rs")),
     ("gui/src/monitor.rs", include_str!("monitor.rs")),
+    ("gui/src/release.rs", include_str!("release.rs")),
     ("src/scan.rs", include_str!("../../src/scan.rs")),
     ("src/fsutil.rs", include_str!("../../src/fsutil.rs")),
     ("src/rules/ai.rs", include_str!("../../src/rules/ai.rs")),
@@ -50,6 +51,7 @@ const ENGINE: &[&str] = &[
     "gui/src/review.rs",
     "gui/src/agent.rs",
     "gui/src/monitor.rs",
+    "gui/src/release.rs",
 ];
 
 /// A gap id that `fsutil::open_directory` returns and the window is given.

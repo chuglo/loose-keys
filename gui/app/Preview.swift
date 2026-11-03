@@ -49,6 +49,13 @@ final class SampleEngine: Engine {
     static var loginRequests: [Bool] = []
     /// Show in Menu Bar. set_menu_bar changes it, and the checks put it back.
     static var menuBar = true
+    /// May the window check for updates: nil until asked. Answered no, so
+    /// that the question is shown only by the checks that ask for it.
+    static var updateCheck: Bool? = false
+    /// The version check_release calls newer, if any.
+    static var newer: String?
+    /// The sample reply cannot be got, as when GitHub is out of reach.
+    static var releaseFails = false
     /// The app's own Login Items status, when the checks set one.
     static var appLogin: Int?
     static var completedPass = false
@@ -110,6 +117,12 @@ final class SampleEngine: Engine {
         case "set_menu_bar":
             Self.menuBar = args["enabled"] as? Bool ?? false
             return Data("null".utf8)
+        case "set_update_check":
+            Self.updateCheck = args["enabled"] as? Bool ?? false
+            return Data("null".utf8)
+        case "check_release":
+            let newer = Self.newer.map { "\"\($0)\"" } ?? "null"
+            return Data(#"{"newer":\#(newer),"current":"0.2.0"}"#.utf8)
         case "set_monitoring":
             Self.monitoring = args["enabled"] as? Bool ?? false
             Self.paused = args["paused"] as? Bool ?? false
@@ -236,9 +249,22 @@ final class SampleEngine: Engine {
         return """
         {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring && !helperUnregistered ? 2 : 1),
          "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
+         "update_check":\(updateCheck.map { String($0) } ?? "null"),
          "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
          "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
         """
+    }
+}
+
+/// The sample's GitHub, which is never asked: a fixed reply, or a failure.
+final class SampleReleases: ReleaseSource, @unchecked Sendable {
+    /// How many times the window asked for the latest release.
+    static var requests = 0
+
+    func latest() async throws -> Data {
+        Self.requests += 1
+        if SampleEngine.releaseFails { throw URLError(.notConnectedToInternet) }
+        return Data(#"{"tag_name":"v9.9.9","draft":false,"prerelease":false}"#.utf8)
     }
 }
 
@@ -251,6 +277,8 @@ enum Snapshots {
     static func runIfAsked() {
         let environment = ProcessInfo.processInfo.environment
         guard let folder = environment["SNAPSHOT_DIR"], let model = AppDelegate.model else { return }
+        // The pictures show the pages, not the question about updates.
+        model.asksAboutUpdates = false
         if let look = environment["SNAPSHOT_LOOK"] {
             NSApp.appearance = NSAppearance(named: look == "light" ? .aqua : .darkAqua)
         }
@@ -501,6 +529,52 @@ enum Checks {
 
     /// Links the window opened, recorded instead of opened.
     private static var opened: [URL] = []
+
+    /// An item in one of the app's menus, as assistive software is told about it.
+    private static func appMenuItem(_ title: String) -> AXUIElement? {
+        guard let bar = value(AXUIElementCreateApplication(getpid()), kAXMenuBarAttribute),
+              CFGetTypeID(bar) == AXUIElementGetTypeID() else { return nil }
+        return everything(in: (bar as! AXUIElement)).first { role($0) == kAXMenuItemRole && names($0).contains(title) }
+    }
+
+    #if PREVIEW
+    /// The update question, the Overview notice, the switch in Settings and
+    /// Check for Updates…, with the sample's reply: nothing here goes online.
+    /// Runs with Settings open and the review list full, so Overview shows
+    /// its full page.
+    private static func updates(_ model: AppModel) async {
+        model.pane = .overview
+        SampleEngine.newer = "9.9.9"
+        SampleEngine.updateCheck = nil
+        await model.refreshMonitor()
+        expect(await eventually { written().contains("Check for Updates Automatically?") },
+               "the first time, the app asks whether it may check for updates")
+        await press(button("Check Automatically"), "allowing update checks",
+                    until: { SampleEngine.updateCheck == true && SampleReleases.requests == 1 })
+        expect(await eventually { written().contains("Loose Keys 9.9.9 Is Available") && button("Download") != nil },
+               "a newer version found by the automatic check is on Overview, with Download")
+        await press(button("Download"), "pressing Download on Overview",
+                    until: { opened.last == Releases.page })
+        await press(toggle("Check for Updates Automatically"), "turning update checks off in Settings",
+                    until: { SampleEngine.updateCheck == false && !written().contains("Loose Keys 9.9.9 Is Available") })
+        SampleEngine.releaseFails = true
+        await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with GitHub out of reach",
+                    until: { written().contains("Could Not Check for Updates") })
+        await press(button("OK"), "closing the failed check", until: { model.updateResult == nil })
+        SampleEngine.releaseFails = false
+        await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with a newer version out",
+                    until: { written().contains("Loose Keys 9.9.9 Is Available") && button("Not Now") != nil })
+        await press(button("Not Now"), "putting the newer version off", until: { model.updateResult == nil })
+        SampleEngine.newer = nil
+        await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with no newer version",
+                    until: { written().contains("Loose Keys Is Up to Date") })
+        await press(button("OK"), "closing the up-to-date check",
+                    until: { model.updateResult == nil && !written().contains("Loose Keys 9.9.9 Is Available") })
+        expect(SampleReleases.requests == 4, "each check asks the sample's GitHub once (\(SampleReleases.requests) asked)")
+        SampleEngine.updateCheck = false
+        await model.refreshMonitor()
+    }
+    #endif
 
     /// A switch, known by the text beside it.
     private static func toggle(_ name: String) -> AXUIElement? {
@@ -1321,6 +1395,7 @@ enum Checks {
         let settings = windows().first { window in !before.contains { CFEqual($0, window) } }
         expect(await eventually { toggle("Pause Scanning") == nil && button("Open System Settings", in: settings) == nil },
                "with automatic scanning off, Settings shows neither Pause Scanning nor notifications")
+        await updates(model)
         if let settings, let close = value(settings, kAXCloseButtonAttribute), CFGetTypeID(close) == AXUIElementGetTypeID() {
             await press((close as! AXUIElement), "closing Settings")
         }

@@ -233,6 +233,9 @@ pub struct Review {
     /// turns it off. With `monitoring` it also puts the app in Login Items.
     #[serde(default)]
     pub menu_bar_off: bool,
+    /// Check GitHub for a newer version: unasked until the person answers.
+    #[serde(default)]
+    pub update_check: Option<bool>,
     /// Registry-label privacy generation. Absent in legacy state. Older
     /// builds drop it when saving, so their labels are invalidated again.
     #[serde(default)]

@@ -124,7 +124,11 @@ sample window check runs in a guest whenever the matrix requires it.
 
 ## What the product must keep doing
 
-- **Read-only, offline, runs nothing.** No network code, no
+- **Read-only, offline, runs nothing.** No network code except the
+  window's update check in `gui/app/Updates.swift`: one HTTPS GET of
+  GitHub's latest-release API, made by the app only when the person allowed
+  it or chose Check for Updates…, with the engine reading the reply. The
+  scanner, the `loose-keys` command and the helper never connect. No
   `std::process::Command` outside `build.rs` and tests, no write into a
   scanned folder. The only writes are an export the person asked for (a new
   file, never an overwrite) and the app's own state, both owner-only.

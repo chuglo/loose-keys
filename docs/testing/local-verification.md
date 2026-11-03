@@ -108,7 +108,9 @@ on the host. See [guest prerequisites and retained logs](guest.md#sample-window-
 The guest screen must be awake and unlocked. Status 2 means it was
 blocked, not passed. It reads the icon's label but cannot open its menu. The
 model check shows no window, and it uses a fake clock for the window's five-,
-two- and thirty-second timers, so it does not check real timing.
+two- and thirty-second timers and the daily update check, so it does not
+check real timing. Its update cases use a stand-in for GitHub; no check here
+makes a request to GitHub.
 
 ```sh
 sh gui/tests/check-window-guest.sh "$TMPDIR/window-check"

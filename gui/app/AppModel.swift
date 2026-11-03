@@ -90,6 +90,14 @@ struct RequestOrder {
     }
 }
 
+/// What Check for Updates… found, for its alert.
+enum UpdateResult: Equatable {
+    case newer(ReleaseCheck)
+    case upToDate(ReleaseCheck)
+    /// Why the check failed, in the window's language.
+    case failed(String)
+}
+
 /// Reads of one thing the window shows and the helper can change: the review
 /// list, background status, or saved automatic coverage. Only one of each
 /// is out at a time, so
@@ -111,6 +119,9 @@ final class ReadTurns {
     /// Returns once a read that began after this request has been shown.
     /// Requests made while a read is out share the one read that follows it.
     func run(_ read: @escaping @MainActor () async -> Void) async {
+        // The counts keep their order only on the main actor. Checked in
+        // builds without optimization, such as the model check.
+        MainActor.assertIsolated("ReadTurns runs on the main actor")
         asked += 1
         let mine = asked
         while answered < mine {
@@ -237,11 +248,118 @@ final class AppModel: ObservableObject {
     var openSettings: () -> Void = {}
     #endif
 
-    init(engine: Engine, sleep: @escaping @MainActor (UInt64) async throws -> Void = {
+    init(engine: Engine, releases: ReleaseSource = NoReleases(), now: @escaping @MainActor () -> Date = { Date() },
+         sleep: @escaping @MainActor (UInt64) async throws -> Void = {
         try await Task.sleep(nanoseconds: $0)
     }) {
         self.sleep = sleep
         self.engine = engine
+        self.releases = releases
+        self.now = now
+    }
+
+    // MARK: Checking for a newer version
+
+    private let releases: ReleaseSource
+    /// The wall clock, which runs on while the Mac sleeps, unlike `sleep`'s.
+    private let now: @MainActor () -> Date
+    /// A newer release than this one, for Overview, from the last check that
+    /// could tell.
+    @Published private(set) var availableUpdate: ReleaseCheck?
+    /// Check for Updates… is running.
+    @Published private(set) var checkingUpdates = false
+    /// What Check for Updates… found, until its alert is closed.
+    @Published var updateResult: UpdateResult?
+    /// Off in the picture-taking build, whose pictures show no question.
+    var asksAboutUpdates = true
+    /// The first-open question was answered in this launch, even if saving
+    /// the answer failed: then it is asked again at a later launch.
+    private var updatesAnswered = false
+    /// The automatic checks: one now, then one a day.
+    private var updateChecks: Task<Void, Never>?
+
+    /// Whether to ask if the app may check for updates: never asked, and the
+    /// answer can be saved. Not while the app is only in the menu bar.
+    var shouldAskAboutUpdates: Bool {
+        guard asksAboutUpdates, !updatesAnswered, !quietLaunch, let monitor, monitor.updateCheck == nil,
+              monitorFailure == nil, reviewProblem == nil else { return false }
+        return true
+    }
+
+    func answerUpdateQuestion(_ on: Bool) {
+        updatesAnswered = true
+        setUpdateCheck(on)
+    }
+
+    func setUpdateCheck(_ on: Bool) {
+        Task {
+            do {
+                try await engine.send("set_update_check", ["enabled": on])
+            } catch {
+                failure = error.localizedDescription
+            }
+            await refreshMonitor()
+        }
+    }
+
+    /// Check for Updates…: one check, whatever the setting, with an alert.
+    func checkForUpdates() {
+        guard !checkingUpdates else { return }
+        checkingUpdates = true
+        Task {
+            do {
+                let release = try await latestRelease()
+                if release.newer != nil {
+                    availableUpdate = release
+                    updateResult = .newer(release)
+                } else {
+                    availableUpdate = nil
+                    updateResult = .upToDate(release)
+                }
+            } catch {
+                updateResult = .failed(error.localizedDescription)
+            }
+            checkingUpdates = false
+        }
+    }
+
+    /// GitHub's reply, as the engine reads it.
+    private func latestRelease() async throws -> ReleaseCheck {
+        let data = try await releases.latest()
+        guard let body = String(data: data, encoding: .utf8) else {
+            throw EngineError(message: String(localized: "GitHub's answer was not in the expected form.",
+                                              comment: "In an alert after Check for Updates…: GitHub's reply was too long or came from somewhere else."))
+        }
+        return try await engine.request("check_release", ["body": body])
+    }
+
+    /// Starts or stops the automatic checks as the saved answer says. Turned
+    /// off, they also take their notice away. A check that fails shows
+    /// nothing and waits for the next day.
+    private func followUpdateSetting(_ on: Bool) {
+        guard on, !quitting else {
+            if let checks = updateChecks {
+                checks.cancel()
+                updateChecks = nil
+                availableUpdate = nil
+            }
+            return
+        }
+        guard updateChecks == nil else { return }
+        // `sleep` stops while the Mac sleeps, so a day of it can be several
+        // days. The checks look every hour and go by the wall clock.
+        updateChecks = Task {
+            var due = now()
+            while !Task.isCancelled {
+                if now() >= due {
+                    due = now().addingTimeInterval(Releases.interval)
+                    if let release = try? await latestRelease(), !Task.isCancelled {
+                        availableUpdate = release.newer == nil ? nil : release
+                    }
+                }
+                do { try await sleep(Releases.look) } catch { return }
+            }
+        }
     }
 
     /// Opens a page outside the app. The window check records it instead, so
@@ -574,7 +692,10 @@ final class AppModel: ObservableObject {
             // None when the request failed: the window then says the checks are
             // unavailable, not what an older status said of them.
             monitor = answer
-            if let answer { menuBarOn = answer.menuBar }
+            if let answer {
+                menuBarOn = answer.menuBar
+                followUpdateSetting(answer.updateCheck == true)
+            }
             if pane == .gaps, let answer,
                automaticCoverage == nil || automaticCoverageError != nil
                 || automaticCoverage?.fullPass != answer.health.fullPass {
@@ -1084,6 +1205,7 @@ final class AppModel: ObservableObject {
         accessCancelled = true
         quitting = true
         updatePolling()
+        followUpdateSetting(false)
         _ = try? engine.call("prepare_quit", [:])
     }
 }

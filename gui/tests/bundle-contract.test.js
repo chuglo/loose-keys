@@ -114,6 +114,8 @@ const USAGE = ["NSDesktopFolderUsageDescription", "NSDocumentsFolderUsageDescrip
 const NOT_COUNTS = new Set([
   // A line number.
   "%@, line %lld",
+  // An HTTP status code, such as 403.
+  "GitHub answered with an error (%lld).",
 ]);
 
 // SwiftUI reads a localized Text as Markdown.

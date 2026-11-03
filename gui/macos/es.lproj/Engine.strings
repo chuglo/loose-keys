@@ -826,3 +826,9 @@
 
 /* gui/src/lib.rs:1206 */
 "The review list is unavailable." = "La lista de revisión no está disponible.";
+
+/* gui/src/release.rs:11 */
+"GitHub's answer was not in the expected form." = "La respuesta de GitHub no tenía la forma esperada.";
+
+/* gui/src/lib.rs:421 */
+"The update setting cannot be saved because Loose Keys could not open its saved data." = "No se puede guardar el ajuste de actualizaciones porque Loose Keys no pudo abrir sus datos guardados.";

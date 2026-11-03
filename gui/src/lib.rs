@@ -18,6 +18,7 @@ mod engine_text_tests;
 #[path = "../../tests/support/fixture_body.rs"]
 mod fixture_body;
 mod monitor;
+mod release;
 mod review;
 
 // The scanner the `loose-keys` command uses.
@@ -219,6 +220,8 @@ struct MonitorView {
     menu_bar: bool,
     /// The app itself in Login Items, with the same codes as `login`.
     app_login: u8,
+    /// May the window check GitHub for a newer version: null until asked.
+    update_check: Option<bool>,
     health: Health,
     error: Option<String>,
     pending_delivery: bool,
@@ -263,6 +266,7 @@ fn monitor_status(app: &App) -> MonitorView {
         menu_bar: !r.menu_bar_off,
         // SAFETY: takes no argument and touches no memory of ours.
         app_login: unsafe { ch_app_login_status() },
+        update_check: r.update_check,
         health: health(&r.agent),
         error: app.storage_error.lock().unwrap().clone().or_else(|| {
             r.full.then(|| {
@@ -406,6 +410,21 @@ fn set_menu_bar_with_login(
     drop(one_change);
     emit(c"monitor-status", ());
     login
+}
+
+fn set_update_check(app: &App, enabled: bool) -> Answer<()> {
+    if scan::is_root() {
+        return Err("Not available when running as root.".into());
+    }
+    if app.storage_error.lock().unwrap().is_some() {
+        return Err(
+            "The update setting cannot be saved because Loose Keys could not open its saved data."
+                .into(),
+        );
+    }
+    update_state(app, |state| state.update_check = Some(enabled))?;
+    emit(c"monitor-status", ());
+    Ok(())
 }
 
 fn set_login_startup(app: &App, enabled: bool) -> Answer<u8> {
@@ -877,6 +896,10 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
         "skip_folder" => done(skip_folder(app, args.get("id")?)?),
         "unskip_folder" => done(unskip_folder(app, args.get("index")?, args.get("shown")?)?),
         "version" => done(env!("CARGO_PKG_VERSION")),
+        "check_release" => done(release::check(
+            &args.get::<String>("body")?,
+            env!("CARGO_PKG_VERSION"),
+        )?),
         "rules_text" => done(rules_text()),
         "pending_review" => done(pending_review(app)),
         "retry_notifications" => done(retry_notifications(app)?),
@@ -900,6 +923,7 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
         )?),
         "set_login_startup" => done(set_login_startup(app, args.get("enabled")?)?),
         "set_menu_bar" => done(set_menu_bar(app, args.get("enabled")?)?),
+        "set_update_check" => done(set_update_check(app, args.get("enabled")?)?),
         "prepare_quit" => {
             prepare_quit(app);
             done(())
@@ -1946,6 +1970,71 @@ mod tests {
         )
         .unwrap();
         assert_eq!(calls, [true], "Show in Menu Bar is on until turned off");
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn a_state_saved_before_the_update_question_asks_it() {
+        let state: review::Review =
+            serde_json::from_str(r#"{"items":[],"monitoring":true}"#).unwrap();
+        assert_eq!(state.update_check, None);
+        assert_eq!(review::Review::default().update_check, None);
+    }
+
+    #[test]
+    fn the_update_choice_is_kept_and_needs_private_state() {
+        // Saving a setting tells the window, through the shared event handler.
+        let _alone = one_scan();
+        let (home, app) = engine("update-choice");
+        assert_eq!(
+            ask(&app, "monitor_status", "{}")["ok"]["update_check"],
+            Value::Null
+        );
+        let saved = ask(&app, "set_update_check", r#"{"enabled":true}"#);
+        assert_eq!(saved["ok"], Value::Null, "{saved}");
+        let reopened = App::open(Ok(home.clone()));
+        reopened.ready();
+        assert_eq!(reopened.review.lock().unwrap().update_check, Some(true));
+        assert_eq!(
+            ask(&reopened, "monitor_status", "{}")["ok"]["update_check"],
+            true
+        );
+        ask(&reopened, "set_update_check", r#"{"enabled":false}"#);
+        assert_eq!(
+            ask(&reopened, "monitor_status", "{}")["ok"]["update_check"],
+            false
+        );
+        *reopened.storage_error.lock().unwrap() = Some("synthetic failure".into());
+        assert_eq!(
+            ask(&reopened, "set_update_check", r#"{"enabled":true}"#)["error"],
+            "The update setting cannot be saved because Loose Keys could not open its saved data."
+        );
+        assert_eq!(
+            app.store.as_ref().unwrap().read().unwrap().update_check,
+            Some(false)
+        );
+        assert_eq!(
+            ask(&app, "set_update_check", "{}")["error"],
+            "The request has no usable \"enabled\"."
+        );
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn check_release_answers_through_dispatch() {
+        let (home, app) = engine("check-release");
+        let reply = json!({"tag_name": "v0.0.1", "draft": false, "prerelease": false});
+        let answer = ask(
+            &app,
+            "check_release",
+            &json!({"body": reply.to_string()}).to_string(),
+        );
+        assert_eq!(answer["ok"]["current"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(answer["ok"]["newer"], Value::Null);
+        assert_eq!(
+            ask(&app, "check_release", "{}")["error"],
+            "The request has no usable \"body\"."
+        );
         std::fs::remove_dir_all(home).unwrap();
     }
 

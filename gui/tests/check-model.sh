@@ -19,6 +19,6 @@ mkdir "$OUT/en.lproj"
 cp gui/macos/en.lproj/Localizable.stringsdict "$OUT/en.lproj/Localizable.stringsdict"
 MINIMUM=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - gui/macos/Info.plist)
 swiftc -parse-as-library -D PREVIEW -target "$(uname -m)-apple-macosx$MINIMUM" \
-    gui/app/AppModel.swift gui/app/Models.swift gui/app/Engine.swift \
+    gui/app/AppModel.swift gui/app/Models.swift gui/app/Engine.swift gui/app/Updates.swift \
     gui/tests/refresh-order.swift -framework AppKit -o "$OUT/model-check"
 exec "$OUT/model-check"

@@ -701,3 +701,48 @@
 "Loading Details…" = "Cargando detalles…";
 
 "See Not Checked for details." = "Consulta los detalles en Sin comprobar.";
+
+/* In an alert after Check for Updates… in a test build of the app, which never goes online. [Updates.swift:15] */
+"Update checks are not available in this build." = "Las búsquedas de actualizaciones no están disponibles en esta versión.";
+
+/* In an alert after Check for Updates…. %lld is the HTTP status code GitHub sent. [Updates.swift:58] */
+"GitHub answered with an error (%lld)." = "GitHub respondió con un error (%lld).";
+
+/* In an alert after Check for Updates…: GitHub's reply was too long or came from somewhere else. [Updates.swift:71] */
+"GitHub's answer was not in the expected form." = "La respuesta de GitHub no tenía la forma esperada.";
+
+/* The title of the alert the first time the window opens, asking whether the app may check GitHub for a newer version. [MainView.swift] */
+"Check for Updates Automatically?" = "¿Buscar actualizaciones automáticamente?";
+
+/* Under the title of the alert asking whether the app may check for updates. [MainView.swift] */
+"Loose Keys can ask GitHub once a day whether a newer version is out." = "Loose Keys puede preguntar a GitHub una vez al día si hay una versión más reciente.";
+
+/* [MainView.swift] */
+"Check Automatically" = "Buscar automáticamente";
+
+/* [MainView.swift] */
+"Don’t Check" = "No buscar";
+
+/* The app menu item that checks GitHub once for a newer version. [App.swift] */
+"Check for Updates…" = "Buscar actualizaciones…";
+
+/* [Settings.swift] */
+"Check for Updates Automatically" = "Buscar actualizaciones automáticamente";
+
+/* Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0. [MainView.swift, Overview.swift] */
+"Loose Keys %@ Is Available" = "Loose Keys %@ ya está disponible";
+
+/* Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0. [MainView.swift, Overview.swift] */
+"You have %@." = "Tienes la versión %@.";
+
+/* [MainView.swift, Overview.swift] */
+"Download" = "Descargar";
+
+/* [MainView.swift] */
+"Not Now" = "Ahora no";
+
+/* The title of the alert after Check for Updates… when no newer version is out. [MainView.swift] */
+"Loose Keys Is Up to Date" = "Loose Keys está actualizado";
+
+/* The title of the alert after Check for Updates… when the check failed. [MainView.swift] */
+"Could Not Check for Updates" = "No se pudieron buscar actualizaciones";

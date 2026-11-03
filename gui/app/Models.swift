@@ -117,6 +117,8 @@ struct MonitorStatus: Decodable {
     /// codes as `login`.
     let menuBar: Bool
     let appLogin: Int
+    /// May the window check GitHub for a newer version: nil until asked.
+    let updateCheck: Bool?
     let health: HelperHealth
     let error: String?
     let pendingDelivery: Bool
@@ -135,6 +137,13 @@ struct HelperHealth: Decodable {
     let unreadTruncated: Bool?
     let changes: Int?
     let error: String?
+}
+
+/// The engine's reading of GitHub's latest release: `newer` only when it is
+/// newer than `current`, this app's version.
+struct ReleaseCheck: Decodable, Equatable {
+    let newer: String?
+    let current: String
 }
 
 struct AutomaticCoverage: Decodable {

@@ -203,6 +203,20 @@ until a window opens. With automatic scanning also on, the app is in Login
 Items and opens at login in the menu bar; turning either off removes it.
 Quit lasts until the next login.
 
+### Updates
+
+The first time the window opens, Loose Keys asks whether it may check for
+updates. If you allow it, the app asks GitHub for the latest release when it
+starts and once a day while it is open. GitHub sees your IP address and that
+Loose Keys checked; nothing about your files or findings is sent. A newer
+version appears at the top of Overview, and **Download** opens its release
+page. Loose Keys never installs anything: download and replace the app
+yourself.
+
+**Check for Updates…**, in the Loose Keys menu, checks once whatever the
+setting. Turn automatic checks on or off in Settings. The `loose-keys`
+command and the background helper never go online.
+
 ### Removing Loose Keys
 
 1. In Settings, turn off **Show in Menu Bar** and **Scan Automatically**.
