@@ -415,8 +415,13 @@ impl Scan {
                         let folder =
                             |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
                         let settings = "Local Extension Settings";
-                        for store in [p.to_path_buf(), p.join(id), p.join(settings).join(id)] {
-                            if self.extension_store(&store, id) && folder(p) && folder(&store) {
+                        for at in [p.to_path_buf(), p.join(id), p.join(settings).join(id)] {
+                            if !self.extension_store(&at, id) {
+                                continue;
+                            }
+                            // A link on the way, the changed path too, is
+                            // followed as a scan follows it.
+                            if let Some(store) = self.targeted(&at).filter(|s| folder(s)) {
                                 self.add(rule, &store, Hit::file().about(what), false, &[]);
                             }
                         }

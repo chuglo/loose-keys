@@ -273,6 +273,14 @@ The threats are a local user racing a root run with links, and hostile files
 - `through_links` is the one deliberate exception to following no links. A
   known sign-in location that is a link is resolved once, used only if the
   real path is inside the home folder, and never as root. Do not add another.
+  A wallet extension's storage in a browser profile is a known location too:
+  the scan, a check of changes and a recheck resolve it this way before the
+  `symlink_metadata` that tells it is there. Before, that call followed a
+  linked `Local Extension Settings` wherever it led, also as root, and
+  reported a wallet in the home with no gap. Test:
+  `a_wallet_store_behind_a_link_out_of_the_home_is_not_followed`. Not
+  covered: a run as root, and a link changed between the resolution and the
+  presence check.
 - `scan::home` resolves `HOME` once, as a relocated home is reached through a
   link. A folder given to `--select` or `--exclude` that begins with `HOME`
   as set, as the shell writes `~/notes`, has that prefix replaced by the

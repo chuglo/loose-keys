@@ -2,7 +2,7 @@
 //! still there.
 
 use super::read::settled;
-use super::{CONFIG_MAX, HEADER, STREAM_MAX};
+use super::{is_root, CONFIG_MAX, HEADER, STREAM_MAX};
 use crate::fsutil::{list_dir, open_regular, read_config, read_head, through_links};
 use crate::rules::{Hit, Matcher, Rule, Target, RULES};
 use std::io::Read;
@@ -103,7 +103,15 @@ fn recheck_by(
         match rule.matcher {
             // Presence is the finding: say what is still there, by its name.
             Matcher::Present => {
-                if std::fs::symlink_metadata(path).is_ok() {
+                // A link on the way is followed as a scan follows it: into
+                // the home folder only, and never as root. Past any other,
+                // nothing is known.
+                let at = match through_links(path, home) {
+                    None => path.to_path_buf(),
+                    Some(Ok(real)) if !is_root() => real,
+                    Some(_) => return None,
+                };
+                if std::fs::symlink_metadata(at).is_ok() {
                     let named = rule.targets.iter().filter_map(|t| match *t {
                         Target::Present(_, what) | Target::Extension(_, what)
                             if names(t, path) || linked(t, path, home) =>

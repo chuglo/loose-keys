@@ -3820,6 +3820,54 @@ fn a_change_at_a_linked_wallet_folder_reports_it_again() {
     assert_eq!(found, [("wallet.desktop.data", "~/Sync/electrum/wallets")]);
 }
 
+/// A wallet extension's storage was looked for through any link on the
+/// way to it. Where a profile's "Local Extension Settings" led out of the
+/// home folder, the scan, a check of changes and a recheck all reported a
+/// wallet in the home, and no gap said a link was not followed. A check of
+/// a change at the link itself looked at nothing, wherever it led.
+#[test]
+fn a_wallet_store_behind_a_link_out_of_the_home_is_not_followed() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new("store-link-out");
+    let outside = Fixture::new("store-link-out-target");
+    let rule = "wallet.extension.vault";
+    let id = "nkbihfbeogaeaoehlefnkodbefgpgknn";
+    let chrome = "Library/Application Support/Google/Chrome";
+    let profile = format!("{chrome}/Default");
+    let settings = format!("{profile}/Local Extension Settings");
+    let store = format!("{settings}/{id}");
+    fs::create_dir_all(f.0.join(&profile)).unwrap();
+    fs::create_dir_all(outside.0.join(id)).unwrap();
+    symlink(&outside.0, f.0.join(&settings)).unwrap();
+    let gap = (vec![], vec![(format!("~/{store}"), "symlink")]);
+    assert_eq!(full(&f.0), gap);
+    for path in [chrome, profile.as_str(), settings.as_str()] {
+        assert_eq!(change(&f.0, &[], path), gap, "{path}");
+    }
+    // Nothing is known of it, so it is not said to be still there.
+    assert_eq!(recheck(rule, &f.0.join(&store), &f.0, None), None);
+    // A link into the home folder is followed, and the storage is
+    // reported where it leads.
+    fs::remove_file(f.0.join(&settings)).unwrap();
+    fs::create_dir_all(f.0.join("Sync/settings").join(id)).unwrap();
+    symlink(f.0.join("Sync/settings"), f.0.join(&settings)).unwrap();
+    let found = (vec![(rule, format!("~/Sync/settings/{id}"))], vec![]);
+    assert_eq!(full(&f.0), found);
+    for path in [chrome, profile.as_str(), settings.as_str()] {
+        assert_eq!(change(&f.0, &[], path), found, "{path}");
+    }
+    let still = Some(vec![Some("MetaMask".to_string())]);
+    assert_eq!(recheck(rule, &f.0.join(&store), &f.0, None), still);
+    // The same where the storage folder itself is the link.
+    fs::remove_file(f.0.join(&settings)).unwrap();
+    fs::create_dir(f.0.join(&settings)).unwrap();
+    symlink(f.0.join("Sync/settings").join(id), f.0.join(&store)).unwrap();
+    assert_eq!(full(&f.0), found);
+    for path in [chrome, profile.as_str(), settings.as_str(), store.as_str()] {
+        assert_eq!(change(&f.0, &[], path), found, "{path}");
+    }
+}
+
 #[test]
 fn a_recheck_reads_a_linked_history_entry_as_the_scan_did() {
     // A file in Terminal's history folder that is a link to a file whose

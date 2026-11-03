@@ -156,7 +156,11 @@ impl Scan {
                 break;
             }
             for &(rule, id, what) in wanted.iter().filter(|_| is_dir) {
-                let store = profile.join("Local Extension Settings").join(id);
+                // A link on the way is followed as for any known location.
+                let at = profile.join("Local Extension Settings").join(id);
+                let Some(store) = self.targeted(&at) else {
+                    continue;
+                };
                 if std::fs::symlink_metadata(&store).is_ok_and(|m| m.is_dir()) {
                     self.add(rule, &store, Hit::file().about(what), false, &[]);
                 }
