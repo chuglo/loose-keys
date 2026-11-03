@@ -1286,16 +1286,34 @@ fn invalid_cli_options_fail_before_scanning() {
     }
 }
 
+/// Run as the person, an export goes where its path leads, through links and
+/// '..' in its folders, as /tmp on macOS is a link. A link at the name itself
+/// is still neither followed nor replaced. As root, a link or '..' in the
+/// folder's path is refused (the `fsutil` tests).
 #[test]
-fn export_refuses_symlinked_parent_directories() {
+fn export_reaches_its_folder_through_links_but_never_follows_its_name() {
     use std::os::unix::fs::symlink;
     let f = Fixture::new();
+    f.csv(&f.home().join("export.csv"));
     let outside = f.0.join("outside");
     fs::create_dir(&outside).unwrap();
-    symlink(&outside, f.0.join("link")).unwrap();
+    symlink("outside", f.0.join("link")).unwrap();
     let out = f.run(&["--export", f.0.join("link/report.json").to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(outside.join("report.json").is_file());
+    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+        .env("HOME", f.home())
+        .current_dir(f.home())
+        .args(["scan", "--feedback", "../counts.json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(f.0.join("counts.json").is_file());
+    symlink(outside.join("report.json"), f.0.join("named.json")).unwrap();
+    let before = fs::read(outside.join("report.json")).unwrap();
+    let out = f.run(&["--export", f.0.join("named.json").to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(2));
-    assert!(!outside.join("report.json").exists());
+    assert_eq!(fs::read(outside.join("report.json")).unwrap(), before);
 }
 
 #[test]

@@ -104,6 +104,11 @@ const EXTRA: &[(&str, &str, &str)] = &[
         "inside \"Could not save: %@.\"",
     ),
     (
+        "as root, the path to the export directory must not have a link or '..'",
+        "src/fsutil.rs",
+        "inside \"Could not save: %@.\"",
+    ),
+    (
         "as root, the export directory must be root-owned and not writable by others",
         "src/fsutil.rs",
         "inside \"Could not save: %@.\"",

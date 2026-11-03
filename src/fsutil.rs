@@ -239,6 +239,16 @@ pub fn open_directory(path: &Path) -> Result<File, Gap> {
     open_path(path, true)?.ok_or("unreadable")
 }
 
+/// Whether a path has a '..' or a link in it, its last name included.
+fn through_link_or_dot_dot(path: &Path) -> bool {
+    let mut at = PathBuf::new();
+    path.components().any(|part| {
+        at.push(part);
+        part == Component::ParentDir
+            || fs::symlink_metadata(&at).is_ok_and(|m| m.file_type().is_symlink())
+    })
+}
+
 /// The device a path is on. A link at the path is not followed.
 fn device(path: &Path) -> Option<u64> {
     fs::symlink_metadata(path).ok().map(|meta| meta.dev())
@@ -340,7 +350,23 @@ pub fn checked_or_absent(path: &Path, mount: Option<u32>, home: &Path) -> bool {
 pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
     let path = std::path::absolute(path).map_err(|e| e.to_string())?;
     let dir = path.parent().ok_or("export needs a filename")?;
-    let parent = open_directory(dir).map_err(|g| format!("export directory: {g}"))?;
+    // Run as the person, the folder is where its path leads, through links
+    // and '..', as for any program: the name below is never followed. As
+    // root it is opened without following any, so only root can redirect it.
+    let parent = if root {
+        open_directory(dir).map_err(|g| {
+            if through_link_or_dot_dot(dir) {
+                "as root, the path to the export directory must not have a link or '..'".into()
+            } else {
+                format!("export directory: {g}")
+            }
+        })?
+    } else {
+        fs::canonicalize(dir)
+            .map_err(|e| gap(&e))
+            .and_then(|real| open_directory(&real))
+            .map_err(|g| format!("export directory: {g}"))?
+    };
     if root {
         let m = parent.metadata().map_err(|e| e.to_string())?;
         if !m.is_dir()
@@ -1173,6 +1199,23 @@ mod tests {
         let locked = through_links(&home.join(".config/credentials"), &home);
         fs::set_permissions(home.join("dotfiles"), fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(locked, Some(Err("permission-denied")));
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn as_root_a_link_or_dot_dot_before_the_export_folder_is_refused_by_name() {
+        let base = PathBuf::from(std::env::var_os("TMPDIR").unwrap())
+            .join(format!("credential-export-root-{}", std::process::id()));
+        fs::create_dir_all(base.join("real")).unwrap();
+        std::os::unix::fs::symlink("real", base.join("link")).unwrap();
+        for path in [
+            base.join("link/report.json"),
+            base.join("real/../real/report.json"),
+        ] {
+            let refused = write_export(&path, "{}", true).unwrap_err();
+            assert!(refused.contains("a link or '..'"), "{path:?}: {refused}");
+        }
+        assert!(fs::read_dir(base.join("real")).unwrap().next().is_none());
         fs::remove_dir_all(base).unwrap();
     }
 

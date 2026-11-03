@@ -275,9 +275,10 @@ The threats are a local user racing a root run with links, and hostile files
 - A presence check outside `fsutil` uses `std::fs::symlink_metadata`.
   `Path::exists`, `is_file`, `is_dir` and `fs::metadata` follow links. Treat
   the answer as a hint: whatever is read next still goes through `fsutil`.
-- `through_links` is the one deliberate exception to following no links. A
-  known sign-in location that is a link is resolved once, used only if the
-  real path is inside the home folder, and never as root. Do not add another.
+- `through_links` is the one deliberate exception to following no links in
+  what is scanned. A known sign-in location that is a link is resolved once,
+  used only if the real path is inside the home folder, and never as root. Do
+  not add another.
   A wallet extension's storage in a browser profile is a known location too:
   the scan, a check of changes and a recheck resolve it this way before the
   `symlink_metadata` that tells it is there. Before, that call followed a
@@ -319,6 +320,22 @@ The threats are a local user racing a root run with links, and hostile files
   `folders_named_through_a_linked_home_are_the_ones_in_it`. Not covered: a
   folder named through another link to the home, and places added in the app
   (`add_place`), which are taken as given.
+- An export's folder is not a scanned file. Run as the person, `write_export`
+  resolves it with `fs::canonicalize`, through links and `..` as any program
+  writing to that path would, and opens the real folder without following
+  links. The file's own name is still created relative to that handle with
+  `O_EXCL | O_NOFOLLOW`, so a link at the name is refused and nothing is
+  overwritten. A link someone else put on the way can only lead the export
+  into a folder the person can write to, as a new file of theirs. Before,
+  `--export /tmp/r.json` (on macOS `/tmp` is a link), a path through a linked
+  home and `../r.json` were all refused as `export directory: unreadable`. As
+  root the folder is still walked to from `/` without following links, and a
+  link or `..` on its path is refused by name. Tests:
+  `export_reaches_its_folder_through_links_but_never_follows_its_name` in
+  `tests/scan_scope.rs` and
+  `as_root_a_link_or_dot_dot_before_the_export_folder_is_refused_by_name` in
+  `src/fsutil.rs`, which passes `root` to `write_export`: no test runs as
+  root.
 - A cloud-only file (`SF_DATALESS`) is never read, because reading downloads
   it. `fsutil` checks the flag before the open and on the handle.
 - The app's `prepare_access` command takes only an index into Desktop,
