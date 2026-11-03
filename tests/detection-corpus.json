@@ -121,6 +121,8 @@
    "positive":"machine example.invalid login fixture password synthetic-only-value\n", "negative":"machine example.invalid login fixture\n"},
   {"name":"pgpass", "rule":"dev.postgres.pgpass", "kind":"review", "severity":"medium", "target":"file:.pgpass", "path":".pgpass", "line":1,
    "positive":"db.example.invalid:5432:shop:fixture:synthetic-only-value\n", "negative":"db.example.invalid:5432:shop:fixture:\n"},
+  {"name":"pgpass-escaped-colon", "rule":"dev.postgres.pgpass", "kind":"review", "severity":"medium", "target":"file:.pgpass", "path":".pgpass", "line":1,
+   "positive":"\\:\\:1:5432:shop:fixture:synthetic-only-value\n", "negative":"\\:\\:1:5432:shop:fixture:\n"},
   {"name":"mycnf", "rule":"dev.mysql.mycnf", "kind":"review", "severity":"medium", "target":"file:.my.cnf", "path":".my.cnf", "line":3,
    "positive":"[client]\nuser=fixture\npassword=synthetic-only-value\n", "negative":"[client]\nuser=fixture\n"},
   {"name":"warehouse", "rule":"dev.warehouse.inline-password", "kind":"review", "severity":"medium", "target":"file:.dbt/profiles.yml", "path":".dbt/profiles.yml", "line":5,

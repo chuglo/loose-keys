@@ -247,6 +247,12 @@ pub const PGPASS_PASSWORD: Rule = Rule {
         (b"db.example.invalid:5432:shop:shop_user:synthetic-only\n", true),
         (b"db.example.invalid:5432:shop:shop_user:Synth$tic-0nly\n", true),
         (b"# host:port:db:user:password\nlocalhost:5432:*:dev:\n", false),
+        // A backslash escapes ":" inside a field, as in an IPv6 host.
+        (b"\\:\\:1:5432:shop:shop_user:\n", false),
+        (b"db.example.invalid:5432:shop:us\\:er:\n", false),
+        (b"db.example.invalid:5432:shop:shop_user:synth\\:etic\n", true),
+        // An escaped backslash does not escape the ":" after it.
+        (b"db.example.invalid:5432:shop:us\\\\:synthetic-only\n", true),
     ],
     ..PYPI_PASSWORD
 };
@@ -258,13 +264,32 @@ fn pgpass_hits(bytes: &[u8]) -> Hits {
             .enumerate()
             .filter(|(_, l)| !l.trim_start().starts_with('#'))
             .filter_map(|(i, l)| {
-                let fields: Vec<&str> = l.trim().split(':').collect();
+                let fields = pgpass_fields(l.trim());
                 // The file has no references: whatever is in the field is the password.
                 (fields.len() >= 5 && !fields[4].is_empty())
-                    .then(|| Hit::line(i + 1).about(fields[0]))
+                    .then(|| Hit::line(i + 1).about(&fields[0]))
             })
             .collect()
     })
+}
+
+/// The first five fields of a .pgpass line, as libpq reads them: split at
+/// each ':' that no backslash escapes, with the escapes removed. The password
+/// ends at the next ':', and fields after it are not kept.
+fn pgpass_fields(line: &str) -> Vec<String> {
+    let (mut fields, mut field) = (Vec::new(), String::new());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            // A backslash at the end of the line stands for itself.
+            '\\' => field.push(chars.next().unwrap_or('\\')),
+            ':' if fields.len() == 4 => break,
+            ':' => fields.push(std::mem::take(&mut field)),
+            _ => field.push(c),
+        }
+    }
+    fields.push(field);
+    fields
 }
 
 pub const MYCNF_PASSWORD: Rule = Rule {
@@ -594,6 +619,24 @@ mod tests {
             (hits[1].line, hits[1].subject.as_deref()),
             (Some(4), Some("b.example.invalid"))
         );
+    }
+
+    /// libpq escapes `:` and `\` inside a field with a backslash, as an IPv6
+    /// host must be written. An escaped colon does not end a field, so it
+    /// cannot move another field into the password's place.
+    #[test]
+    fn an_escaped_colon_in_pgpass_stays_in_its_field() {
+        let file = concat!(
+            "\\:\\:1:5432:shop:shop_user:\n",
+            "db.example.invalid:5432:shop:us\\:er:\n",
+            "\\:\\:1:5432:shop:shop_user:synthetic\\:only-value\n",
+        );
+        let hits = pgpass_hits(file.as_bytes()).unwrap();
+        let found: Vec<_> = hits
+            .iter()
+            .map(|h| (h.line, h.subject.as_deref()))
+            .collect();
+        assert_eq!(found, [(Some(3), Some("::1"))]);
     }
 
     /// RubyGems keeps the key for rubygems.org, and one named with --key,
