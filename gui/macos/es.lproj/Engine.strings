@@ -813,6 +813,7 @@
 /* src/fsutil.rs: inside "Could not save: %@." */
 "invalid export filename" = "nombre de archivo de exportación no válido";
 "as root, the export directory must be root-owned and not writable by others" = "como root, la carpeta de exportación debe pertenecer a root y otros usuarios no deben poder escribir en ella";
+"the folder gives new files an access list that may let others read them" = "la carpeta da a los archivos nuevos una lista de acceso que puede permitir que otros usuarios los lean";
 
 /* src/fsutil.rs: a gap id from fsutil::open_directory: the whole error when the review store cannot open the home folder, and inside "export directory: %@" and "Could not open the folder (%@)." */
 "unreadable" = "no se puede leer";

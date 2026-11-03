@@ -108,6 +108,11 @@ const EXTRA: &[(&str, &str, &str)] = &[
         "src/fsutil.rs",
         "inside \"Could not save: %@.\"",
     ),
+    (
+        "the folder gives new files an access list that may let others read them",
+        "src/fsutil.rs",
+        "inside \"Could not save: %@.\"",
+    ),
     ("unreadable", "src/fsutil.rs", GAP_ID),
     ("permission-denied", "src/fsutil.rs", GAP_ID),
     // open_path returns it for a folder whose contents are only in the cloud.

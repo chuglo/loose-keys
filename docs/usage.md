@@ -29,6 +29,9 @@ prompt later. Full Disk Access is not needed.
 
 The app never writes over a file. If you choose to replace one when saving,
 the app writes the new file beside it and then moves the old one to the Trash.
+The app and `--export`/`--feedback` refuse a folder that gives its new files
+an access list, as some shared folders do; save the file somewhere only you
+can read.
 File names with unusual characters are shown escaped, and **Copy Path** and
 **Show in Finder** work only on plain names. A copied path stays on this Mac's
 clipboard.

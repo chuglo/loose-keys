@@ -334,16 +334,36 @@ The threats are a local user racing a root run with links, and hostile files
 - There are two ways to write, and a new file uses one of them. An export is
   created with `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 0600, relative to the
   parent handle that was checked (`write_export`); as root the folder must be
-  root-owned and not writable by others. A write that fails partway, as on a
+  root-owned and not writable by others, and its access list must have no
+  allow entry that lets anyone add, delete or rename names in it or change
+  its access list or owner (`lets_others_change`). Deny entries are
+  accepted; a list that cannot be read refuses the export. A new file takes
+  the access-list entries its folder marks for inheriting, and macOS checks
+  those before the mode, so a 0600 export in a shared folder could still be
+  read by others.
+  Before any byte is written, `write_export` asks for the new file's access
+  list (`acl_get_fd_np`). If it has any entry, or cannot be asked for, the
+  export is refused and the empty file removed as a failed write's is,
+  below. A folder whose inherited entries only deny is refused too. Someone
+  the folder lets read could open the empty file before it is removed, and
+  finds it empty. Not covered: entries that also let others change the new
+  file's access list. Someone could then open the file, clear its list
+  before `write_export` asks for it, and read the report through what they
+  opened: a race, unverified. A write that fails partway, as on a
   full disk, removes the name again, but only while `fstatat` on it shows the
   file just created (same device and inode), so that no part of a report is
   left and the name can be tried again. A file put in its place since is left
   as it is. The check and the removal are two steps: something able to write
-  to that folder (as root, only root) could swap the name between them. Test:
+  to that folder (as root, only root) could swap the name between them. Tests:
   `an_export_that_cannot_be_written_in_full_leaves_no_file` in
-  `tests/scan_scope.rs`, with a file-size limit on the CLI. The app's state is
-  written to a new temporary file, synced, renamed over the old one, and the
-  folder synced (`Store::save`).
+  `tests/scan_scope.rs`, with a file-size limit on the CLI, and
+  `an_export_into_a_folder_that_shares_new_files_is_refused`, with an
+  inheritable `group:everyone` read entry added by `chmod +a`.
+  `a_folder_access_list_that_lets_others_change_it_is_seen` in
+  `src/fsutil.rs` gives folders entries with `chmod +a` and asks
+  `lets_others_change` about each; no test runs as root, so its use in the
+  root check is not run. The app's state is written to a new temporary file,
+  synced, renamed over the old one, and the folder synced (`Store::save`).
 - Everything read back is bounded and checked before use, the app's own state
   included: `Store::open` and `load` require the user's ownership, no access
   for others, one link, a size limit and sane counts. Code running as the user

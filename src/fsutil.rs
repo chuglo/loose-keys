@@ -334,14 +334,20 @@ pub fn checked_or_absent(path: &Path, mount: Option<u32>, home: &Path) -> bool {
 }
 
 /// New file only (never overwrites, never follows a symlink), mode 0600.
-/// As root, the destination directory must be root-owned and not group/other-writable.
+/// Refused, and removed again, if the new file has an access list.
+/// As root, the destination directory must be root-owned and not group/other-writable,
+/// by its mode or its access list.
 pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
     let path = std::path::absolute(path).map_err(|e| e.to_string())?;
     let dir = path.parent().ok_or("export needs a filename")?;
     let parent = open_directory(dir).map_err(|g| format!("export directory: {g}"))?;
     if root {
         let m = parent.metadata().map_err(|e| e.to_string())?;
-        if !m.is_dir() || m.uid() != 0 || m.mode() & 0o022 != 0 {
+        if !m.is_dir()
+            || m.uid() != 0
+            || m.mode() & 0o022 != 0
+            || lets_others_change(&parent).map_err(|e| e.to_string())?
+        {
             return Err(
                 "as root, the export directory must be root-owned and not writable by others"
                     .into(),
@@ -372,6 +378,19 @@ pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
     }
     // SAFETY: openat returned a new owned descriptor.
     let mut f = unsafe { File::from_raw_fd(fd) };
+    // Asked before any byte is written: the file may have taken access
+    // entries from its folder, which macOS checks before the mode.
+    let refused = match has_access_list(&f) {
+        Ok(false) => None,
+        Ok(true) => {
+            Some("the folder gives new files an access list that may let others read them".into())
+        }
+        Err(e) => Some(e.to_string()),
+    };
+    if let Some(e) = refused {
+        remove_own(&parent, &name, &f);
+        return Err(e);
+    }
     let written = f
         .write_all(json.as_bytes())
         .and_then(|_| f.write_all(b"\n"))
@@ -382,6 +401,108 @@ pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
         remove_own(&parent, &name, &f);
     }
     written
+}
+
+// macOS's access-list calls, which `libc` does not declare (sys/acl.h).
+extern "C" {
+    fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
+    fn acl_get_entry(
+        acl: *mut libc::c_void,
+        entry_id: libc::c_int,
+        entry: *mut *mut libc::c_void,
+    ) -> libc::c_int;
+    fn acl_get_tag_type(entry: *mut libc::c_void, tag: *mut libc::c_int) -> libc::c_int;
+    fn acl_get_permset(entry: *mut libc::c_void, perms: *mut *mut libc::c_void) -> libc::c_int;
+    fn acl_get_perm_np(perms: *mut libc::c_void, perm: libc::c_int) -> libc::c_int;
+    fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
+}
+
+/// Whether an open file has an access list with at least one entry.
+fn has_access_list(file: &File) -> io::Result<bool> {
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
+    const ACL_FIRST_ENTRY: libc::c_int = 0;
+    // SAFETY: live descriptor and a valid list type; the call returns a new
+    // list for this code to free, or NULL.
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let e = io::Error::last_os_error();
+        return match e.raw_os_error() {
+            Some(libc::ENOENT) => Ok(false),
+            _ => Err(e),
+        };
+    }
+    let mut entry = std::ptr::null_mut();
+    // SAFETY: `acl` is the live list just returned and `entry` is writable.
+    // The entry points into the list and is not used after it is freed.
+    let found = unsafe { acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) } == 0;
+    // SAFETY: `acl` came from acl_get_fd_np, is not used again and is freed
+    // once.
+    unsafe {
+        acl_free(acl);
+    }
+    Ok(found)
+}
+
+/// Whether a folder's access list lets others add, remove or rename names in
+/// it, or change its access list or owner: an allow entry with any of those
+/// rights. A deny entry only takes rights away.
+fn lets_others_change(dir: &File) -> io::Result<bool> {
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
+    const ACL_FIRST_ENTRY: libc::c_int = 0;
+    const ACL_NEXT_ENTRY: libc::c_int = -1;
+    const ACL_EXTENDED_ALLOW: libc::c_int = 1;
+    // ACL_ADD_FILE, ACL_ADD_SUBDIRECTORY, ACL_DELETE_CHILD,
+    // ACL_WRITE_SECURITY and ACL_CHANGE_OWNER.
+    const CHANGES: [libc::c_int; 5] = [1 << 2, 1 << 5, 1 << 6, 1 << 12, 1 << 13];
+    // SAFETY: live descriptor and a valid list type; the call returns a new
+    // list for this code to free, or NULL.
+    let acl = unsafe { acl_get_fd_np(dir.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let e = io::Error::last_os_error();
+        return match e.raw_os_error() {
+            Some(libc::ENOENT) => Ok(false),
+            _ => Err(e),
+        };
+    }
+    let (mut which, mut entry) = (ACL_FIRST_ENTRY, std::ptr::null_mut());
+    let found = 'entries: {
+        // SAFETY: `acl` is the live list just returned and `entry` is
+        // writable. Entries and permission sets point into the list, which
+        // is freed only after this block.
+        while unsafe { acl_get_entry(acl, which, &mut entry) } == 0 {
+            which = ACL_NEXT_ENTRY;
+            let mut tag = 0;
+            // SAFETY: `entry` was just returned for the live list and `tag`
+            // is writable.
+            if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
+                break 'entries Err(io::Error::last_os_error());
+            }
+            if tag != ACL_EXTENDED_ALLOW {
+                continue;
+            }
+            let mut perms = std::ptr::null_mut();
+            // SAFETY: as above, with `perms` writable.
+            if unsafe { acl_get_permset(entry, &mut perms) } != 0 {
+                break 'entries Err(io::Error::last_os_error());
+            }
+            for perm in CHANGES {
+                // SAFETY: `perms` was just returned for a live entry, and
+                // `perm` is one of the SDK's acl_perm_t values.
+                match unsafe { acl_get_perm_np(perms, perm) } {
+                    0 => {}
+                    1 => break 'entries Ok(true),
+                    _ => break 'entries Err(io::Error::last_os_error()),
+                }
+            }
+        }
+        Ok(false)
+    };
+    // SAFETY: `acl` came from acl_get_fd_np, nothing from it is used again
+    // and it is freed once.
+    unsafe {
+        acl_free(acl);
+    }
+    found
 }
 
 /// Remove `name` from `dir` if it is still the file `file` has open. A file
@@ -844,6 +965,58 @@ mod tests {
         for (dir, file) in [("a/b/c", "one"), ("a/b/d", "two")] {
             let listing = folders.list(&root.join(dir), true, &mut remaining).unwrap();
             assert_eq!(listing.entries, vec![(root.join(dir).join(file), false)]);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// As root, an export folder must not let others add, remove or swap
+    /// names in it, or give themselves that right, through its access list
+    /// any more than through its mode. Deny entries, and allow entries that
+    /// grant none of it, are accepted. Only the access list is asked here,
+    /// so this needs no root.
+    #[test]
+    fn a_folder_access_list_that_lets_others_change_it_is_seen() {
+        let root = PathBuf::from(std::env::var_os("TMPDIR").unwrap())
+            .join(format!("credential-folder-access-{}", std::process::id()));
+        let cases: [(&[&str], bool); 9] = [
+            (&[], false),
+            (
+                &["group:everyone allow list,search,readattr,readsecurity,file_inherit"],
+                false,
+            ),
+            (
+                &["group:everyone deny add_file,add_subdirectory,delete_child,writesecurity,chown"],
+                false,
+            ),
+            (&["group:everyone allow add_file"], true),
+            (&["group:everyone allow add_subdirectory"], true),
+            (&["group:everyone allow delete_child"], true),
+            (&["group:everyone allow writesecurity"], true),
+            (&["group:everyone allow chown"], true),
+            // Past the first entry: `chmod +a` puts deny entries first and
+            // a new allow entry before older ones, so this one ends up last.
+            (
+                &[
+                    "group:everyone deny add_file",
+                    "user:nobody allow delete_child",
+                    "group:staff allow list,search",
+                ],
+                true,
+            ),
+        ];
+        for (i, (entries, changes)) in cases.into_iter().enumerate() {
+            let dir = root.join(i.to_string());
+            fs::create_dir_all(&dir).unwrap();
+            for entry in entries {
+                let chmod = std::process::Command::new("/bin/chmod")
+                    .args(["+a", entry])
+                    .arg(&dir)
+                    .output()
+                    .unwrap();
+                assert!(chmod.status.success(), "{entry}: {chmod:?}");
+            }
+            let handle = open_directory(&dir).unwrap();
+            assert_eq!(lets_others_change(&handle).unwrap(), changes, "{entries:?}");
         }
         fs::remove_dir_all(root).unwrap();
     }

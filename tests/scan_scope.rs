@@ -854,6 +854,47 @@ fn report_export_remains_owner_only_and_create_only() {
     assert_eq!(fs::read(&destination).unwrap(), original);
 }
 
+/// macOS checks a file's access list before its mode, and a new file takes
+/// the entries its folder marks for inheriting. An export into such a
+/// folder is refused and leaves no file; a plain folder still takes one.
+#[test]
+fn an_export_into_a_folder_that_shares_new_files_is_refused() {
+    let f = Fixture::new();
+    f.csv(&f.home().join("export.csv"));
+    let (shared, plain) = (f.0.join("shared"), f.0.join("plain"));
+    fs::create_dir(&shared).unwrap();
+    fs::create_dir(&plain).unwrap();
+    let chmod = Command::new("/bin/chmod")
+        .args([
+            "+a",
+            "group:everyone allow read,readattr,readextattr,readsecurity,file_inherit",
+        ])
+        .arg(&shared)
+        .output()
+        .unwrap();
+    assert!(chmod.status.success(), "{chmod:?}");
+    for flag in ["--export", "--feedback"] {
+        let destination = shared.join(format!("report{flag}.json"));
+        let out = f.run(&[flag, destination.to_str().unwrap()]);
+        assert_eq!(out.status.code(), Some(2), "{flag}");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("access list"),
+            "{flag}: {out:?}"
+        );
+        assert!(
+            fs::symlink_metadata(&destination).is_err(),
+            "{flag} left a report others may read"
+        );
+        let destination = plain.join(format!("report{flag}.json"));
+        assert_eq!(
+            f.run(&[flag, destination.to_str().unwrap()]).status.code(),
+            Some(0),
+            "{flag}"
+        );
+        assert!(destination.is_file(), "{flag}");
+    }
+}
+
 /// A report that cannot be written in full, as on a full disk, is not left
 /// behind in part: the run says it did not export, and the name stays free.
 #[test]
