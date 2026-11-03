@@ -10,7 +10,7 @@ to deal with it.
 Loose Keys never changes the files it scans, and it goes online only to
 check for a new version, if you let it.
 
-Version 0.6.0 · MIT licensed
+Version 0.7.0 · MIT licensed
 
 ## Install the beta
 
