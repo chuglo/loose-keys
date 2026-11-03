@@ -211,7 +211,7 @@ fn secret_assignment(raw: &str, shell: bool) -> Option<(&str, &str)> {
     secret(name, value)
 }
 
-fn inline_table_pairs(table: &str) -> impl Iterator<Item = (&str, &str)> {
+pub(super) fn inline_table_pairs(table: &str) -> impl Iterator<Item = (&str, &str)> {
     let (mut quote, mut escaped) = (None, false);
     let end = table
         .char_indices()
@@ -288,7 +288,7 @@ fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
         // Settings about secrets, not secrets, and where a service is.
         && ![
             "_LENGTH", "_FILE", "_PATH", "_URL", "_URI", "_ENDPOINT", "_NAME", "_ID", "_TTL",
-            "_EXPIRY",
+            "_EXPIRY", "_VAR",
         ]
         .iter()
         .any(|suffix| upper.ends_with(suffix));
@@ -687,6 +687,8 @@ mod tests {
             ("DB_PASSWORD=short", None),
             ("DB_PASSWORD=$(pass show db)", None),
             ("DB_PASSWORD_FILE=/run/secrets/db-password", None),
+            // The name of the variable that holds it, as Codex keeps one.
+            ("bearer_token_env_var = \"FIXTURE_TOKEN\"", None),
             ("echo API_TOKEN=synthetic-only-value", None),
             // A value given to one command, as it is kept in shell history.
             (

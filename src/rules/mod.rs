@@ -311,6 +311,7 @@ pub const RULES: &[Rule] = &[
     registry::MYCNF_PASSWORD,
     registry::WAREHOUSE_PASSWORD,
     ai::MCP_SECRET,
+    ai::CODEX_MCP,
     ai::CONTINUE_YAML,
     ai::AI_TOOL_LOGIN,
     ai::OAUTH_TOKENS,

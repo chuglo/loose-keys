@@ -740,8 +740,16 @@ vendors change their settings.
   keys. Keys past the head and key validity remain unverified. Rule tests cover
   the matching and limits; the detection corpus checks the findings and that
   fixture values and fragments do not enter CLI or engine exports.
+- Codex's MCP servers in `~/.codex/config.toml` are read line by line for
+  literal HTTP headers under `http_headers`, inline or as a table of their
+  own, and judged as the JSON MCP configs' headers are. `env_http_headers`
+  and `bearer_token_env_var` name variables and are not read. This is a
+  limited subset of TOML: a multiline string, array or table, or a server
+  written as one inline table, can hide a header. The field names were not
+  checked against Codex's current documentation or code (unverified).
 - Matcher caps: 100 assignments per environment or shell file, 100 MCP
-  holders, 100 OpenVPN key blocks, 100 rclone remotes per rule, and 20
+  holders, 100 Codex MCP header lines, 100 OpenVPN key blocks, 100 rclone
+  remotes per rule, and 20
   password-note lines. Poetry token entries fill the first 100 findings after
   any INI password findings; warehouse configs list up to 100 embedded keys in
   addition to their password fields. Terraform lists 100 holders and examines

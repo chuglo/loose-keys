@@ -266,6 +266,96 @@ pub const CONTINUE_YAML: Rule = Rule {
     ..MCP_SECRET
 };
 
+/// Codex keeps its MCP servers in TOML, each under [mcp_servers.<name>], and
+/// a remote server's HTTP headers in its "http_headers" table. Its
+/// "env_http_headers" and "bearer_token_env_var" name variables instead.
+pub const CODEX_MCP: Rule = Rule {
+    targets: &[Target::File(".codex/config.toml")],
+    matcher: Matcher::Whole {
+        candidate: any,
+        test: codex_hits,
+    },
+    samples: &[
+        (b"[mcp_servers.fixture]\nurl = \"https://mcp.example.invalid/mcp\"\nhttp_headers = { \"Authorization\" = \"Bearer synthetic-only-value\" }\n", true),
+        (b"[mcp_servers.fixture.http_headers]\n\"X-Api-Key\" = \"synthetic-only-value\"\n", true),
+        (b"[mcp_servers.fixture]\nbearer_token_env_var = \"FIXTURE_TOKEN\"\nenv_http_headers = { \"X-Api-Key\" = \"FIXTURE_API_KEY\" }\n", false),
+        (b"[mcp_servers.fixture]\nhttp_headers = { \"Authorization\" = \"Bearer ${FIXTURE_TOKEN}\" }\n", false),
+    ],
+    ..MCP_SECRET
+};
+
+/// Each line that gives a Codex server a header holding a literal secret,
+/// judged as the JSON configs' headers are. The file is read line by line:
+/// a table's heading, then keys, dotted or not, set to a string or to a
+/// table on one line.
+fn codex_hits(bytes: &[u8]) -> Hits {
+    let text = String::from_utf8_lossy(bytes);
+    // The first parts of the current heading, which are all a path below
+    // needs: split once, not again for every line under a long heading.
+    let mut table = Vec::new();
+    // A byte order mark is not part of the first line.
+    let lines = text.trim_start_matches('\u{feff}').lines();
+    capped_hits(
+        lines.enumerate().filter_map(|(i, raw)| {
+            let line = raw.trim();
+            if let Some(heading) = line.strip_prefix('[') {
+                table.clear();
+                if let Some((key, _)) = heading.split_once(']') {
+                    table.extend(key_parts(key).take(5));
+                }
+                return None;
+            }
+            if line.starts_with('#') {
+                return None;
+            }
+            let (key, value) = line.split_once('=')?;
+            let mut path = table.iter().copied().chain(key_parts(key));
+            if path.next() != Some("mcp_servers") {
+                return None;
+            }
+            let name = path.next()?;
+            if path.next() != Some("http_headers") {
+                return None;
+            }
+            let found = match (path.next(), path.next()) {
+                (Some(header), None) => toml_string(value).is_some_and(|s| secret(header, s)),
+                (None, _) => value.trim().strip_prefix('{').is_some_and(|headers| {
+                    env::inline_table_pairs(headers).any(|(header, value)| {
+                        let header = header.trim().trim_matches(['"', '\'']);
+                        toml_string(value).is_some_and(|s| secret(header, s))
+                    })
+                }),
+                _ => false,
+            };
+            found.then(|| Hit::line(i + 1).about(&format!("server {name}")))
+        }),
+        100,
+    )
+}
+
+/// The parts of a dotted TOML key, each without its quotes.
+fn key_parts(key: &str) -> impl Iterator<Item = &str> {
+    let mut quote = None;
+    key.split(move |c| {
+        if quote == Some(c) {
+            quote = None;
+        } else if quote.is_none() && matches!(c, '"' | '\'') {
+            quote = Some(c);
+        }
+        quote.is_none() && c == '.'
+    })
+    .map(|part| part.trim().trim_matches(['"', '\'']))
+}
+
+/// A TOML string's text, without its quotes, when only a comment follows it.
+fn toml_string(raw: &str) -> Option<&str> {
+    let raw = raw.trim();
+    let quote = raw.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let end = raw[1..].find(quote)? + 1;
+    let rest = raw[end + 1..].trim_start();
+    (rest.is_empty() || rest.starts_with('#')).then(|| &raw[1..end])
+}
+
 pub const AI_TOOL_LOGIN: Rule = Rule {
     id: "dev.ai.stored-login",
     category: "developer-cloud",
@@ -487,5 +577,101 @@ mod tests {
             yaml("synthetic-first-value"),
             yaml("synthetic-second-value")
         );
+    }
+
+    /// What this rule finds in Codex's config, by line and holder.
+    fn codex(file: &str) -> Vec<(Option<usize>, Option<String>)> {
+        RULES
+            .iter()
+            .filter(|rule| rule.id == MCP_SECRET.id)
+            .filter(|rule| rule.targets.contains(&Target::File(".codex/config.toml")))
+            .flat_map(|rule| match rule.matcher {
+                Matcher::Whole { test, .. } => test(file.as_bytes()).unwrap(),
+                _ => Vec::new(),
+            })
+            .map(|hit| (hit.line, hit.subject))
+            .collect()
+    }
+
+    #[test]
+    fn a_codex_server_s_literal_headers_are_found() {
+        let server = "[mcp_servers.fixture]\nurl = \"https://mcp.example.invalid/mcp\"\n";
+        let fixture = || Some("server fixture".to_string());
+        // A table on one line, its own table, or dotted keys.
+        let inline = format!(
+            "{server}http_headers = {{ \"Authorization\" = \"Bearer synthetic-only-value\", \"X-Api-Key\" = \"synthetic-second-value\" }}\n"
+        );
+        assert_eq!(codex(&inline), [(Some(3), fixture())]);
+        // A byte order mark is not part of the first heading.
+        assert_eq!(codex(&format!("\u{feff}{inline}")), [(Some(3), fixture())]);
+        let table = format!(
+            "{server}\n[mcp_servers.fixture.http_headers]\nAuthorization = \"Bearer synthetic-only-value\" # fixture\n\"X-Api-Key\" = \"synthetic-second-value\"\n"
+        );
+        assert_eq!(codex(&table), [(Some(5), fixture()), (Some(6), fixture())]);
+        let dotted = "[mcp_servers]\nfixture.http_headers.\"X-Api-Key\" = 'synthetic-only-value'\n";
+        assert_eq!(codex(dotted), [(Some(2), fixture())]);
+        // Variable names, references, a header that names no secret, and
+        // headers that are not a server's.
+        let none = [
+            format!("{server}bearer_token_env_var = \"FIXTURE_TOKEN\"\nenv_http_headers = {{ \"X-Api-Key\" = \"FIXTURE_API_KEY\" }}\n"),
+            format!("{server}\n[mcp_servers.fixture.env_http_headers]\n\"X-Api-Key\" = \"FIXTURE_API_KEY\"\n"),
+            format!("{server}http_headers = {{ \"Authorization\" = \"Bearer ${{FIXTURE_TOKEN}}\", \"X-Fixture\" = \"synthetic-only-value\" }}\n"),
+            format!("{server}# http_headers = {{ \"X-Api-Key\" = \"synthetic-only-value\" }}\n"),
+            "[profiles.fixture]\nhttp_headers = { \"X-Api-Key\" = \"synthetic-only-value\" }\n".to_string(),
+            "[mcp_servers.fixture.http_headers]\n[mcp_servers.fixture.env]\n\"X-Api-Key\" = \"synthetic-only-value\"\n".to_string(),
+        ];
+        for file in none {
+            assert_eq!(codex(&file), [], "{file}");
+        }
+        // Codex rewrites its config as it runs: the headers, not the rest of
+        // the file, are what the app fingerprints.
+        let material = |model: &str, key: &str| {
+            let file = format!(
+                "model = \"{model}\"\n{server}http_headers = {{ \"X-Api-Key\" = \"{key}\" }}\n"
+            );
+            crate::rules::material(MCP_SECRET.id, file.as_bytes())
+        };
+        assert_eq!(
+            material("fixture-a", "synthetic-first-value"),
+            material("fixture-b", "synthetic-first-value")
+        );
+        assert_ne!(
+            material("fixture-a", "synthetic-first-value"),
+            material("fixture-a", "synthetic-second-value")
+        );
+    }
+
+    #[test]
+    fn codex_headers_report_the_line_limit() {
+        let servers = |count| {
+            (0..count)
+                .map(|n| format!("[mcp_servers.fixture-{n}]\nhttp_headers = {{ \"X-Api-Key\" = \"synthetic-value-{n}\" }}\n"))
+                .collect::<String>()
+        };
+        assert_eq!(codex_hits(servers(100).as_bytes()).unwrap().len(), 100);
+        let incomplete = codex_hits(servers(101).as_bytes())
+            .err()
+            .expect("line limit");
+        assert_eq!(incomplete.reason, "scan-limit");
+        assert_eq!(incomplete.hits.len(), 100);
+    }
+
+    #[test]
+    fn a_codex_heading_is_read_once_for_the_lines_under_it() {
+        // A long heading, and as many short lines under it as fit in the
+        // 1 MiB a config is read up to.
+        let long = "a".repeat(500 * 1024);
+        for heading in [format!("[{long}]\n"), format!("[mcp_servers.{long}]\n")] {
+            let file = heading + &"x=\n".repeat(170_000);
+            assert!(file.len() < 1024 * 1024);
+            let started = std::time::Instant::now();
+            assert!(codex_hits(file.as_bytes()).unwrap().is_empty());
+            let took = started.elapsed();
+            assert!(
+                took < std::time::Duration::from_secs(10),
+                "reading {} bytes took {took:?}",
+                file.len()
+            );
+        }
     }
 }
