@@ -639,7 +639,7 @@ vendors change their settings.
   Otherwise `recheck_values` knows nothing (`None`), so an item saved by
   another build, or under a target list that has changed since, is never
   marked fixed with its file unread. Test:
-  `a_recheck_this_build_cannot_make_is_not_a_fix` in `src/scan.rs`.
+  `a_recheck_this_build_cannot_make_is_not_a_fix` in `src/scan/tests.rs`.
 - Inline environment tables retain each literal secret separately and skip a
   service-token assignment only when its whole value matches the token rule. Quoted
   commas do not separate pairs. The existing scalar parser accepts a limited
@@ -690,8 +690,10 @@ vendors change their settings.
 ## Tests
 
 - Unit tests are in a `tests` module in the file they test and can reach
-  private items. `tests/scan_scope.rs` runs the built scanner as a child
-  process and sees what a person would: output, exit status, files. [1]
+  private items. The scanner's are all in `src/scan/tests.rs`, and reach a
+  private item of another file in `src/scan/` only if it is `pub(super)`.
+  `tests/scan_scope.rs` runs the built scanner as a child process and sees
+  what a person would: output, exit status, files. [1]
 - A test builds its fixtures in a folder under `TMPDIR` named for the test and
   `std::process::id()`, and removes it at the end or in `Drop`. Tests run in
   parallel, so a shared name collides. `TMPDIR` has to be a real path because

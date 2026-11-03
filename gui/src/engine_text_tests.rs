@@ -23,6 +23,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("gui/src/monitor.rs", include_str!("monitor.rs")),
     ("gui/src/release.rs", include_str!("release.rs")),
     ("src/scan.rs", include_str!("../../src/scan.rs")),
+    ("src/scan/paths.rs", include_str!("../../src/scan/paths.rs")),
     ("src/fsutil.rs", include_str!("../../src/fsutil.rs")),
     ("src/rules/ai.rs", include_str!("../../src/rules/ai.rs")),
     ("src/rules/aws.rs", include_str!("../../src/rules/aws.rs")),
@@ -68,23 +69,23 @@ const GAP_ID: &str = "a gap id from fsutil::open_directory: the whole error when
 const EXTRA: &[(&str, &str, &str)] = &[
     (
         "HOME is not set to an absolute path",
-        "src/scan.rs",
+        "src/scan/paths.rs",
         "a whole error from skip_folder and the review store, the folder list's home \
          error, and inside \"Cannot scan: %@.\"",
     ),
     (
         "could not resolve selected path",
-        "src/scan.rs",
+        "src/scan/paths.rs",
         "inside \"Cannot add that folder: %@.\" and \"Cannot skip: %@.\"",
     ),
     (
         "selected paths must not contain '..'",
-        "src/scan.rs",
+        "src/scan/paths.rs",
         "inside \"Cannot add that folder: %@.\" and \"Cannot skip: %@.\"",
     ),
     (
         "the home folder, or a folder above it, cannot be skipped",
-        "src/scan.rs",
+        "src/scan/paths.rs",
         "inside \"Cannot skip: %@.\"",
     ),
     (
@@ -209,19 +210,25 @@ fn root() -> &'static Path {
 }
 
 /// The scanner's files that give findings their subject and detail, as
-/// they are now: src/scan.rs and every file in src/rules, so a new rule
-/// file is read too.
+/// they are now: src/scan.rs, every file in src/scan but its tests, and
+/// every file in src/rules, so a new file is read too.
 fn scanner_files() -> Result<Vec<(String, String)>, String> {
-    let rules = root().join("src/rules");
     let mut names = Vec::new();
-    for entry in std::fs::read_dir(&rules).map_err(|e| format!("cannot list src/rules: {e}"))? {
-        let entry = entry.map_err(|e| format!("cannot list src/rules: {e}"))?;
-        let name = entry.file_name();
-        let name = name
-            .to_str()
-            .ok_or("src/rules holds a file whose name is not UTF-8")?;
-        if name.ends_with(".rs") {
-            names.push(format!("src/rules/{name}"));
+    for folder in ["src/scan", "src/rules"] {
+        let entries = std::fs::read_dir(root().join(folder))
+            .map_err(|e| format!("cannot list {folder}: {e}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("cannot list {folder}: {e}"))?;
+            let name = entry.file_name();
+            let name = name
+                .to_str()
+                .ok_or_else(|| format!("{folder} holds a file whose name is not UTF-8"))?;
+            let name = format!("{folder}/{name}");
+            // The scanner's tests. Only `mod tests;` in src/scan.rs marks
+            // them as test code, so this file is left out by name.
+            if name.ends_with(".rs") && name != "src/scan/tests.rs" {
+                names.push(name);
+            }
         }
     }
     names.sort();

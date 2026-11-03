@@ -1,6 +1,6 @@
 //! Detection rules, grouped by family. Each rule defines its report text,
-//! targets, matcher and test samples. Scan scope and limits live in `scan.rs`;
-//! scanned files are opened through `fsutil.rs`.
+//! targets, matcher and test samples. Scan scope and limits live in `scan.rs`
+//! and `scan/`; scanned files are opened through `fsutil.rs`.
 
 mod ai;
 mod apps;

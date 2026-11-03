@@ -170,7 +170,7 @@ fn stored_size<T: Serialize>(value: &T) -> usize {
 }
 pub const MAX_SKIPS: usize = 32;
 /// The scanner keeps this many distinct hits when it reads a file through
-/// (`stream` in `src/scan.rs`), and no rule that tells values apart keeps
+/// (`stream` in `src/scan/read.rs`), and no rule that tells values apart keeps
 /// fewer for a file it reads whole. A report with that many for one file
 /// may have left others out, and so may a fresh read of it.
 const HITS_PER_FILE: usize = 50;

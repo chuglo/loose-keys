@@ -17,8 +17,9 @@ app; the `loose-keys` command ships inside its bundle.
 
 - `src/`: the scanner, a library crate (`lib.rs`), and the `loose-keys`
   command on top of it (`main.rs`). `rules/` has one file per rule family,
-  `fsutil.rs` is the only code that opens scanned files, `scan.rs` sets what
-  is visited and the work limits, `report.rs` builds every output.
+  `fsutil.rs` is the only code that opens scanned files, `scan.rs` and
+  `scan/` set what is visited and the work limits, `report.rs` builds every
+  output.
 - `gui/`: the app's engine, a static library that depends on the scanner
   crate, so a change under `src/` changes the app too.
 - `gui/app/`: the macOS window, in Swift. `gui/app/Bridge.h` is its whole

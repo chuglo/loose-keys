@@ -793,14 +793,14 @@
 /* gui/src/agent.rs:773 */
 "Could not watch the home folder for changes." = "No se pudo vigilar la carpeta de inicio para detectar cambios.";
 
-/* src/scan.rs: a whole error from skip_folder and the review store, the folder list's home error, and inside "Cannot scan: %@." */
+/* src/scan/paths.rs: a whole error from skip_folder and the review store, the folder list's home error, and inside "Cannot scan: %@." */
 "HOME is not set to an absolute path" = "HOME no tiene asignada una ruta absoluta";
 
-/* src/scan.rs: inside "Cannot add that folder: %@." and "Cannot skip: %@." */
+/* src/scan/paths.rs: inside "Cannot add that folder: %@." and "Cannot skip: %@." */
 "could not resolve selected path" = "no se pudo resolver la ruta seleccionada";
 "selected paths must not contain '..'" = "las rutas seleccionadas no deben contener '..'";
 
-/* src/scan.rs: inside "Cannot skip: %@." */
+/* src/scan/paths.rs: inside "Cannot skip: %@." */
 "the home folder, or a folder above it, cannot be skipped" = "la carpeta de inicio, o una carpeta superior, no se puede excluir";
 
 /* src/fsutil.rs: inside "Could not save: %@." */
