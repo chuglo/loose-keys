@@ -2090,6 +2090,58 @@ fn a_long_record_with_a_token_at_its_start_is_not_too_large_to_check() {
     );
 }
 
+/// The same for a tree whose folder, or a folder above it, is a link
+/// inside the home. Its records are read where the link leads, and there
+/// the token rule said each long one was too large to check, so every
+/// scan, check of changes and pass of the helper was partial.
+#[test]
+fn a_long_record_in_a_linked_tree_is_not_too_large_to_check() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new("long-record-linked");
+    let token = format!("gh{}_{}", "p", "0123456789abcdefghijABCDEFGHIJ012345");
+    let mut record = format!("{{\"out\":\"{token}\"}}\n").into_bytes();
+    while record.len() <= 1024 * 1024 + 4096 {
+        record.extend_from_slice(b"{\"type\":\"synthetic\",\"text\":\"fixture line\"}\n");
+    }
+    // One tree's own folder is a link, and a folder above another's.
+    let codex = "dotfiles/codex/sessions/s.jsonl";
+    let code = "dotfiles/code/User/workspaceStorage/w/s.jsonl";
+    put(&f.0, codex, &record);
+    put(&f.0, code, &record);
+    symlink(f.0.join("dotfiles/codex"), f.0.join(".codex")).unwrap();
+    fs::create_dir_all(f.0.join("Library/Application Support")).unwrap();
+    let linked = f.0.join("Library/Application Support/Code");
+    symlink(f.0.join("dotfiles/code"), linked).unwrap();
+    let rule = "secret.agent-record";
+    let found = |paths: &[&str]| {
+        let found = paths.iter().map(|p| (rule, format!("~/{p}"))).collect();
+        (found, vec![])
+    };
+    assert_eq!(full(&f.0), found(&[code, codex]));
+    for path in [codex, code] {
+        assert_eq!(change(&f.0, &[], path), found(&[path]), "{path}");
+        let folder = Path::new(path).parent().unwrap().to_str().unwrap();
+        assert_eq!(change(&f.0, &[], folder), found(&[path]), "{folder}");
+    }
+    // A pass in slices, with discovery reaching them after the slice
+    // that read the trees.
+    let cancel = || Arc::new(AtomicBool::new(false));
+    let (mut gaps, mut resume, mut slices) = (Vec::new(), None, 0);
+    loop {
+        let (r, pending) = Scan::sweep(&f.0, &[], resume, limits(4), cancel(), digest);
+        let gap = r.not_checked.into_iter();
+        gaps.extend(gap.filter(|g| g.reason == "too-large").map(|g| g.path));
+        slices += 1;
+        if pending.is_empty() {
+            break;
+        }
+        resume = Some(pending);
+        assert!(slices < 50, "the pass did not end");
+    }
+    assert!(slices > 2, "the budget must force several slices");
+    assert_eq!(gaps, Vec::<String>::new());
+}
+
 /// A file matched by its head is read whole only for its fingerprint.
 /// One too large for that was still found, and was also said to be too
 /// large to check, so the app's scans were never complete.

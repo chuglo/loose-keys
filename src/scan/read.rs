@@ -358,10 +358,13 @@ impl Scan {
 
     /// Whether a rule for records reads `p` through: a file in a tree of
     /// records, in no folder that rule passes over, and no deeper than it
-    /// reads. Only by the tree's own name in the home folder.
-    fn read_as_record(&self, p: &Path) -> bool {
+    /// reads. The tree is where that rule reads it: by its own name in the
+    /// home folder, or where a link it follows leads.
+    fn read_as_record(&mut self, p: &Path) -> bool {
         trees().any(|(_, dir)| {
-            let root = self.home.join(dir);
+            let Some(root) = self.targeted(&self.home.join(dir)) else {
+                return false;
+            };
             let Some(parent) = p.parent().filter(|parent| parent.starts_with(&root)) else {
                 return false;
             };
