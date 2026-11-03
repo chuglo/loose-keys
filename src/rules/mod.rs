@@ -748,10 +748,17 @@ fn xml_attribute<'a>(mut attributes: &'a str, wanted: &str) -> Option<&'a str> {
 
 /// A literal, single-line secret candidate, never a shell expression or reference.
 fn inline_literal(s: &str) -> bool {
+    verbatim_literal(s) && !s.contains(['$', '`']) && !s.starts_with(['&', '!'])
+}
+
+/// As `inline_literal`, in a format that takes text as it is: one that
+/// expands no "$" or "`", and where a leading "!" or "&" is not a YAML tag or
+/// anchor. A template's "${...}" still stands in for a value there.
+fn verbatim_literal(s: &str) -> bool {
     !s.is_empty()
-        && !s.contains(['$', '`'])
+        && !s.contains("${")
         && !s.chars().any(char::is_whitespace)
-        && !s.starts_with(['<', '*', '&', '!'])
+        && !s.starts_with(['<', '*'])
         && !["env:", "file:", "keychain:"]
             .iter()
             .any(|prefix| s.starts_with(prefix))
@@ -760,11 +767,18 @@ fn inline_literal(s: &str) -> bool {
 /// Parse the single-line scalar subset emitted by these CLI configs. No YAML
 /// tags, aliases, collections, block scalars, interpolation or shell execution.
 fn scalar_literal(raw: &str) -> Option<&str> {
+    scalar_literal_by(raw, |value, _| inline_literal(value))
+}
+
+/// As `scalar_literal`, with `literal` judging the value, given the quote
+/// that held it, if any.
+fn scalar_literal_by(raw: &str, literal: fn(&str, Option<char>) -> bool) -> Option<&str> {
     let raw = raw.trim();
     if raw.starts_with(['#', ';']) {
         return None;
     }
-    let value = if let Some(quote @ ('\'' | '"')) = raw.chars().next() {
+    let quote = raw.chars().next().filter(|c| matches!(c, '\'' | '"'));
+    let value = if let Some(quote) = quote {
         let end = raw[1..].find(quote)? + 1;
         let rest = raw[end + 1..].trim();
         if !rest.is_empty() && !rest.starts_with('#') {
@@ -774,7 +788,7 @@ fn scalar_literal(raw: &str) -> Option<&str> {
     } else {
         raw.split_once(" #").map_or(raw, |(value, _)| value).trim()
     };
-    (inline_literal(value)
+    (literal(value, quote)
         && !value.starts_with(['|', '>', '{', '['])
         && !matches!(value, "null" | "Null" | "NULL" | "~" | "true" | "false"))
     .then_some(value)

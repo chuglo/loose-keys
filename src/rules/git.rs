@@ -30,6 +30,7 @@ pub const GIT_CREDENTIALS: Rule = Rule {
     },
     samples: &[
         (b"https://user:synthetic@example.com\n", true),
+        (b"https://user:!synthetic$value@example.com\n", true),
         (b"https://user@example.com\n", false),
     ],
 };
@@ -50,7 +51,7 @@ fn git_credential_lines(text: &str) -> Vec<Hit> {
             let authority = rest.split(['/', '?', '#']).next()?;
             let (userinfo, host) = authority.rsplit_once('@')?;
             let (user, password) = userinfo.split_once(':')?;
-            (!host.is_empty() && !user.is_empty() && inline_literal(password))
+            (!host.is_empty() && !user.is_empty() && verbatim_literal(password))
                 .then(|| Hit::line(i + 1).about(host).at(text, password))
         })
         .collect()

@@ -34,6 +34,8 @@ pub const PYPI_PASSWORD: Rule = Rule {
         (b"[pypi]\nusername = __token__\npassword = synthetic-only\n", true),
         (b"[pypi]\nusername = __token__\n", false),
         (b"[pypi]\npassword = ${PYPI_TOKEN}\n", false),
+        (b"[private]\npassword = synthetic$only-value\n", true),
+        (b"[private]\npassword = !synthetic-only-value\n", true),
         // Poetry's auth.toml names a token by its repository.
         (b"[pypi-token]\nprivate-repository = \"synthetic-only-value\"\n", true),
         (b"[http-basic.private-repository]\nusername = \"fixture-user-name\"\n", false),
@@ -42,7 +44,10 @@ pub const PYPI_PASSWORD: Rule = Rule {
 
 fn pypi_hits(bytes: &[u8]) -> Hits {
     let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
-    let mut hits = ini_hits(text, &["password"]);
+    // twine reads .pypirc raw, so "$" and "!" are text there.
+    let mut hits = ini_hits_by(text, &["password"], |value| {
+        scalar_literal_by(value, |value, _| verbatim_literal(value)).is_some()
+    });
     // Poetry: under [pypi-token], each name is a repository and each
     // value its token.
     let mut tokens = false;

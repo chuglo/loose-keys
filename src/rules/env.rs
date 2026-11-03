@@ -44,6 +44,14 @@ pub const ENV_SECRET: Rule = Rule {
         (b"# API_TOKEN=synthetic-only-value\nPASSWORD_MIN_LENGTH=12\n", false),
         // A value runs to the end of its line here, and this one is prose.
         (b"PASSWORD_RESET_SUBJECT=Password reset requested\n", false),
+        // Only a shell or .env file expands "$", and not inside single quotes.
+        // A leading "!" or "&" means something in YAML alone.
+        (b"DB_PASSWORD='!synthetic-only-value'\n", true),
+        (b"DB_PASSWORD='synthetic$only-value'\n", true),
+        (
+            b"DB_PASSWORD=\"synthetic$only-value\"\nGOOGLE_API_KEY: !synthetic-only-value\n",
+            false,
+        ),
     ],
 };
 
@@ -85,6 +93,7 @@ pub const SHELL_SECRET: Rule = Rule {
             b": 1700000000:0;export API_TOKEN=\"synthetic-only-value\"; make deploy\n",
             true,
         ),
+        (b"export DB_PASSWORD='synthetic$only-value'\n", true),
         (
             b": 1700000001:0;PGUSER=fixture PGPASSWORD=synthetic-only-value psql shop\n",
             true,
@@ -186,7 +195,12 @@ fn secret_assignment(raw: &str, shell: bool) -> Option<(&str, &str)> {
             .map(|(name, value)| (unquoted(name), value))
             .map(|(name, value)| (name, if shell { shell_word(value) } else { value }))
             .filter(|(name, _)| is_name(name))
-            .or_else(|| line.split_once(": ").map(|(name, v)| (unquoted(name), v)))?,
+            // In YAML a value that starts with "!" or "&" is a tag or an anchor.
+            .or_else(|| {
+                line.split_once(": ")
+                    .filter(|(_, v)| !v.trim_start().starts_with(['!', '&']))
+                    .map(|(name, v)| (unquoted(name), v))
+            })?,
     };
     // Codex writes a server's variables on one line: env = { "NAME" = "value" }
     if let Some(table) = value.trim().strip_prefix('{') {
@@ -273,8 +287,16 @@ fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
         ]
         .iter()
         .any(|suffix| upper.ends_with(suffix));
-    let value = scalar_literal(value)?;
+    let value = shell_literal(value)?;
     (secret_name && value.len() >= 8 && plausible(value)).then_some((name, value))
+}
+
+/// A value as a shell or .env file holds it: "$" and "`" are expanded
+/// unless single quotes hold them, and a leading "!" or "&" is text.
+fn shell_literal(raw: &str) -> Option<&str> {
+    scalar_literal_by(raw, |value, quote| {
+        verbatim_literal(value) && (quote == Some('\'') || !value.contains(['$', '`']))
+    })
 }
 
 /// The value in "NAME=value command", which is how a shell gives a variable
@@ -580,6 +602,58 @@ mod tests {
                 .collect();
             assert_eq!(found, want, "{line}");
             assert!(hits.iter().all(|hit| hit.line == Some(1)));
+        }
+    }
+
+    #[test]
+    fn a_value_is_text_where_its_format_gives_its_symbols_no_meaning() {
+        for (line, want) in [
+            // A .env or shell file: "!" and "&" are text, and so is "$"
+            // inside single quotes.
+            (
+                "DB_PASSWORD=!synthetic-only-value",
+                Some("!synthetic-only-value"),
+            ),
+            (
+                "DB_PASSWORD='!synthetic-only-value'",
+                Some("!synthetic-only-value"),
+            ),
+            (
+                "DB_PASSWORD=\"!synthetic-only-value\"",
+                Some("!synthetic-only-value"),
+            ),
+            (
+                "DB_PASSWORD='&synthetic-only-value'",
+                Some("&synthetic-only-value"),
+            ),
+            (
+                "export DB_PASSWORD='!synthetic-only-value'",
+                Some("!synthetic-only-value"),
+            ),
+            (
+                "export DB_PASSWORD='synthetic$only-value'",
+                Some("synthetic$only-value"),
+            ),
+            // A shell expands "$" and "`" outside single quotes.
+            ("DB_PASSWORD=synthetic$only-value", None),
+            ("export DB_PASSWORD=\"synthetic$only-value\"", None),
+            ("DB_PASSWORD=\"synthetic`only`value\"", None),
+            // A template stands in for a value, quoted or not.
+            ("DB_PASSWORD='${OTHER}'", None),
+            ("env = { DB_PASSWORD = '${OTHER}' }", None),
+            // In YAML a leading "!" is a tag and "&" an anchor, unless quoted.
+            ("GOOGLE_API_KEY: !synthetic-only-value", None),
+            ("GOOGLE_API_KEY: &synthetic-only-value", None),
+            (
+                "GOOGLE_API_KEY: '!synthetic-only-value'",
+                Some("!synthetic-only-value"),
+            ),
+        ] {
+            let hits = shell_hits(line.as_bytes()).unwrap();
+            let found = hits
+                .first()
+                .and_then(|hit| line.get(hit.span.clone().expect("a value span")));
+            assert_eq!(found, want, "{line}");
         }
     }
 

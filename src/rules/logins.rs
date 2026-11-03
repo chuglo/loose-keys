@@ -481,6 +481,8 @@ pub const URL_PASSWORD: Rule = Rule {
         (b"[url \"https://fixture:synthetic-only@git.example.invalid/\"]\n\tinsteadOf = https://git.example.invalid/\n", true),
         (b"[global]\nextra-index-url = https://pypi.example.invalid/simple https://fixture:synthetic-only@private.example.invalid/simple\n", true),
         (b"[global]\nindex-url = https://pypi.example.invalid/simple\n", false),
+        (b"[global]\nindex-url = https://fixture:!synthetic-only@pypi.example.invalid/simple\n", true),
+        (b"[global]\nindex-url = https://fixture:synthetic$only@pypi.example.invalid/simple\n", true),
         (b"[global]\nindex-url = https://fixture:${PIP_PASSWORD}@pypi.example.invalid/simple\n", false),
     ],
     ..COMPOSER_AUTH
@@ -501,7 +503,7 @@ fn url_password_hits(bytes: &[u8]) -> Hits {
                         let (user, password) = userinfo.split_once(':')?;
                         (!host.is_empty()
                             && !user.is_empty()
-                            && inline_literal(password)
+                            && verbatim_literal(password)
                             && plausible(password))
                         .then(|| Hit::line(i + 1).about(host).at(text, password))
                     })

@@ -193,6 +193,7 @@ pub fn assert_no_values(bytes: &[u8]) {
         "synthetic,first-value",
         "synthetic,only-value",
         "synthetic-second-value",
+        "synthetic$only-value",
         "synthetic-access-id",
         "c3ludGhldGlj",
         "0123456789abcdefghijABCDEFGHIJ012345",
