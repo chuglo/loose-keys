@@ -39,8 +39,7 @@ own. Numbers in brackets refer to the sources at the end.
   tests, and where failure is impossible by construction. New code in the
   last case says why, with `expect("...")` or a comment, or avoids the
   fallible call: `c"state.json"` instead of `CString::new("state.json")`.
-  Older code has bare `unwrap()` there, for example in `src/main.rs` and
-  `Store::load`. [1]
+  Older code has bare `unwrap()` there, for example in `src/main.rs`. [1]
 - Never unwrap, format or log an error that carries its input when the input
   came from a scanned file. A panic prints the error's `Debug` form, which for
   `FromUtf8Error` and `NulError` includes the bytes, and a `serde_json` type
@@ -389,12 +388,14 @@ The threats are a local user racing a root run with links, and hostile files
   `a_folder_access_list_that_lets_others_change_it_is_seen` in
   `src/fsutil.rs` gives folders entries with `chmod +a` and asks
   `lets_others_change` about each; no test runs as root, so its use in the
-  root check is not run. The app's state is written to a new temporary file,
-  synced, renamed over the old one, and the folder synced (`Store::save`).
+  root check is not run. The app's state, and the copy of the update
+  answer beside it, are written to a new temporary file, synced, renamed
+  over the old one, and the folder synced (`Store::replace`).
 - Everything read back is bounded and checked before use, the app's own state
   included: `Store::open` and `load` require the user's ownership, no access
-  for others, one link, a size limit and sane counts. Code running as the user
-  can edit that file.
+  for others, one link, a size limit and sane counts; the update answer's
+  copy is opened with the same checks (`Store::open_private`). Code running
+  as the user can edit those files.
 - The organization's expected-findings list enters only through the
   window's `set_expected`, from a preference macOS reports as forced
   (`CFPreferencesAppValueIsForced`). The merged defaults are never read:
@@ -928,6 +929,17 @@ by the wall clock, because a timer stops while the Mac sleeps. The person's answ
 sample and model-check builds compile no fetcher, and the picture build
 uses none.
 
+The answer is also kept as `true` or `false` in `update-check.json` beside
+the state, because a helper of an older build still running after an update
+saves the state without the field, which it does not know. Older builds
+never touch that file. `set_update_check` writes it first, inside the store's
+update, so a copy that cannot be written saves no answer. `Store::load`
+takes the copy's answer only when the state has none, and the next save
+puts it back in the state. A copy that is missing, not a private file of the
+user's, over 16 bytes or anything but `true` or `false` is no answer: the
+question is asked again and nothing is checked. Test:
+`the_update_choice_outlasts_a_save_by_an_older_build`.
+
 Checked by: `release.rs` tests (parsing, caps, errors, and
 `network_code_lives_only_in_updates_swift`, which fails if a network name
 on its lists appears in any other window, engine, bridge or scanner source;
@@ -938,9 +950,12 @@ cases, and the window check's update steps.
 Remaining risks: a compromised GitHub account or API can announce a fake
 newer version, though Download still opens the real release page; TLS trust
 is the system's, with no pinning; GitHub sees the IP address and that the
-app checked. Not verified by any check: a live request from the built app,
-and that a refused redirect reaches the app as a non-200 reply (unverified
-URLSession behaviour).
+app checked. An older build saving the state still drops the other fields it
+does not know, `menu_bar_off` among them; only the update answer has a copy.
+Not verified by any check: a live request from the built app, that a
+refused redirect reaches the app as a non-200 reply (unverified URLSession
+behaviour), and that a helper of an older build keeps running after the app
+is replaced (macOS behaviour).
 
 ### Building and starting
 

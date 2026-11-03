@@ -460,7 +460,12 @@ fn set_update_check(app: &App, enabled: bool) -> Answer<()> {
                 .into(),
         );
     }
-    update_state(app, |state| state.update_check = Some(enabled))?;
+    let store = app.store.as_ref().map_err(Clone::clone)?;
+    try_update_state(app, |state| {
+        store.keep_update_answer(enabled)?;
+        state.update_check = Some(enabled);
+        Ok(())
+    })?;
     emit(c"monitor-status", ());
     Ok(())
 }
@@ -2134,6 +2139,65 @@ mod tests {
         assert_eq!(this_program, true, "a copy of this program has it");
         assert_eq!(asking, false, "the app asking has it");
         assert_eq!(ended, false, "no process has it");
+    }
+
+    /// A helper of an older build, still running after an update, saves the
+    /// state without `update_check`, which it does not know. The answer is
+    /// kept in a file of its own as well, and taken from there.
+    #[test]
+    fn the_update_choice_outlasts_a_save_by_an_older_build() {
+        use std::os::unix::fs::PermissionsExt;
+        let _alone = one_scan();
+        let (home, app) = engine("update-choice-older");
+        let dir = home.join(review::STATE_DIR);
+        let (state, copy) = (dir.join("state.json"), dir.join("update-check.json"));
+        // Saved as an older build saves it: the state without the field.
+        let older_save = || {
+            let mut saved: Value = serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
+            saved.as_object_mut().unwrap().remove("update_check");
+            std::fs::write(&state, saved.to_string()).unwrap();
+        };
+        let answer = || ask(&app, "monitor_status", "{}")["ok"]["update_check"].clone();
+        let stored =
+            || -> Value { serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap() };
+        let mut seen = Vec::new();
+        for enabled in [true, false] {
+            let set = json!({ "enabled": enabled }).to_string();
+            assert_eq!(ask(&app, "set_update_check", &set), json!({ "ok": null }));
+            older_save();
+            seen.push(answer());
+            // The next save by this build puts it back in the state.
+            update_state(&app, |_| ()).unwrap();
+            seen.push(stored()["update_check"].clone());
+        }
+        // A copy that is not a private file of its own, is too large or holds
+        // anything but an answer is not one: the question is asked again.
+        older_save();
+        let put = |text: &str, mode: u32| {
+            // In place of what is there, a link included.
+            let _ = std::fs::remove_file(&copy);
+            std::fs::write(&copy, text).unwrap();
+            std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(mode)).unwrap();
+            answer()
+        };
+        let padded = format!("{}true", " ".repeat(16));
+        let mut broken = vec![put("yes", 0o600), put("true", 0o644), put(&padded, 0o600)];
+        std::fs::remove_file(&copy).unwrap();
+        std::fs::write(dir.join("elsewhere"), "true").unwrap();
+        std::os::unix::fs::symlink(dir.join("elsewhere"), &copy).unwrap();
+        broken.push(answer());
+        let restored = put("true", 0o600);
+        // A copy that cannot be written saves no answer at all.
+        std::fs::create_dir(dir.join("update-check.tmp")).unwrap();
+        let unwritable = ask(&app, "set_update_check", r#"{"enabled":false}"#);
+        let after = (answer(), stored()["update_check"].clone());
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(seen, [true, true, false, false]);
+        assert_eq!(broken, [Value::Null, Value::Null, Value::Null, Value::Null]);
+        assert_eq!(restored, true);
+        assert!(unwritable["error"].is_string(), "{unwritable}");
+        assert_eq!(after, (json!(true), Value::Null));
     }
 
     #[test]

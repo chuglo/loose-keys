@@ -159,6 +159,11 @@ pub const STATE_DIR: &str = "Library/Application Support/dev.loosekeys.desktop";
 /// Where versions before it kept their state, in the home folder. Opening
 /// the store moves it.
 const OLD_STATE_DIR: &CStr = c".loose-keys-review";
+/// The answer about update checks, in a file of its own beside the state,
+/// with the name it is written under first. Builds older than the question
+/// drop `update_check` when they save the state, and never touch this file.
+const UPDATE_ANSWER: &CStr = c"update-check.json";
+const UPDATE_ANSWER_TEMP: &CStr = c"update-check.tmp";
 /// Room for the items, as they are stored: three quarters of what the store
 /// takes. A refused save loses every finding of that scan, so the list
 /// counts as full before that. The rest is for decisions and settings,
@@ -1206,8 +1211,10 @@ impl Store {
         Ok(())
     }
 
-    pub fn load(&self) -> Result<Review, String> {
-        let name = CString::new("state.json").unwrap();
+    /// The store's file `name`, opened without following a link, if it is a
+    /// private regular file of this user's with no other name and no larger
+    /// than `limit`. None if there is no file by that name.
+    fn open_private(&self, name: &CStr, limit: u64) -> Result<Option<File>, String> {
         let fd = unsafe {
             libc::openat(
                 self.dir.as_raw_fd(),
@@ -1217,10 +1224,7 @@ impl Store {
         };
         if fd < 0 {
             return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-                Ok(Review {
-                    registry_labels: 1,
-                    ..Review::default()
-                })
+                Ok(None)
             } else {
                 Err("Could not read the review list.".into())
             };
@@ -1231,13 +1235,45 @@ impl Store {
             || m.uid() != unsafe { libc::geteuid() }
             || m.mode() & 0o077 != 0
             || m.nlink() != 1
-            || m.len() > STORE_BYTES as u64
+            || m.len() > limit
         {
             return Err(
                 "The review list file is not private, is the wrong kind of file, or is too large."
                     .into(),
             );
         }
+        Ok(Some(file))
+    }
+
+    /// The answer about update checks kept in its own file. None where there
+    /// is none, or none that can be trusted: a copy that is not a private
+    /// file, or holds anything but `true` or `false`, is no answer.
+    fn update_answer(&self) -> Option<bool> {
+        const LIMIT: u64 = 16;
+        let file = self.open_private(UPDATE_ANSWER, LIMIT).ok()??;
+        let mut json = Vec::new();
+        file.take(LIMIT + 1).read_to_end(&mut json).ok()?;
+        serde_json::from_slice(&json).ok()
+    }
+
+    /// Save the answer about update checks in its own file as well, where a
+    /// build that does not know of it cannot remove it. Only inside the
+    /// change `update` makes, whose lock excludes another writer, and before
+    /// the state is given the answer: a copy that cannot be saved stops the
+    /// change.
+    pub fn keep_update_answer(&self, answer: bool) -> Result<(), String> {
+        let json = if answer { "true" } else { "false" };
+        self.replace(UPDATE_ANSWER, UPDATE_ANSWER_TEMP, json.as_bytes())
+    }
+
+    pub fn load(&self) -> Result<Review, String> {
+        let Some(file) = self.open_private(c"state.json", STORE_BYTES as u64)? else {
+            return Ok(Review {
+                registry_labels: 1,
+                update_check: self.update_answer(),
+                ..Review::default()
+            });
+        };
         let mut json = String::new();
         file.take(STORE_BYTES as u64 + 1)
             .read_to_string(&mut json)
@@ -1260,6 +1296,10 @@ impl Store {
             return Err("The review list is too large for automatic scanning.".into());
         }
         review.upgrade_registry_labels();
+        // Gone where an older build saved the state since it was answered.
+        if review.update_check.is_none() {
+            review.update_check = self.update_answer();
+        }
         Ok(review)
     }
 
@@ -1278,8 +1318,12 @@ impl Store {
         if json.len() > STORE_BYTES {
             return Err("The review list has reached its size limit.".into());
         }
-        let name = CString::new("state.tmp").unwrap();
-        let dest = CString::new("state.json").unwrap();
+        self.replace(c"state.json", c"state.tmp", &json)
+    }
+
+    /// Replace the store's file `dest` with `json`: written to a new file
+    /// `name`, synced, renamed over it, and the folder synced.
+    fn replace(&self, dest: &CStr, name: &CStr, json: &[u8]) -> Result<(), String> {
         // Callers hold the store lock, which excludes another writer. Recover only our private
         // regular temporary file after an interrupted atomic replacement.
         let stale = unsafe {
@@ -1328,7 +1372,7 @@ impl Store {
         }
         let mut file = unsafe { File::from_raw_fd(fd) };
         let result = file
-            .write_all(&json)
+            .write_all(json)
             .and_then(|_| file.sync_all())
             .and_then(|_| {
                 if unsafe {

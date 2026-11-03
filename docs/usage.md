@@ -116,8 +116,9 @@ beside its name.
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
 file paths, rule identifiers, keyed fingerprints, consent, and review choices,
-not credential values. The directory uses mode `0700`; the file uses `0600`.
-The CLI does not use this review state. Earlier versions kept it in
+not credential values. Your answer about update checks is also kept in
+`update-check.json` beside it. The directory uses mode `0700`; the files use
+`0600`. The CLI does not use this review state. Earlier versions kept it in
 `~/.loose-keys-review`; the app moves it from there on first start, unless
 the new folder already holds state.
 
