@@ -1883,6 +1883,67 @@ fn change(home: &Path, skip: &[&str], path: &str) -> Seen {
     seen(r)
 }
 
+/// A known location behind a link that could not be resolved, as one that
+/// loops or one into a folder the person cannot open, was a "symlink" gap,
+/// which says the link leads out of the home folder. Both lead inside it,
+/// and the gap now says why they were not checked.
+#[test]
+fn a_link_that_cannot_be_resolved_is_not_said_to_leave_the_home() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let f = Fixture::new("link-unresolved");
+    let aws = b"[default]\nregion = fixture\n";
+    put(&f.0, "locked/aws/credentials", aws);
+    symlink(f.0.join("locked/aws"), f.0.join(".aws")).unwrap();
+    symlink(f.0.join(".npmrc"), f.0.join(".npmrc")).unwrap();
+    let locked = f.0.join("locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let scanned = full(&f.0);
+    let changed = change(&f.0, &[], ".npmrc");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    let (found, mut gaps) = scanned;
+    assert!(found.is_empty());
+    gaps.sort();
+    let denied = |p: &str| (format!("~/{p}"), "permission-denied");
+    assert_eq!(
+        gaps,
+        [
+            denied(".aws/cli/cache"),
+            denied(".aws/config"),
+            denied(".aws/credentials"),
+            denied(".aws/login/cache"),
+            denied(".aws/sso/cache"),
+            ("~/.npmrc".to_string(), "unreadable"),
+            denied("locked"),
+        ]
+    );
+    // A check of a change says the same of each, but of the folder no
+    // change was in.
+    let (found, mut said) = changed;
+    assert!(found.is_empty());
+    said.sort();
+    assert_eq!(said, gaps[..gaps.len() - 1]);
+}
+
+/// Nothing can be below a link to a file, as an entry of a browser's folder
+/// that links to a socket. A known location there was a gap, as if the
+/// link could not be resolved.
+#[test]
+fn a_known_location_below_a_link_to_a_file_is_not_a_gap() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new("link-to-file");
+    let outside = Fixture::new("link-to-file-out");
+    let chrome = "Library/Application Support/Google/Chrome";
+    fs::create_dir_all(f.0.join(chrome).join("Default")).unwrap();
+    fs::write(outside.0.join("SingletonSocket"), b"").unwrap();
+    let socket = f.0.join(chrome).join("SingletonSocket");
+    symlink(outside.0.join("SingletonSocket"), socket).unwrap();
+    put(&f.0, "dotfiles/aws", b"synthetic");
+    symlink(f.0.join("dotfiles/aws"), f.0.join(".aws")).unwrap();
+    let nothing = (vec![], vec![]);
+    assert_eq!(full(&f.0), nothing);
+    assert_eq!(change(&f.0, &[], chrome), nothing);
+}
+
 /// A folder of sign-ins was compared with a changed path as it is named
 /// only. Where the folder, or an account in it, is a link, macOS reports
 /// a change at the real place, and the check of that change read nothing:

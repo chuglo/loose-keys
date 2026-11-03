@@ -185,7 +185,7 @@ impl Scan {
             // Nothing there.
             None => false,
             Some(Ok(real)) => folder(std::fs::symlink_metadata(real)),
-            Some(Err(())) => folder(std::fs::metadata(p)),
+            Some(Err(_)) => folder(std::fs::metadata(p)),
         }
     }
 

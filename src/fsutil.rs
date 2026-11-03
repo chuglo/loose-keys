@@ -209,9 +209,10 @@ fn open_at(dir: &File, name: &OsStr, want_dir: bool) -> Result<Option<File>, Gap
 /// Where a path under `home` really is, when it or a folder above it is a
 /// symbolic link. None: no link on the way, or nothing there. Some(Ok): the
 /// real location, which is inside `home` and is then opened without following
-/// links like any other path. Some(Err): the link leads outside `home` or
-/// cannot be resolved, and is not followed.
-pub fn through_links(path: &Path, home: &Path) -> Option<Result<PathBuf, ()>> {
+/// links like any other path. Some(Err): the link is not followed, because it
+/// leads outside `home` ("symlink") or cannot be resolved, as when it loops
+/// or passes through a folder that cannot be opened (the gap that says why).
+pub fn through_links(path: &Path, home: &Path) -> Option<Result<PathBuf, Gap>> {
     let mut current = home.to_path_buf();
     for part in path.strip_prefix(home).ok()?.components() {
         current.push(part);
@@ -219,8 +220,12 @@ pub fn through_links(path: &Path, home: &Path) -> Option<Result<PathBuf, ()>> {
             Ok(meta) if meta.file_type().is_symlink() => {
                 return match fs::canonicalize(path) {
                     Ok(real) if real.starts_with(home) => Some(Ok(real)),
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-                    _ => Some(Err(())),
+                    Ok(_) => Some(Err("symlink")),
+                    // Nothing there, or below a file where nothing can be.
+                    Err(e) if matches!(e.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) => {
+                        None
+                    }
+                    Err(e) => Some(Err(gap(&e))),
                 };
             }
             Ok(_) => {}
@@ -948,6 +953,7 @@ mod tests {
 
     #[test]
     fn links_resolve_only_to_places_inside_home() {
+        use std::os::unix::fs::PermissionsExt;
         let base = PathBuf::from(std::env::var_os("TMPDIR").unwrap())
             .join(format!("credential-links-{}", std::process::id()));
         let home = base.join("home");
@@ -976,10 +982,24 @@ mod tests {
         link(home.join("absent"), home.join("dangling")).unwrap();
         assert_eq!(
             through_links(&home.join(".kube/credentials"), &home),
-            Some(Err(()))
+            Some(Err("symlink"))
         );
-        assert_eq!(through_links(&home.join("loop"), &home), Some(Err(())));
+        assert_eq!(
+            through_links(&home.join("loop"), &home),
+            Some(Err("unreadable"))
+        );
         assert_eq!(through_links(&home.join("dangling"), &home), None);
+        // Below a link to a file, in the home or outside it: nothing.
+        link(base.join("outside/credentials"), home.join("socket")).unwrap();
+        assert_eq!(through_links(&home.join(".npmrc/config"), &home), None);
+        assert_eq!(through_links(&home.join("socket/config"), &home), None);
+        // Into a folder inside the home that cannot be opened.
+        link(home.join("dotfiles/aws"), home.join(".config")).unwrap();
+        let none = fs::Permissions::from_mode(0o000);
+        fs::set_permissions(home.join("dotfiles"), none).unwrap();
+        let locked = through_links(&home.join(".config/credentials"), &home);
+        fs::set_permissions(home.join("dotfiles"), fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(locked, Some(Err("permission-denied")));
         fs::remove_dir_all(base).unwrap();
     }
 

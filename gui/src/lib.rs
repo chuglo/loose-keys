@@ -146,7 +146,8 @@ fn automatic_coverage(agent: &review::Agent) -> AutomaticCoverage {
             grouped
                 .into_iter()
                 .map(|(reason, paths)| {
-                    let (label, help) = gap_text(reason);
+                    // Kept by the helper, which never runs as root.
+                    let (label, help) = gap_text(reason, false);
                     GapView {
                         label: report::escape(label),
                         help: help.to_owned(),
@@ -1203,7 +1204,7 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
     let gaps = report::group_gaps(r)
         .into_iter()
         .map(|(reason, paths)| {
-            let (label, help) = gap_text(reason);
+            let (label, help) = gap_text(reason, r.context == "system");
             GapView {
                 label: label.to_owned(),
                 help: help.to_owned(),
@@ -1478,7 +1479,8 @@ fn still_there(item: &review::Item, home: &Path, key: &[u8]) -> Option<review::S
     scan::recheck_identities(&item.rule, &path, home, item.mount, &digest)
 }
 
-fn gap_text(reason: &str) -> (&str, &str) {
+/// `root`: the scan ran as root, where no link is followed.
+fn gap_text(reason: &str, root: bool) -> (&str, &str) {
     match reason {
         "permission-denied" => (
             "Blocked by system permissions",
@@ -1499,6 +1501,10 @@ fn gap_text(reason: &str) -> (&str, &str) {
         // The heading and the page's opening line say it; the limits are in
         // the usage guide.
         "scan-limit" => ("Only partly checked", ""),
+        "symlink" if root => (
+            "Link not followed",
+            "These sign-in files are links. Loose Keys follows no links when running as root.",
+        ),
         "symlink" => (
             "Link not followed",
             "These sign-in files are links to places outside your home folder. \
@@ -3326,9 +3332,34 @@ mod tests {
         unsafe { ch_free(std::ptr::null_mut()) };
     }
 
+    /// As root no link is followed, wherever it leads, so a link that was
+    /// not followed then is not said to lead out of the home folder.
+    #[test]
+    fn a_link_not_followed_as_root_is_not_said_to_leave_the_home() {
+        let mut r = Report {
+            schema: "loose-keys/report/1",
+            tool_version: "0.1.0",
+            generated_at: report::utc_now(),
+            status: "partial",
+            context: "user",
+            coverage: None,
+            findings: vec![],
+            not_checked: vec![report::NotChecked {
+                path: "~/.npmrc".into(),
+                reason: "symlink",
+            }],
+        };
+        let help = |r: &Report| results_view(r, None).gaps[0].help.clone();
+        assert!(help(&r).contains("outside your home folder"));
+        r.context = "system";
+        let root = help(&r);
+        assert!(!root.contains("outside"), "{root}");
+        assert!(root.contains("as root"), "{root}");
+    }
+
     #[test]
     fn work_limit_is_named_without_a_note() {
-        assert_eq!(gap_text("scan-limit"), ("Only partly checked", ""));
+        assert_eq!(gap_text("scan-limit", false), ("Only partly checked", ""));
     }
 
     #[test]

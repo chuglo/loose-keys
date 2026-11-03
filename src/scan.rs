@@ -601,16 +601,21 @@ impl Scan {
 
     /// The place to read for a known location. A link is followed only when
     /// it leads somewhere inside the home folder, and never as root, where a
-    /// link is something another user could have placed. Otherwise it is a gap.
+    /// link is something another user could have placed. Otherwise it is a
+    /// gap: "symlink", or why a link could not be resolved.
     fn targeted(&mut self, p: &Path) -> Option<PathBuf> {
         if let Some(known) = self.links.get(p) {
             return known.clone();
         }
         let real = match through_links(p, &self.home) {
             None => Some(p.to_path_buf()),
-            Some(Ok(real)) if !is_root() => Some(real),
-            Some(_) => {
+            Some(_) if is_root() => {
                 self.gap(p, "symlink");
+                None
+            }
+            Some(Ok(real)) => Some(real),
+            Some(Err(g)) => {
+                self.gap(p, g);
                 None
             }
         };

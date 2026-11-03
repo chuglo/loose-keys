@@ -293,6 +293,17 @@ The threats are a local user racing a root run with links, and hostile files
   root, a link changed between the resolution and the presence check, and
   a change at the real place a storage folder that is itself a link leads
   to, which a scan finds and a check of changes does not.
+  The gap says why a link was not followed: `symlink` when it leads outside
+  the home folder or the scan runs as root, where the text report and the
+  window say that no link is followed; `permission-denied` or `unreadable`
+  when it cannot be resolved, as when it loops or passes through a folder
+  that cannot be opened. Before, all of these were `symlink`, said to leave
+  the home folder. A place below a link to a file is not there and is no
+  gap. Tests: `links_resolve_only_to_places_inside_home`,
+  `a_link_that_cannot_be_resolved_is_not_said_to_leave_the_home`,
+  `a_known_location_below_a_link_to_a_file_is_not_a_gap`, and
+  `a_link_not_followed_as_root_is_not_said_to_leave_the_home` in
+  `src/report.rs` and `gui/src/lib.rs`. Not covered: a scan run as root.
 - `scan::home` resolves `HOME` once, as a relocated home is reached through a
   link. A folder given to `--select` or `--exclude` that begins with `HOME`
   as set, as the shell writes `~/notes`, has that prefix replaced by the

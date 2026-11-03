@@ -348,18 +348,21 @@ fn required() -> (Vec<Required>, Vec<String>) {
                     problems.push(format!("a not_checked reason is not text: {reason}"));
                     continue;
                 };
-                let (label, help) = crate::gap_text(reason.to_string().leak());
-                if label == reason {
-                    problems.push(format!(
-                        "gap_text in gui/src/lib.rs has no label for the not_checked reason {reason:?}"
-                    ));
-                    continue;
-                }
-                let origin = format!("not_checked reason {reason}: label, then any help");
-                gaps.push(need(label, &origin));
-                // The window shows no help when there is none.
-                if !help.is_empty() {
-                    gaps.push(need(help, &origin));
+                // As the user, and as root.
+                for root in [false, true] {
+                    let (label, help) = crate::gap_text(reason.to_string().leak(), root);
+                    if label == reason {
+                        problems.push(format!(
+                            "gap_text in gui/src/lib.rs has no label for the not_checked reason {reason:?}"
+                        ));
+                        continue;
+                    }
+                    let origin = format!("not_checked reason {reason}: label, then any help");
+                    gaps.push(need(label, &origin));
+                    // The window shows no help when there is none.
+                    if !help.is_empty() {
+                        gaps.push(need(help, &origin));
+                    }
                 }
             }
         }

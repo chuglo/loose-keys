@@ -613,6 +613,7 @@
 /* not_checked reason symlink: label, then help */
 "Link not followed" = "Enlace no seguido";
 "These sign-in files are links to places outside your home folder. Loose Keys does not follow such links." = "Estos archivos de inicio de sesión son enlaces a lugares fuera de tu carpeta de inicio. Loose Keys no sigue esos enlaces.";
+"These sign-in files are links. Loose Keys follows no links when running as root." = "Estos archivos de inicio de sesión son enlaces. Loose Keys no sigue ningún enlace cuando se ejecuta como root.";
 
 /* gui/src/lib.rs:216 */
 "Worth Reviewing is full, so some findings are not in it. Fix some items, then scan again." = "La lista Para revisar está llena, así que algunos hallazgos no aparecen. Corrige algunos elementos y vuelve a analizar.";

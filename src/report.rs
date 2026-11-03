@@ -250,13 +250,15 @@ fn wrap(out: &mut String, first: &str, rest: &str, text: &str) {
     }
 }
 
-fn gap_label(reason: &str) -> &str {
+/// `root`: the scan ran as root, where no link is followed.
+fn gap_label(reason: &str, root: bool) -> &str {
     match reason {
         "permission-denied" => "Access denied by macOS",
         "unreadable" => "Could not be read",
         "too-large" => "Too large to check",
         "cloud-only-file" => "Cloud-only, not downloaded",
         "scan-limit" => "Scan limit reached",
+        "symlink" if root => "Not followed: link (no link is followed as root)",
         "symlink" => "Not followed: link outside the home folder",
         other => other,
     }
@@ -369,7 +371,8 @@ fn push_gaps(s: &mut String, r: &Report) {
     }
     s.push_str(&format!("\nNOT CHECKED ({})\n", r.not_checked.len()));
     for (reason, paths) in group_gaps(r) {
-        s.push_str(&format!("\n{} ({})\n", gap_label(reason), paths.len()));
+        let label = gap_label(reason, r.context == "system");
+        s.push_str(&format!("\n{label} ({})\n", paths.len()));
         for p in paths.iter().take(GAPS_SHOWN) {
             s.push_str(&format!("   \"{}\"\n", escape(p)));
         }
@@ -649,6 +652,31 @@ mod tests {
         });
         assert!(to_text(&r, false)
             .contains("   Where: https://one.invalid (Square access token, Square app secret)\n"));
+    }
+
+    /// As root no link is followed, wherever it leads, so a link that was
+    /// not followed then is not said to leave the home folder.
+    #[test]
+    fn a_link_not_followed_as_root_is_not_said_to_leave_the_home() {
+        let mut r = Report {
+            schema: "loose-keys/report/1",
+            tool_version: "0.1.0",
+            generated_at: utc_now(),
+            status: "partial",
+            context: "user",
+            coverage: None,
+            findings: vec![],
+            not_checked: vec![NotChecked {
+                path: "~/.npmrc".into(),
+                reason: "symlink",
+            }],
+        };
+        let outside = "Not followed: link outside the home folder (1)";
+        assert!(to_text(&r, false).contains(outside));
+        r.context = "system";
+        let t = to_text(&r, false);
+        assert!(!t.contains("outside the home folder"), "{t}");
+        assert!(t.contains("Not followed: link (no link is followed as root) (1)"));
     }
 
     #[test]
