@@ -979,6 +979,53 @@ fn a_full_list_of_what_was_not_checked_says_it_is_full() {
     assert_eq!(s.not_checked.len(), 4100);
 }
 
+/// A folder selected inside the home is reached from both roots. What could
+/// not be checked there is listed once, as what was found there is.
+#[test]
+fn a_place_reached_from_two_roots_is_listed_once_as_not_checked() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new("gaps-two-roots");
+    put(&f.0, "Documents/sub/a.csv", b"url,username,password\n");
+    put(&f.0, "Documents/locked.csv", b"plain");
+    let none = fs::Permissions::from_mode(0o000);
+    fs::set_permissions(f.0.join("Documents/locked.csv"), none).unwrap();
+    let selected = [f.0.join("Documents")];
+    let cancel = Arc::new(AtomicBool::new(false));
+    for r in [
+        Scan::report(&f.0, &selected),
+        Scan::report_controlled(&f.0, &selected, &[], cancel, digest, |_| {}),
+    ] {
+        let gaps: Vec<_> = r
+            .not_checked
+            .iter()
+            .map(|g| (g.path.as_str(), g.reason))
+            .collect();
+        assert_eq!(gaps, [("~/Documents/locked.csv", "permission-denied")]);
+        let csv = r
+            .findings
+            .iter()
+            .filter(|x| x.rule == "export.password-csv");
+        assert_eq!(csv.count(), 1);
+    }
+}
+
+/// A full list ends with `~/` and `scan-limit`, though the home was listed
+/// for that reason already, as when its own listing was cut: what was
+/// dropped past it is said, and the list is seen to be full.
+#[test]
+fn a_full_list_ends_with_its_row_though_the_home_was_listed_before() {
+    let f = Fixture::new("gaps-full-home");
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut s = Scan::new(&f.0, None, Some(cancel), Some(Box::new(digest)), 1000);
+    s.gap(&f.0, "scan-limit");
+    for n in 0..4100 {
+        s.gap(&f.0.join(format!("u{n:04}")), "permission-denied");
+    }
+    assert_eq!(s.not_checked.len(), 4096);
+    let last = s.not_checked.last().map(|g| (g.path.as_str(), g.reason));
+    assert_eq!(last, Some(("~/", "scan-limit")));
+}
+
 #[test]
 fn a_file_given_up_for_time_is_checked_again_when_no_gap_could_say_so() {
     // The slice already holds the 4,096 gap rows a report keeps when it
@@ -1058,14 +1105,9 @@ fn a_scan_stopped_inside_a_file_still_names_the_folder_it_did_not_finish() {
     let rows = |gaps: &[NotChecked]| -> Vec<(String, &'static str)> {
         gaps.iter().map(|g| (g.path.clone(), g.reason)).collect()
     };
-    let all = |paths: [&str; 4]| paths.map(|p| (p.to_string(), "scan-limit")).to_vec();
+    let all = |paths: [&str; 3]| paths.map(|p| (p.to_string(), "scan-limit")).to_vec();
     let deep = "~/proj/sub/deep";
-    let expected = all([
-        "~/proj/sub/deep/.env",
-        "~/proj/sub/deep/.env",
-        deep,
-        "~/proj/sub",
-    ]);
+    let expected = all(["~/proj/sub/deep/.env", deep, "~/proj/sub"]);
     assert_eq!(rows(&r.not_checked), expected);
 
     // The same when the findings one scan keeps are reached inside a
@@ -1075,7 +1117,7 @@ fn a_scan_stopped_inside_a_file_still_names_the_folder_it_did_not_finish() {
     for n in 0..42 {
         put(&f.0, &format!("big/p/.env.{n:02}"), lines.as_bytes());
     }
-    let expected = all(["~/big/p/.env.40", "~/big/p/.env.40", "~/big/p", "~/big"]);
+    let expected = all(["~/big/p/.env.40", "~/big/p", "~/big"]);
     let cancel = Arc::new(AtomicBool::new(false));
     let paths = [f.0.clone()];
     let (r, left) = Scan::changed(&f.0, &[], &paths, limits(100_000), cancel, digest);
@@ -1100,7 +1142,7 @@ fn a_scan_stopped_inside_a_file_still_names_the_folder_it_did_not_finish() {
 fn a_stop_in_a_folder_s_last_file_adds_no_row_outside_a_sweep() {
     // Only a sweep comes back to the folder. A change check or a whole
     // scan says what it said before sweeps kept a place: the file's own
-    // rows, and none for a folder with nothing else left in it. A row
+    // row, and none for a folder with nothing else left in it. A row
     // more could push another out of a full list.
     let f = Fixture::new("folder-row-last");
     let one = format!("hf{}{}", "_", "abcdefghijABCDEFGHIJabcdefghijABCD");
@@ -1119,7 +1161,7 @@ fn a_stop_in_a_folder_s_last_file_adds_no_row_outside_a_sweep() {
         };
         (cancel, fingerprint)
     };
-    let file = ["~/a/b/c/one.env", "~/a/b/c/one.env"];
+    let file = ["~/a/b/c/one.env"];
     let (cancel, fingerprint) = stopping();
     let paths = [f.0.join("a")];
     let (r, left) = Scan::changed(&f.0, &[], &paths, limits(1000), cancel, fingerprint);
@@ -1130,7 +1172,7 @@ fn a_stop_in_a_folder_s_last_file_adds_no_row_outside_a_sweep() {
     let roots = std::slice::from_ref(&f.0);
     let s = Scan::run_observed(&f.0, roots, None, Some(cancel), Some(Box::new(fingerprint)));
     let rows: Vec<_> = s.not_checked.iter().map(|g| g.path.as_str()).collect();
-    assert_eq!(rows[..2], file);
+    assert_eq!(rows[..1], file);
     assert!(!rows.contains(&"~/a"), "{rows:?}");
 }
 
@@ -2683,14 +2725,14 @@ fn a_browser_folder_is_listed_out_of_the_entries_a_change_check_may_list() {
     assert_eq!(left.cut_short, [f.0.join(above)]);
     assert!(left.cancelled.is_empty() && left.out_of_budget.is_empty());
     // More names than any scan lists of one folder: said as a scan says
-    // it, by the listing for the profiles and by the walk, and nothing
-    // a full pass would finish.
+    // it, once, though the listing for the profiles and the walk both
+    // reach it, and nothing a full pass would finish.
     for n in 0..10_000 {
         fs::write(f.0.join(chrome).join(format!("wide-{n:05}")), "").unwrap();
     }
     let (listed, saw, left) = checked(&f.0, &[chrome], limits(100_000), false);
     assert!((20_000..100_000).contains(&listed), "{listed}");
-    assert_eq!(saw.1, [limited(chrome), limited(chrome)]);
+    assert_eq!(saw.1, [limited(chrome)]);
     assert_eq!(left, Unreached::default());
 }
 

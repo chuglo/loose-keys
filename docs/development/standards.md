@@ -16,8 +16,13 @@ own. Numbers in brackets refer to the sources at the end.
 - A failure that can happen in normal use is a value. In the scanner it is a
   gap: `fsutil` returns `Err(Gap)`, a fixed reason that ends up in
   `not_checked`, and `Ok(None)` only for what is skipped by design (absent, a
-  link, not a regular file). In the engine it is `Answer<T>`, a `Result` whose
-  error is text written for the person. [1]
+  link, not a regular file). A place is listed there once for each reason,
+  however many roots or reads reach it, but for the `~/` row that ends a full
+  list (`Scan::gap`; tests:
+  `a_place_reached_from_two_roots_is_listed_once_as_not_checked`,
+  `a_full_list_ends_with_its_row_though_the_home_was_listed_before`). In the
+  engine it is `Answer<T>`, a `Result` whose error is text written for the
+  person. [1]
 - A panic is for a broken invariant, never for input. Scanned files, the
   state file, a command's arguments and the environment are all input. [1][8]
 - Where a panic goes differs by program, on purpose:

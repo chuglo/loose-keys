@@ -195,7 +195,7 @@ pub struct Scan {
     /// Folders the person asked not to be checked.
     skip: Vec<PathBuf>,
     /// Times a reader said it did not read because the scan was stopped,
-    /// also when the list of gaps was full.
+    /// also when the list of gaps was full or already had that row.
     unread: usize,
     /// Something was not read because the scan was stopped or its entry
     /// budget was spent: never for a limit any scan reaches at that place.
@@ -207,6 +207,9 @@ pub struct Scan {
     progress: Option<(usize, Instant)>,
     pub findings: Vec<Finding>,
     pub not_checked: Vec<NotChecked>,
+    /// Each path and reason in `not_checked`, so a place reached twice, as
+    /// from two roots, is listed once for a reason.
+    gaps_listed: HashSet<(String, Gap)>,
 }
 
 /// Aggregate work only. No file names or secret values cross this boundary.
@@ -310,6 +313,7 @@ impl Scan {
             progress: std::io::stderr().is_terminal().then(|| (0, Instant::now())),
             findings: Vec::new(),
             not_checked: Vec::new(),
+            gaps_listed: HashSet::new(),
         }
     }
 
@@ -557,9 +561,14 @@ impl Scan {
         if reason == "scan-limit" {
             self.unread += 1;
         }
+        let path = self.rel(p);
+        if self.gaps_listed.contains(&(path.clone(), reason)) {
+            return;
+        }
         if self.cancel.is_some() && self.not_checked.len() >= 4096 - 1 {
             // The last row a report keeps says that more was not checked
-            // than the list names.
+            // than the list names, even if the home is listed already: a
+            // full list is one of 4,096 rows.
             if self.not_checked.len() == 4096 - 1 {
                 let path = self.rel(&self.home);
                 let reason = "scan-limit";
@@ -567,7 +576,7 @@ impl Scan {
             }
             return;
         }
-        let path = self.rel(p);
+        self.gaps_listed.insert((path.clone(), reason));
         self.not_checked.push(NotChecked { path, reason });
     }
 
