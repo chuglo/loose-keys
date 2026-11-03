@@ -49,6 +49,9 @@ final class SampleEngine: Engine {
     static var loginRequests: [Bool] = []
     /// Show in Menu Bar. set_menu_bar changes it, and the checks put it back.
     static var menuBar = true
+    /// Set by the checks: set_menu_bar is then refused, and the setting kept.
+    static var menuBarRefused = false
+    static let menuBarRefusal = "Could not save the setting."
     /// May the window check for updates: nil until asked. Answered no, so
     /// that the question is shown only by the checks that ask for it.
     static var updateCheck: Bool? = false
@@ -114,6 +117,8 @@ final class SampleEngine: Engine {
                 }
             }
             return Data("null".utf8)
+        case "set_menu_bar" where Self.menuBarRefused:
+            throw EngineError(message: Self.menuBarRefusal)
         case "set_menu_bar":
             Self.menuBar = args["enabled"] as? Bool ?? false
             return Data("null".utf8)
@@ -1387,6 +1392,17 @@ enum Checks {
         await press(toggle("Show in Menu Bar"), "turning Show in Menu Bar back on",
                     until: { SampleEngine.menuBar && model.menuBarOn && menuBarSwitch() == 1 })
         expect(await eventually { menuBarItems().count == 1 }, "with Show in Menu Bar on again, the icon is back")
+        // A refusal is shown in Settings, where the switch was pressed, and
+        // not in the main window as well.
+        let refusal = SampleEngine.menuBarRefusal
+        SampleEngine.menuBarRefused = true
+        await press(toggle("Show in Menu Bar"), "turning Show in Menu Bar off when the engine refuses",
+                    until: { settingsWindow != nil && written(in: settingsWindow).contains(refusal) && button("OK", in: settingsWindow) != nil })
+        expect(model.failure == nil && !before.contains { written(in: $0).contains(refusal) },
+               "a switch refused in Settings is not shown in the main window as well")
+        SampleEngine.menuBarRefused = false
+        await press(button("OK", in: settingsWindow), "closing the refusal in Settings",
+                    until: { model.settingsFailure == nil && !written().contains(refusal) && model.menuBarOn && menuBarSwitch() == 1 })
         let told = consent.flatMap { value($0, kAXEnabledAttribute) as? Bool }
         await press(consent, "turning background checks off with the review list full")
         for _ in 0..<10 where SampleEngine.monitoring { await settle() }
@@ -1399,6 +1415,16 @@ enum Checks {
         if let settings, let close = value(settings, kAXCloseButtonAttribute), CFGetTypeID(close) == AXUIElementGetTypeID() {
             await press((close as! AXUIElement), "closing Settings")
         }
+        // A refusal that comes once Settings has closed is shown in the main
+        // window instead of waiting for Settings to open again.
+        expect(await eventually { !model.settingsOpen }, "the model knows that Settings has closed")
+        SampleEngine.menuBarRefused = true
+        model.setMenuBar(false, from: .settings)
+        expect(await eventually { model.failure != nil && model.settingsFailure == nil && written().contains(refusal) },
+               "a refusal from Settings that comes once it has closed is shown in the main window")
+        SampleEngine.menuBarRefused = false
+        await press(button("OK"), "closing the refusal in the main window",
+                    until: { model.failure == nil && !written().contains(refusal) })
         SampleEngine.listFull = false
         SampleEngine.monitoring = false
         SampleEngine.unread = 0

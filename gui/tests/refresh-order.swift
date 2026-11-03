@@ -1019,6 +1019,32 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
           "updates: Check for Updates… that finds nothing newer takes the Overview notice away")
 }
 
+/// The alert is on the main window, and Check for Updates… is in the app
+/// menu also while only Settings is open, or the window can be closed while
+/// the check runs. Each result brings the window up, on the page it was on.
+@MainActor func updatesResultOpensTheWindow() async {
+    let releases = HeldReleases()
+    let bench = Bench(releases: releases)
+    let opened = Made()
+    bench.model.openMainWindow = { opened.count += 1 }
+    bench.model.pane = .stored
+    bench.model.checkForUpdates()
+    await eventually("Check for Updates asks GitHub") { releases.count == 1 }
+    releases.answer(.failure(URLError(.notConnectedToInternet)))
+    await eventually("the failed check ends") { !bench.model.checkingUpdates }
+    check(opened.count == 1 && bench.model.pane == .stored,
+          "updates: a failed Check for Updates… brings the main window up, on the page it was on")
+
+    bench.model.updateResult = nil
+    bench.model.checkForUpdates()
+    await eventually("the second check asks GitHub") { releases.count == 2 }
+    releases.answer(.success(Data("{}".utf8)))
+    bench.answer(await bench.next("check_release"), .success(#"{"newer":null,"current":"0.6.0"}"#))
+    await eventually("the second check ends") { !bench.model.checkingUpdates }
+    check(opened.count == 2 && bench.model.pane == .stored,
+          "updates: what Check for Updates… found brings the main window up, on the page it was on")
+}
+
 @MainActor func updatesSettingFailure() async {
     let bench = Bench()
     await status(bench, .success(monitorStatus(enabled: false)))
@@ -1274,6 +1300,59 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     check(bench.model.menuBarOn, "a failed read never leaves the app with no icon and no window")
 }
 
+/// What went wrong with an action taken in Settings is shown in Settings
+/// while it is open, and not in the main window as well. Once Settings has
+/// closed, and for the menu bar icon, which has no window, it is shown in
+/// the main window, which comes up for it. From the main window it is shown
+/// there, with Settings open or not.
+@MainActor func failuresShownWhereAsked() async {
+    let bench = Bench()
+    let model = bench.model
+    let opened = Made()
+    model.openMainWindow = { opened.count += 1 }
+    model.settingsOpen = true
+    model.setMenuBar(true, from: .settings)
+    bench.answer(await bench.next("set_menu_bar"), refused)
+    bench.answer(await bench.next("monitor_status"), refused)
+    await eventually("the refused switch is reported") { model.settingsFailure != nil || model.failure != nil }
+    check(model.settingsFailure != nil && model.failure == nil && opened.count == 0,
+          "failures: a switch refused in Settings is shown in Settings alone")
+    model.settingsFailure = nil
+
+    model.retryNotifications()
+    bench.answer(await bench.next("retry_notifications"), refused)
+    await eventually("the refused Try Again is reported") { model.settingsFailure != nil || model.failure != nil }
+    check(model.settingsFailure != nil && model.failure == nil && opened.count == 0,
+          "failures: Try Again refused in Settings is shown in Settings alone")
+    model.settingsFailure = nil
+
+    // Settings closes while the engine is still answering.
+    model.setUpdateCheck(true, from: .settings)
+    let late = await bench.next("set_update_check")
+    model.settingsOpen = false
+    bench.answer(late, refused)
+    bench.answer(await bench.next("monitor_status", after: 1), refused)
+    await eventually("the late refusal is reported") { model.settingsFailure != nil || model.failure != nil }
+    check(model.failure != nil && model.settingsFailure == nil && opened.count == 1,
+          "failures: a refusal that comes once Settings has closed is shown in the main window, which comes up")
+    model.failure = nil
+
+    model.setMenuBar(false, from: .menuBar)
+    bench.answer(await bench.next("set_menu_bar", after: 1), refused)
+    bench.answer(await bench.next("monitor_status", after: 2), refused)
+    await eventually("the refused icon removal is reported") { model.settingsFailure != nil || model.failure != nil }
+    check(model.failure != nil && model.settingsFailure == nil && opened.count == 2,
+          "failures: taking the icon out of the menu bar, refused, is shown in the main window, which comes up")
+    model.failure = nil
+
+    model.settingsOpen = true
+    model.enableNotifications()
+    bench.answer(await bench.next("enable_notifications"), refused)
+    await eventually("the refused request is reported") { model.settingsFailure != nil || model.failure != nil }
+    check(model.failure != nil && model.settingsFailure == nil && opened.count == 2,
+          "failures: a refusal in the main window is shown there alone, with Settings open as well")
+}
+
 /// Quitting stops the background reads, and none starts after.
 @MainActor func quittingStopsMenuBarReads() async {
     let clock = HeldSleep()
@@ -1424,6 +1503,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("notifications: coming forward re-reads permission", activationRereadsNotificationPermission),
             ("menu bar: follows the helper in the background", menuBarFollowsHelperInBackground),
             ("menu bar: a refused switch or failed read keeps the icon", menuBarSettingFailures),
+            ("failures: shown in the window the person acted in", failuresShownWhereAsked),
             ("menu bar: quitting stops its reads", quittingStopsMenuBarReads),
             ("menu bar: says only what the list says", menuBarSaysOnlyWhatTheListSays),
             ("updates: asked only when the answer can be kept", updatesAskOnlyWhenStateUsable),
@@ -1431,6 +1511,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("updates: a failed check waits for the next day", updatesDailyLoopSurvivesFailure),
             ("updates: a late result after turning checks off", updatesLateResultAfterTurningOff),
             ("updates: Check for Updates… results and failures", updatesFailures),
+            ("updates: Check for Updates… brings up the window for its result", updatesResultOpensTheWindow),
             ("updates: a refused save", updatesSettingFailure),
             ("engine text: exact keys and templates", engineTextMatches),
             ("engine text: the table for the window's language", engineTextTableChoice),

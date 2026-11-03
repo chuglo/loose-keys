@@ -999,6 +999,16 @@ is replaced (macOS behaviour).
   helper does not take it for one in front. The window is opened through an
   `openWindow` taken from the icon, which outlives it, and a Dock reopen also
   runs the system's own. All of this is unverified on a real login.
+- A failed action is shown in the window it was taken in, and in no other.
+  Settings has its own alert (`settingsFailure`) for its switches and
+  buttons; the main window's is `failure`. Settings reports whether it is
+  open (`onAppear`, `onDisappear`). A failure that comes after it has closed,
+  or from taking the icon out of the menu bar, goes to the main window,
+  which comes up for it. Checked by the model check's `failures:` case and
+  the window check's refused Show in Menu Bar. Remaining risks: a failure
+  of a main-window action, a File menu command chosen with only Settings
+  open, or a review read after a helper event still waits for the main
+  window if it is closed.
 - The engine's JSON is decoded into the types in `Models.swift`, snake case
   to camel case. `Preview.swift` holds sample JSON for the sample-data build,
   which has to change with them. Text from a scan is shown as text, never as

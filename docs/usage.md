@@ -218,7 +218,8 @@ page. Loose Keys never installs anything: download and replace the app
 yourself.
 
 **Check for Updates…**, in the Loose Keys menu, checks once whatever the
-setting. Turn automatic checks on or off in Settings. The `loose-keys`
+setting and shows the answer in the main window, opening it if it is closed.
+Turn automatic checks on or off in Settings. The `loose-keys`
 command and the background helper never go online.
 
 ### Removing Loose Keys

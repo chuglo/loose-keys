@@ -90,6 +90,16 @@ struct RequestOrder {
     }
 }
 
+/// Where the person took an action, so that what goes wrong with it is shown
+/// there.
+enum ActionOrigin {
+    /// The main window.
+    case window
+    case settings
+    /// The menu bar icon, which has no window of its own.
+    case menuBar
+}
+
 /// What Check for Updates… found, for its alert.
 enum UpdateResult: Equatable {
     case newer(ReleaseCheck)
@@ -204,8 +214,12 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var inspectorShown = true
-    /// A problem to show in an alert.
+    /// A problem to show in an alert on the main window.
     @Published var failure: String?
+    /// What went wrong with an action taken in Settings, for an alert there.
+    @Published var settingsFailure: String?
+    /// Whether Settings is open, as Settings itself says.
+    var settingsOpen = false
     /// A short confirmation, shown under the window title.
     @Published var notice: String?
     private var decisionTurn = 0
@@ -241,7 +255,7 @@ final class AppModel: ObservableObject {
     }
     /// Opens the main window, captured from a view that can.
     var openMainWindow: () -> Void = {
-        for window in NSApp.windows where window.canBecomeMain { window.makeKeyAndOrderFront(nil) }
+        for window in NSApp?.windows ?? [] where window.canBecomeMain { window.makeKeyAndOrderFront(nil) }
     }
     #if PREVIEW || SNAPSHOTS
     /// Opens the Settings window, for the picture-taking code.
@@ -291,18 +305,21 @@ final class AppModel: ObservableObject {
         setUpdateCheck(on)
     }
 
-    func setUpdateCheck(_ on: Bool) {
+    func setUpdateCheck(_ on: Bool, from origin: ActionOrigin = .window) {
         Task {
             do {
                 try await engine.send("set_update_check", ["enabled": on])
             } catch {
-                failure = error.localizedDescription
+                report(error.localizedDescription, from: origin)
             }
             await refreshMonitor()
         }
     }
 
     /// Check for Updates…: one check, whatever the setting, with an alert.
+    /// The alert is on the main window, which comes up with it: the command
+    /// is in the app menu also while only Settings is open, and the window
+    /// can be closed while the check runs.
     func checkForUpdates() {
         guard !checkingUpdates else { return }
         checkingUpdates = true
@@ -320,6 +337,7 @@ final class AppModel: ObservableObject {
                 updateResult = .failed(error.localizedDescription)
             }
             checkingUpdates = false
+            showWindow(review: false)
         }
     }
 
@@ -757,14 +775,16 @@ final class AppModel: ObservableObject {
     /// In front with a Dock icon, for a window the person asked for.
     func comeForward() {
         quietLaunch = false
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        // None in the model check, which runs no app.
+        guard let app = NSApp else { return }
+        app.setActivationPolicy(.regular)
+        app.activate(ignoringOtherApps: true)
     }
 
     /// The window in front, with a Dock icon while it is open.
     func showWindow(review: Bool) {
         comeForward()
-        for window in NSApp.windows where window.isMiniaturized { window.deminiaturize(nil) }
+        for window in NSApp?.windows ?? [] where window.isMiniaturized { window.deminiaturize(nil) }
         openMainWindow()
         if review { pane = .review }
     }
@@ -801,9 +821,26 @@ final class AppModel: ObservableObject {
     }
 
     /// Run an action, and show what went wrong if it fails.
-    private func attempt(_ work: @escaping () async throws -> Void) {
+    private func attempt(from origin: ActionOrigin = .window, _ work: @escaping () async throws -> Void) {
         Task {
-            do { try await work() } catch { failure = error.localizedDescription }
+            do { try await work() } catch { report(error.localizedDescription, from: origin) }
+        }
+    }
+
+    /// Shows what went wrong in the window the person acted in, and in no
+    /// other. Settings shows its own while it is open. Otherwise the main
+    /// window does, and comes up for it unless the action was taken there:
+    /// Settings may have closed while the engine answered, and the menu bar
+    /// has no window.
+    private func report(_ problem: String, from origin: ActionOrigin) {
+        switch origin {
+        case .window:
+            failure = problem
+        case .settings where settingsOpen:
+            settingsFailure = problem
+        case .settings, .menuBar:
+            failure = problem
+            showWindow(review: false)
         }
     }
 
@@ -1121,7 +1158,7 @@ final class AppModel: ObservableObject {
         return review?.full == true && review?.error == nil ? nil : error
     }
 
-    func setMonitoring(enabled: Bool, paused: Bool) {
+    func setMonitoring(enabled: Bool, paused: Bool, from origin: ActionOrigin = .window) {
         guard !preparingAccess else { return }
         let needsAccess = enabled && monitor?.enabled != true
         if needsAccess {
@@ -1130,7 +1167,7 @@ final class AppModel: ObservableObject {
             accessCancelled = false
             pane = .overview
         }
-        attempt {
+        attempt(from: origin) {
             if needsAccess, try await !self.prepareAccess() { return }
             try await self.engine.send("set_monitoring", ["enabled": enabled, "paused": paused])
             await self.refreshMonitor()
@@ -1148,9 +1185,10 @@ final class AppModel: ObservableObject {
     /// A registered helper that is not running is stopped, then started:
     /// macOS starts it again only for a new registration. One that is not
     /// registered is only started. Stopping waits until macOS has finished.
+    /// A button in Settings only.
     func restartHelper() {
         let registered = monitor?.login == 2
-        attempt {
+        attempt(from: .settings) {
             var result = 1
             if registered {
                 result = try await self.engine.request("set_login_startup", ["enabled": false])
@@ -1161,26 +1199,27 @@ final class AppModel: ObservableObject {
             await self.refreshMonitor()
             await self.refreshMonitorSoon()
             if result == 4 {
-                self.failure = String(localized: "macOS could not restart the background helper. Check System Settings > General > Login Items.",
-                                      comment: "In an alert after Restart Helper. Use the names macOS gives System Settings and its Login Items pane.")
+                self.report(String(localized: "macOS could not restart the background helper. Check System Settings > General > Login Items.",
+                                   comment: "In an alert after Restart Helper. Use the names macOS gives System Settings and its Login Items pane."),
+                            from: .settings)
             }
         }
     }
 
-    func setMenuBar(_ on: Bool) {
+    func setMenuBar(_ on: Bool, from origin: ActionOrigin = .window) {
         Task {
             do {
                 try await engine.send("set_menu_bar", ["enabled": on])
                 menuBarOn = on
                 updatePolling()
             } catch {
-                failure = error.localizedDescription
+                report(error.localizedDescription, from: origin)
             }
             await refreshMonitor()
         }
     }
 
-    func enableNotifications() {
+    func enableNotifications(from origin: ActionOrigin = .window) {
         guard !awaitingPermission else { return }
         awaitingPermission = true
         Task {
@@ -1188,14 +1227,16 @@ final class AppModel: ObservableObject {
                 try await engine.send("enable_notifications")
             } catch {
                 awaitingPermission = false
-                failure = String(localized: "Could not request notification permission: \(error.localizedDescription)",
-                                 comment: "In an alert after Allow Notifications…. %@ is the reason the engine or macOS gave.")
+                report(String(localized: "Could not request notification permission: \(error.localizedDescription)",
+                              comment: "In an alert after Allow Notifications…. %@ is the reason the engine or macOS gave."),
+                       from: origin)
             }
         }
     }
 
+    /// A button in Settings only.
     func retryNotifications() {
-        attempt {
+        attempt(from: .settings) {
             try await self.engine.send("retry_notifications")
             await self.refreshMonitor()
         }

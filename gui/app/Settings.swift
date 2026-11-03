@@ -6,6 +6,20 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
+        // What went wrong with an action taken here, on a view of its own
+        // around the form, which has the consent dialog: a view drops one of
+        // two alerts.
+        VStack(spacing: 0) { form }
+            .alert(Text(verbatim: "Loose Keys"), isPresented: failureShown, presenting: model.settingsFailure) { _ in
+                Button("OK") { model.settingsFailure = nil }
+            } message: { text in
+                Text(text)
+            }
+            .onAppear { model.settingsOpen = true }
+            .onDisappear { model.settingsOpen = false }
+    }
+
+    private var form: some View {
         Form {
             if let monitor = model.monitor {
                 scanning(monitor)
@@ -21,11 +35,15 @@ struct SettingsView: View {
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .confirmationDialog("Allow Automatic Scanning?", isPresented: $model.askingConsent) {
-            Button("Allow") { model.setMonitoring(enabled: true, paused: false) }
+            Button("Allow") { model.setMonitoring(enabled: true, paused: false, from: .settings) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Loose Keys will check your files whenever they change, even when the app is closed.")
         }
+    }
+
+    private var failureShown: Binding<Bool> {
+        Binding(get: { model.settingsFailure != nil }, set: { if !$0 { model.settingsFailure = nil } })
     }
 
     /// The switch with its state beneath it. The rest shows only while the
@@ -37,7 +55,7 @@ struct SettingsView: View {
             Toggle(isOn: Binding(
                 get: { monitor.enabled },
                 set: { on in
-                    if on { model.askingConsent = true } else { model.setMonitoring(enabled: false, paused: false) }
+                    if on { model.askingConsent = true } else { model.setMonitoring(enabled: false, paused: false, from: .settings) }
                 })) {
                 Text("Scan Automatically")
                 Text(monitor.enabled ? model.backgroundState.text
@@ -74,7 +92,7 @@ struct SettingsView: View {
                 // is never changed under one that is running.
                 Toggle("Pause Scanning", isOn: Binding(
                     get: { monitor.paused },
-                    set: { model.setMonitoring(enabled: true, paused: $0) }))
+                    set: { model.setMonitoring(enabled: true, paused: $0, from: .settings) }))
                     .disabled(model.phase == .scanning)
                 notifications(monitor)
             }
@@ -111,7 +129,7 @@ struct SettingsView: View {
             // Once macOS has an answer it no longer asks: the switch is in
             // System Settings, either way.
             if model.canAskForNotifications {
-                Button("Allow Notifications…") { model.enableNotifications() }
+                Button("Allow Notifications…") { model.enableNotifications(from: .settings) }
                     .disabled(model.awaitingPermission)
             } else if permission == "denied" || permission == "allowed" {
                 Button("Open System Settings") { model.openNotificationSettings() }
@@ -139,7 +157,7 @@ struct SettingsView: View {
             // What was last saved, which the next status read only confirms.
             Toggle("Show in Menu Bar", isOn: Binding(
                 get: { model.menuBarOn },
-                set: { model.setMenuBar($0) }))
+                set: { model.setMenuBar($0, from: .settings) }))
                 .disabled(model.monitorFailure != nil)
             if monitor.enabled, monitor.menuBar {
                 if monitor.appLogin == 3 {
@@ -156,7 +174,7 @@ struct SettingsView: View {
         Section {
             Toggle("Check for Updates Automatically", isOn: Binding(
                 get: { monitor.updateCheck == true },
-                set: { model.setUpdateCheck($0) }))
+                set: { model.setUpdateCheck($0, from: .settings) }))
                 .disabled(model.monitorFailure != nil)
         }
     }

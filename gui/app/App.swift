@@ -184,6 +184,6 @@ struct LooseKeysApp: App {
 
     /// Also set when the person drags the icon out of the menu bar.
     private var menuBarShown: Binding<Bool> {
-        Binding(get: { model.menuBarOn }, set: { if $0 != model.menuBarOn { model.setMenuBar($0) } })
+        Binding(get: { model.menuBarOn }, set: { if $0 != model.menuBarOn { model.setMenuBar($0, from: .menuBar) } })
     }
 }
