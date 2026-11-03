@@ -226,6 +226,8 @@ pub const PASSWORD_NOTE: Rule = Rule {
         (b"router admin password: !Synth$tic-9\n", true),
         (b"password: $password\npassword = ${DB_PASSWORD}\npassword: `generate-password`\n", false),
         (b"Reminder: change my password: tomorrow\n", false),
+        // A password label whose value is one ordinary lowercase word.
+        (b"password: tomorrow\n", false),
         (b"password: <your password here>\nPassword: changeme\n", false),
         (b"if (password == null) { return; }\nconst password = req.body.password;\n", false),
         // The shell's working folders, as a saved list of variables has them.
