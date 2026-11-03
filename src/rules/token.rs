@@ -363,6 +363,7 @@ const UUID: &[Part] = &[
     Run(hex, 12, 12),
 ];
 const LANGSMITH: &[Part] = &[Run(any_hex, 32, 32), Text("_"), Run(any_hex, 10, 10)];
+const DISCORD: &[Part] = &[Run(digit, 18, 19), Text("/"), Run(word, 68, 68)];
 
 /// Formats as published in the Gitleaks, Betterleaks and TruffleHog rule sets
 /// (checked 2026-11-01). Only formats with a fixed prefix and a length are
@@ -424,7 +425,12 @@ const PROVIDERS: &[Provider] = &[
     in_parts("Slack webhook URL", "https://hooks.slack.com/services/", path, &[Text("T"), Run(upper_alnum, 1, 20), Text("/B"), Run(upper_alnum, 1, 20), Text("/"), Run(alnum, 23, 25)], SLACK_APPS),
     in_parts("Slack webhook URL", "https://hooks.slack.com/workflows/", path, &[Text("T"), Run(upper_alnum, 1, 20), Text("/A"), Run(upper_alnum, 1, 20), Text("/"), Run(digit, 17, 19), Text("/"), Run(alnum, 23, 25)], SLACK_APPS),
     in_parts("Slack webhook URL", "https://hooks.slack.com/triggers/", path, &[Text("T"), Run(upper_alnum, 1, 20), Text("/"), Run(digit, 1, 20), Text("/"), Run(alnum, 20, 40)], SLACK_APPS),
-    in_parts("Discord webhook URL", "https://discord.com/api/webhooks/", path, &[Run(digit, 18, 19), Text("/"), Run(word, 68, 68)], None),
+    in_parts("Discord webhook URL", "https://discord.com/api/webhooks/", path, DISCORD, None),
+    in_parts("Discord webhook URL", "https://discordapp.com/api/webhooks/", path, DISCORD, None),
+    in_parts("Discord webhook URL", "https://ptb.discord.com/api/webhooks/", path, DISCORD, None),
+    in_parts("Discord webhook URL", "https://canary.discord.com/api/webhooks/", path, DISCORD, None),
+    in_parts("Discord webhook URL", "https://ptb.discordapp.com/api/webhooks/", path, DISCORD, None),
+    in_parts("Discord webhook URL", "https://canary.discordapp.com/api/webhooks/", path, DISCORD, None),
     p("npm access token", "npm_", alnum, 36, 36, Some("https://docs.npmjs.com/revoking-access-tokens")),
     p("PyPI API token", "pypi-AgEIcHlwaS5vcmc", word, 50, 1000, Some("https://pypi.org/manage/account/token/")),
     p("Test PyPI API token", "pypi-AgENdGVzdC5weXBpLm9yZw", word, 50, 1000, Some("https://test.pypi.org/manage/account/token/")),
@@ -1083,6 +1089,38 @@ mod tests {
                 "https://discord.com/api/webhooks/",
                 "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
                 true,
+            ),
+            // Discord's host before its move, and the PTB and Canary clients'
+            // on either domain.
+            (
+                "https://discordapp.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                true,
+            ),
+            (
+                "https://ptb.discord.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                true,
+            ),
+            (
+                "https://canary.discord.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                true,
+            ),
+            (
+                "https://ptb.discordapp.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                true,
+            ),
+            (
+                "https://canary.discordapp.com/api/webhooks/",
+                "123456789012345678/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                true,
+            ),
+            (
+                "https://discordapp.com/api/webhooks/",
+                "12345678901234567a/0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ01234567",
+                false,
             ),
             ("glcbt-", "a1_0123456789abcdefghij", true),
             ("glffct-", "0123456789abcdefghij", true),
