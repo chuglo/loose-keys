@@ -143,7 +143,17 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   Settings shows Restart Helper only while the helper is not running; it
   unregisters a registered helper and registers it again, as new consent
   does. Recovery after `launchctl bootout` is unverified; the guest helper
-  check's restart stage tests it.
+  check's restart stage tests it. The helper counts as running only while a
+  process of the person's, other than the one asking, has the number the
+  helper saved when it started and runs the app's program: the file
+  `proc_pidpath` gives for it is the asking process's own, by device and
+  inode (`helper_running`). Nothing clears that number when the helper ends;
+  before, any process later given it read as the helper. Test:
+  `only_this_program_at_the_saved_number_is_the_helper_running`, with an
+  unrelated process and a suspended copy of the test program. Not covered:
+  another process of the app's program given the number reads as the
+  helper, and a helper started from another copy of the app does not. The
+  real helper's status is checked only in the guest.
 - The app adds itself to Login Items (`SMAppService.mainAppService`,
   through `ch_app_login_status` and `ch_app_login_set` in `notifications.m`,
   declared only in `lib.rs`, not in `Bridge.h`) only while Show in Menu Bar

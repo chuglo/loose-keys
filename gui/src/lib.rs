@@ -103,10 +103,47 @@ struct Health {
     error: Option<String>,
 }
 
+/// Whether the helper runs: a process of ours, other than this one, has the
+/// number the helper saved when it started, and runs this program. Nothing
+/// clears that number when the helper ends, and any process can be given
+/// it later.
+fn helper_running(pid: u32) -> bool {
+    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: getpid has no preconditions and cannot fail.
+    if pid <= 0 || pid == unsafe { libc::getpid() } {
+        return false;
+    }
+    // SAFETY: signal 0 only tests whether the process exists and is ours.
+    if unsafe { libc::kill(pid, 0) } != 0 {
+        return false;
+    }
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let Ok(size) = u32::try_from(path.len()) else {
+        return false;
+    };
+    // SAFETY: the buffer is writable for the size passed, the most
+    // proc_pidpath writes.
+    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), size) };
+    let Some(path) = usize::try_from(length).ok().and_then(|n| path.get(..n)) else {
+        return false;
+    };
+    let path = path.split(|b| *b == 0).next().unwrap_or_default();
+    if path.is_empty() {
+        return false;
+    }
+    // The program's own file, compared and never opened. The helper runs
+    // the app's program; a path may name it through a link.
+    let theirs = std::fs::metadata(std::ffi::OsStr::from_bytes(path));
+    let ours = std::env::current_exe().and_then(std::fs::metadata);
+    matches!((theirs, ours), (Ok(a), Ok(b)) if a.dev() == b.dev() && a.ino() == b.ino())
+}
+
 fn health(agent: &review::Agent) -> Health {
     Health {
-        // SAFETY: signal 0 only tests whether the process exists.
-        running: agent.pid != 0 && unsafe { libc::kill(agent.pid as libc::pid_t, 0) } == 0,
+        running: helper_running(agent.pid),
         last_scan: agent.last_check.clone(),
         coverage: if agent.baseline.is_some() && agent.left == 0 {
             "complete"
@@ -2024,6 +2061,79 @@ mod tests {
             "The request has no usable \"enabled\"."
         );
         std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// A process of this program that runs none of it: started suspended,
+    /// with no file of the test's open, until `end` kills it.
+    fn idle_copy() -> libc::pid_t {
+        use std::os::unix::ffi::OsStringExt;
+        let exe = std::env::current_exe().unwrap().into_os_string().into_vec();
+        let exe = CString::new(exe).unwrap();
+        let argv = [exe.as_ptr().cast_mut(), std::ptr::null_mut()];
+        let envp = [std::ptr::null_mut()];
+        let flags = libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_CLOEXEC_DEFAULT;
+        let flags = libc::c_short::try_from(flags).unwrap();
+        let mut attr = std::mem::MaybeUninit::uninit();
+        let mut pid = 0;
+        // SAFETY: the attributes are set up before they are used and freed
+        // after; the path and both lists are NUL-terminated and outlive the
+        // call, and `pid` is a place for one process number.
+        let spawned = unsafe {
+            assert_eq!(libc::posix_spawnattr_init(attr.as_mut_ptr()), 0);
+            let set = libc::posix_spawnattr_setflags(attr.as_mut_ptr(), flags);
+            let spawned = libc::posix_spawn(
+                &mut pid,
+                exe.as_ptr(),
+                std::ptr::null(),
+                attr.as_ptr(),
+                argv.as_ptr(),
+                envp.as_ptr(),
+            );
+            libc::posix_spawnattr_destroy(attr.as_mut_ptr());
+            assert_eq!(set, 0);
+            spawned
+        };
+        assert_eq!(spawned, 0, "could not start a copy of the test");
+        pid
+    }
+
+    fn end(pid: libc::pid_t) {
+        let mut status = 0;
+        // SAFETY: the process is a child of this one, and `status` is a
+        // place for its exit status.
+        unsafe {
+            assert_eq!(libc::kill(pid, libc::SIGKILL), 0);
+            assert_eq!(libc::waitpid(pid, &mut status, 0), pid);
+        }
+    }
+
+    /// The helper saves its process number when it starts, and nothing
+    /// clears it when the helper ends. Another program given that number
+    /// later is not the helper running, and neither is the app asking.
+    #[test]
+    fn only_this_program_at_the_saved_number_is_the_helper_running() {
+        let (home, app) = engine("helper-pid");
+        let running = |pid: u32| {
+            update_state(&app, |state| state.agent.pid = pid).unwrap();
+            ask(&app, "monitor_status", "{}")["ok"]["health"]["running"].clone()
+        };
+        let mut other = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let another_program = running(other.id());
+        other.kill().unwrap();
+        other.wait().unwrap();
+        let copy = idle_copy();
+        let this_program = running(u32::try_from(copy).unwrap());
+        end(copy);
+        let asking = running(std::process::id());
+        let ended = running(u32::try_from(copy).unwrap());
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(another_program, false, "another program has the number");
+        assert_eq!(this_program, true, "a copy of this program has it");
+        assert_eq!(asking, false, "the app asking has it");
+        assert_eq!(ended, false, "no process has it");
     }
 
     #[test]
