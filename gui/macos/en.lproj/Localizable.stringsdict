@@ -2,6 +2,51 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>%lld copies</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@copies@</string>
+		<key>copies</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld copy</string>
+			<key>other</key>
+			<string>%lld copies</string>
+		</dict>
+	</dict>
+
+	<key>Showing %lld of %lld items</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Showing %1$#@shown@ of %2$#@items@</string>
+		<key>shown</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%1$lld</string>
+			<key>other</key>
+			<string>%1$lld</string>
+		</dict>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%2$lld item</string>
+			<key>other</key>
+			<string>%2$lld items</string>
+		</dict>
+	</dict>
+
 	<key>%lld items selected</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>

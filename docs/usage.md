@@ -16,6 +16,12 @@ what to do. **Export** saves the full report or a counts-only file, and copies
 the text summary. Opening the app does not turn on automatic scanning or
 notifications.
 
+Manual scan details, including Stored Sign-ins and manual Not Checked details,
+last only until you quit the app. Saved review findings and decisions remain
+available. Use **Scan Now** for current details, and **Export** to save the
+report before quitting. A new launch with no manual report says **No Manual
+Scan This Session**, not that this Mac has never been scanned.
+
 The app follows the language macOS uses for it: English or Spanish, with
 the words Latin American macOS uses, such as Configuración del Sistema, in
 Latin American Spanish. Saved reports, the copied summary and the
@@ -39,6 +45,14 @@ clipboard.
 Worth Reviewing has one item for a credential, however many rules or files
 found it. The saved report and the copied summary list each finding, so their
 count can be higher; the Overview says so when it is.
+
+**Filter** searches every listed copy's path, including fixed and set-aside
+copies. Matching secondary paths appear under the row's representative path;
+the row still identifies the same grouped finding. A copy-count hint counts
+all its listed locations. Filtered lists say how many rows match out of this
+page's total, or **No Matches**; **Clear Filter** brings all rows back. The
+inspector starts hidden to leave space for the list and opens when you select
+an item. Its toolbar button can show or hide it at any time.
 
 ### Reviewing findings
 
@@ -115,8 +129,8 @@ beside its name.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
-file paths, rule identifiers, keyed fingerprints, consent, and review choices,
-not credential values. Your answer about update checks is also kept in
+file paths, added scan folders, rule identifiers, keyed fingerprints, consent,
+and review choices, not credential values. Your answer about update checks is also kept in
 `update-check.json` beside it. The directory uses mode `0700`; the files use
 `0600`. The CLI does not use this review state. Earlier versions kept it in
 `~/.loose-keys-review`; the app moves it from there on first start, unless
@@ -154,6 +168,12 @@ rule and path pairs themselves.
 Checks react to filesystem events. Busy files, work limits, sleep, Low Power
 Mode and macOS permission prompts can delay detection. Added folders and
 drives are included in one-time scans, not watched by the helper.
+
+Folders added with **Add Folder or Drive…** are kept for later launches and
+manual scans until you remove them. Up to eight are saved. Disconnected drives
+stay listed; their unavailable paths are reported under **Not Checked** rather
+than silently removed. An older app or helper can forget these saved folders
+when it writes its state, so check the folder list after downgrading.
 
 Automatic scanning is done by a separate helper with no window or Dock icon.
 Giving consent registers it with macOS as a launchd job, which starts it at

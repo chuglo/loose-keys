@@ -27,6 +27,8 @@ final class SampleEngine: Engine {
     static var reportFails = false
     /// What the window last asked to have done to a folder, for the checks.
     static var folderRequest: [String: Any] = [:]
+    /// A file action must name the selected copy, not the group's lead.
+    static var pathRequest: [String: Any] = [:]
     /// Set by the checks: the review list is then full. The engine says so in
     /// the list, and in the field where it reports a storage failure.
     static var listFull = false
@@ -157,7 +159,10 @@ final class SampleEngine: Engine {
             // The sample scan could not read everything: its status is "partial".
             return Data((Self.nothingFound ? Self.results.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) : Self.results).utf8)
         case "rules_text": return Data(#""key.ssh.private\n   Private key with no passphrase\n   Looks in: any file in the scanned folders, ~/.ssh/*\ndev.aws.inline-credentials\n   AWS access keys stored in a file\n   Looks in: ~/.aws/credentials, ~/.aws/config""#.utf8)
-        case "summary_text", "item_path", "open_link": return Data(#""sample""#.utf8)
+        case "item_path":
+            Self.pathRequest = args
+            return Data(#""sample""#.utf8)
+        case "summary_text", "open_link": return Data(#""sample""#.utf8)
         default: return Data("null".utf8)
         }
     }
@@ -168,7 +173,7 @@ final class SampleEngine: Engine {
         let aside = decisions[id] ?? aside
         let state = aside == nil ? state : "set-aside"
         let quoted = { (text: String?) in text.map { "\"\($0)\"" } ?? "null" }
-        let copies = places ?? #"[{"id":\#(id),"path":"\#(path)","line":null,"fixed":false}]"#
+        let copies = places ?? #"[{"id":\#(id),"path":"\#(path)","line":null,"fixed":false,"actionable":\#(actionable)}]"#
         return """
         {"id":\(id),"revision":\(id),"rule":"sample.rule","path":"\(path)","line":null,"title":"\(title)",
          "explanation":"This file starts with 12 or more words from the list wallets use for recovery phrases. Loose Keys did not check whether they make a valid phrase or a wallet with funds.",
@@ -189,7 +194,7 @@ final class SampleEngine: Engine {
         let lead = copies.first { !kept.contains($0.id) } ?? copies[0]
         let decided = copies.allSatisfy { kept.contains($0.id) }
         let places = copies.map {
-            #"{"id":\#($0.id),"path":"\#($0.path)","line":null,"fixed":false,"set_aside":\#(kept.contains($0.id))}"#
+            #"{"id":\#($0.id),"path":"\#($0.path)","line":null,"fixed":false,"set_aside":\#(kept.contains($0.id)),"actionable":true}"#
         }
         return item(lead.id, "Service token stored in a file", lead.path, "high", decided ? "set-aside" : "open",
                     subject: "GitHub personal access token", aside: decided ? "kept" : nil,
@@ -234,7 +239,7 @@ final class SampleEngine: Engine {
        "items":[{"index":0,"path":"~/.codex/auth.json","line":null,"subject":"Codex","actionable":true},{"index":1,"path":"~/.claude/.credentials.json","line":null,"subject":"Claude Code","actionable":true},{"index":4,"path":"~/.gemini/oauth_creds.json","line":null,"subject":null,"actionable":true}]},
       {"kind":"inventory","severity":"medium","title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null,
        "items":[{"index":2,"path":"~/.config/gh/hosts.yml","line":null,"subject":"github.com","actionable":true},{"index":3,"path":"~/.config/glab-cli/config.yml","line":null,"subject":null,"actionable":true}]}],
-     "gaps":[{"label":"Access denied by macOS","help":"macOS protects these folders, so Loose Keys could not look inside them.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
+     "gaps":[{"label":"Permission denied","help":"File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
      "roots":["~","/Volumes/Backup"],"excluded":["node_modules",".git","target","Caches",".Trash"],
      "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. Finding nothing does not mean this Mac is safe."}
     """
@@ -620,6 +625,12 @@ enum Checks {
     // MARK: The checks
 
     private static func run(_ model: AppModel) async {
+        if let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let screen = window.screen {
+            expect(screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(window.frame),
+                   "the initial window fits within the screen's usable frame")
+        } else {
+            expect(false, "the initial window has a screen")
+        }
         // The sidebar. Every row is chosen, last to first so that each choice
         // has to change the page, and between them they must open every page.
         var rowOf: [Pane: Int] = [:]
@@ -635,6 +646,12 @@ enum Checks {
         }
 
         #if PREVIEW
+        for pane in [Pane.stored, .gaps, .overview] {
+            await open(pane)
+            expect(await eventually {
+                written().contains("No Manual Scan This Session") && written().contains(ManualReportText.lifetime)
+            }, "\(pane.rawValue) distinguishes session-only manual details from saved review history")
+        }
         // Before any scan this window has no report to save, so a list that
         // cannot be read must not send the person to save one.
         SampleEngine.storeFailed = true
@@ -745,6 +762,8 @@ enum Checks {
         expect(model.results == nil && button("Include Again") != nil && unscannedGaps.contains { $0.hasPrefix("Scans skip these folders") }
                && !unscannedGaps.contains("No Scan Yet"),
                "before any scan, Not Checked lists the folders left out with Include Again")
+        expect(unscannedGaps.contains(FolderScopeText.exceptions),
+               "folders left out still explain known-file checks and finding rechecks")
         await open(.overview)
         expect(!SampleEngine.monitoring && button("Turn On") != nil,
                "Overview offers background setup without enabling it before consent")
@@ -814,10 +833,39 @@ enum Checks {
         await open(.overview)
         let roots = model.results?.roots.joined(separator: ", ") ?? ""
         expect(!roots.isEmpty && written().contains("Included: \(roots)."), "the Overview says which places the last scan included")
+        expect(written().contains(ManualReportText.lifetime),
+               "after a manual scan, Overview advises saving the session-only report before quitting")
         expect(button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
                && button("Worth Reviewing") != nil && button("Not Checked") != nil
                && button("Add Folder or Drive…") != nil,
                "after a scan, Overview keeps results and folder controls without the scan reference section")
+
+        #if PREVIEW
+        await open(.review)
+        model.search = "earlier-session"
+        expect(await eventually {
+            guard let table = list(), rows(table).count == 1 else { return false }
+            let text = written(in: rows(table)[0])
+            return model.reviewRows.first?.id == 4
+                && text.contains("Matches: ~/.claude/projects/shop/earlier-session.jsonl")
+                && text.contains(".env")
+                && text.contains("2 copies")
+        }, "filtering a secondary copy keeps the representative row and explains the matching path")
+        model.search = ""
+        await settle(after: "clearing the grouped-copy filter")
+        for pane in [Pane.review, .setAside, .stored] {
+            await open(pane)
+            model.search = "no matching fixture"
+            expect(await eventually {
+                written().contains("No Matches") && model.filterSummary.map { written().contains($0) } == true
+                    && button("Clear Filter") != nil
+            }, "a nonmatching filter explains its zero count and offers Clear Filter on \(pane.rawValue)")
+            await press(button("Clear Filter"), "clearing a nonmatching filter")
+            expect(await eventually {
+                model.search.isEmpty && !written().contains("No Matches") && list().map { !rows($0).isEmpty } == true
+            }, "Clear Filter restores the \(pane.rawValue) rows")
+        }
+        #endif
 
         // Both lists share one Filter field; a second one in the toolbar stops the app.
         for pane in [Pane.review, .stored, .review, .stored, .gaps, .overview, .stored] {
@@ -828,6 +876,11 @@ enum Checks {
         // Pages changed faster than the inspector closes and opens, as with
         // the arrow keys in the sidebar. The window finishing a close it was
         // asked for on leaving a list is not the person hiding the inspector.
+        // Explicitly open an empty inspector: this tests the person's choice,
+        // not the initial compact layout.
+        expect(!model.inspectorShown && !written().contains("No Selection"),
+               "without a selection the lists leave room for their rows")
+        await press(button("Inspector"), "explicitly opening the empty inspector")
         var kept = true
         for _ in 0..<5 {
             for _ in 0..<6 {
@@ -1260,6 +1313,25 @@ enum Checks {
            at < rows(table).count {
             let first = model.reviewRows[at]
             await choose(rows(table)[at], "choosing a credential that is in two files")
+            if let copy = first.places?.first(where: { $0.id != first.id }) {
+                func copyButton() -> AXUIElement? {
+                    everything().first { value($0, kAXIdentifierAttribute) as? String == "copy-path-review-\(copy.id)" }
+                }
+                await press(button("Show Copies"), "opening the grouped-copy list")
+                let available = await eventually { copyButton() != nil }
+                expect(available, "a secondary grouped copy has its own Copy Path control")
+                if available {
+                    SampleEngine.pathRequest = [:]
+                    await press(copyButton(), "copying the secondary file's path")
+                    expect(await eventually { SampleEngine.pathRequest["index"] as? Int == copy.id
+                        && SampleEngine.pathRequest["review"] as? Bool == true },
+                           "a grouped-copy file action sends that copy's existing id to item_path")
+                    await press(button("Hide Copies"), "closing the grouped-copy list",
+                                until: { copyButton() == nil && button("Show Copies") != nil })
+                }
+            } else {
+                expect(false, "the grouped credential has a secondary copy to act on")
+            }
             model.decide(first, reason: "kept")
             for _ in 0..<25 where model.review?.items.contains(where: { $0.id == first.id }) == true { await settle() }
             await settle(after: "keeping the first copy of a credential in two files")

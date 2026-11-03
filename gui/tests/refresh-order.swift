@@ -433,8 +433,8 @@ func monitorStatus(enabled: Bool, paused: Bool = false, menuBar: Bool = false, r
           "health": running.map { ["running": $0] } ?? [String: Any](), "pending_delivery": false, "attempts": 0])
 }
 
-func places(_ extra: [String]) -> String {
-    json(["home": "~", "extra": extra])
+func places(_ extra: [String], error: String? = nil) -> String {
+    json(["home": "~", "extra": extra, "error": error.map { $0 as Any } ?? NSNull()])
 }
 
 /// What a scan that found this many review findings answers.
@@ -670,6 +670,22 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     await bench.finishRefresh(read)
     check(bench.model.places?.extra == ["/Volumes/Other"] && bench.model.failure == nil,
           "places: an older request that fails late does not take the newer list away")
+}
+
+@MainActor func placesRemovalRefusal() async {
+    for problem in ["Wait for the scan to finish.", "Could not save the review list."] {
+        let bench = Bench()
+        let first = await bench.ask("places") { await $0.refresh() }
+        bench.answer(first.call, .success(places(["/Volumes/Fixture"])))
+        await bench.finishRefresh(first)
+        let removal = await bench.ask("remove_place") { $0.removeFolder(0, shown: "/Volumes/Fixture") }
+        bench.answer(removal.call, .success(places(["/Volumes/Fixture"], error: problem)))
+        await eventually("the refused removal's response is applied") { bench.model.places?.error == problem }
+        check(bench.model.failure == EngineText.shown(problem),
+              "places: a refusal inside a successful removal response is reported")
+        check(bench.model.places?.home == "~" && bench.model.places?.extra == ["/Volumes/Fixture"],
+              "places: a refused removal keeps the usable folder list")
+    }
 }
 
 @MainActor func placesNewestFailure() async {
@@ -1192,6 +1208,142 @@ func engineTextTableChoice() {
     model.search = ""
 }
 
+@MainActor func filterResultCounts() async {
+    let model = AppModel(engine: HeldEngine())
+    model.pane = .review
+    model.search = "fixture"
+    check(model.filterSummary == nil, "filter count: no empty-results claim before the list arrives")
+    model.review = try? decodeEngine(ReviewList.self, from: Data(reviewStates(["open", "fixed", "set-aside"]).utf8))
+    check(model.filterSummary == "Showing 2 of 2 items", "filter count: review includes fixed rows, not set-aside rows")
+    model.search = "fixture-2"
+    check(model.filterSummary == "Showing 1 of 2 items", "filter count: partial match distinguishes shown and total rows")
+    check(!model.filterHasNoMatches, "filter message: partial matches keep the table")
+    model.search = "not present"
+    check(model.filterSummary == "Showing 0 of 2 items", "filter count: no matches is distinct from an empty source list")
+    check(model.filterHasNoMatches, "filter message: review offers no-match guidance")
+    model.reviewUnread = "Could not read the review list."
+    check(model.filterSummary == nil, "filter count: a failed read is not a zero-match result")
+    check(!model.filterHasNoMatches, "filter message: no-match guidance cannot hide a read failure")
+    model.reviewUnread = nil
+    model.pane = .setAside
+    model.search = "fixture-3"
+    check(model.filterSummary == "Showing 1 of 1 item", "filter count: Set Aside has its own total and singular form")
+    model.search = "not present"
+    check(model.filterHasNoMatches, "filter message: Set Aside offers no-match guidance")
+    model.search = " \t "
+    check(model.filterSummary == nil, "filter count: whitespace does not advertise an active filter")
+    model.pane = .stored
+    model.search = "profile"
+    check(model.filterSummary == nil, "filter count: stored sign-ins need scan results")
+    let group: [String: Any] = ["kind": "inventory", "severity": "low", "title": "Saved sign-in",
+                                "explanation": "Inventory fixture", "steps": [String](),
+                                "items": [["index": 0, "path": "~/fixture/profile.json", "actionable": true],
+                                          ["index": 1, "path": "~/fixture/other.json", "actionable": true]]]
+    model.results = try? decodeEngine(ScanResults.self, from: Data(json([
+        "status": "partial", "tool_version": "0.0.0-test", "generated_at": "2026-10-13T00:00:00Z",
+        "review": 0, "stored": 2, "not_checked": 0, "groups": [group], "gaps": [Any](),
+        "roots": ["~"], "excluded": [String](), "limitations": "",
+    ]).utf8))
+    check(model.filterSummary == "Showing 1 of 2 items", "filter count: stored sign-ins show the filtered and full totals")
+    model.search = "not present"
+    check(model.filterSummary == "Showing 0 of 2 items", "filter count: stored sign-ins report no matches explicitly")
+    check(model.filterHasNoMatches, "filter message: stored sign-ins offer no-match guidance")
+    model.search = ""
+    check(model.filterSummary == nil && model.storedRows.count == 2,
+          "filter count: clearing restores all stored sign-ins")
+    check(!model.filterHasNoMatches, "filter message: clearing dismisses no-match guidance")
+}
+
+func manualReportSessionWording() {
+    check(ManualReportText.noScanTitle == "No Manual Scan This Session",
+          "manual report: missing session details do not claim the Mac was never scanned")
+    check(ManualReportText.lifetime == "Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting.",
+          "manual report: explain session lifetime, retained history, rescan and export")
+}
+
+func initialWindowFitsScreen() {
+    for screen in [CGSize(width: 1024, height: 700), CGSize(width: 1280, height: 680), CGSize(width: 1920, height: 1000)] {
+        let size = initialWindowSize(in: screen)
+        check(size.width + 40 <= screen.width && size.height + 80 <= screen.height,
+              "window: initial content leaves space for frame, toolbar and screen edges")
+        check(size.width >= 760 && size.height >= 480,
+              "window: initial content meets the supported minimum")
+    }
+    check(initialWindowSize(in: CGSize(width: 1920, height: 1000)) == CGSize(width: 1180, height: 720),
+          "window: a large screen keeps the preferred content size")
+}
+
+@MainActor func compactInspectorSelection() async {
+    let model = AppModel(engine: HeldEngine())
+    model.pane = .review
+    model.review = try? decodeEngine(ReviewList.self, from: Data(reviewList(2).utf8))
+    check(model.review?.items.first?.copyHint == nil, "single row: no copy hint without a grouped places list")
+    check(!model.inspectorShown, "inspector: an unselected list starts compact")
+    model.selectedReview = 1
+    check(model.inspectorShown, "inspector: choosing a finding opens its details")
+    model.toggleInspector()
+    model.selectedReviews = [1]
+    check(!model.inspectorShown, "inspector: an unchanged selection keeps a manual hide")
+    model.selectedReview = 2
+    check(model.inspectorShown, "inspector: choosing another finding reopens details")
+    model.search = "no matching finding"
+    check(!model.inspectorShown, "inspector: filtering away the selection closes empty details")
+    model.toggleInspector()
+    check(model.inspectorShown, "inspector: the toolbar can explicitly show empty details")
+    model.pane = .stored
+    model.selectedStored = 2
+    check(model.inspectorShown, "inspector: choosing a stored sign-in opens details")
+    model.selectedStored = nil
+    check(!model.inspectorShown, "inspector: clearing the stored selection closes empty details")
+}
+
+/// A grouped finding keeps its representative identity even when another
+/// copy (including a fixed or set-aside copy) is the reason it matches.
+@MainActor func groupedPathFiltering() async {
+    let model = AppModel(engine: HeldEngine())
+    for state in ["open", "set-aside", "fixed"] {
+        let item: [String: Any] = [
+            "id": 41, "revision": 7, "rule": "fixture-rule", "path": "~/.config/example/hosts.yml",
+            "title": "Synthetic grouped finding", "explanation": "Review fixture",
+            "severity": "high", "state": state,
+            "places": [
+                ["id": 41, "path": "~/.config/example/hosts.yml", "fixed": false],
+                ["id": 42, "path": "~/Projects/payments-api/.env", "fixed": false],
+                ["id": 43, "path": "~/Projects/retired/.env", "fixed": true],
+                ["id": 44, "path": "~/Projects/kept/.env", "fixed": false, "set_aside": true],
+            ],
+        ]
+        model.search = ""
+        model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": [item]]).utf8))
+        check(model.review?.items.first?.copyHint == "4 copies",
+              "grouped row: the copy hint counts listed open, fixed and set-aside copies")
+        model.pane = state == "set-aside" ? .setAside : .review
+        for (query, path) in [("PAYMENTS-API", "~/Projects/payments-api/.env"),
+                              ("retired", "~/Projects/retired/.env"), ("kept", "~/Projects/kept/.env")] {
+            model.search = ""
+            model.selectedReview = 41
+            model.search = query
+            check(model.reviewRows.map(\.id) == [41], "grouped filter: \(state) matches a secondary path (\(query))")
+            check(model.reviewRows.first.map { model.matchingReviewPaths($0) } == [path],
+                  "grouped filter: the row explains the matching secondary path")
+            check(model.currentReview?.id == 41 && model.currentReview?.revision == 7
+                  && model.currentReview?.path == "~/.config/example/hosts.yml",
+                  "grouped filter: matching a copy keeps the selected representative and revision")
+        }
+        model.search = ".env"
+        check(model.reviewRows.first.map { model.matchingReviewPaths($0).count } == 3,
+              "grouped filter: context includes every matching secondary path")
+        for query in ["", "Synthetic grouped", "hosts.yml"] {
+            model.search = query
+            check(model.reviewRows.first.map { model.matchingReviewPaths($0) } == [],
+                  "grouped filter: no redundant path context for an empty, title or representative match")
+        }
+        model.search = "no matching copy"
+        check(model.reviewRows.isEmpty && model.selectedReviews.isEmpty,
+              "grouped filter: a missing path clears the hidden selection")
+    }
+}
+
 func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     json(["enabled": true, "paused": paused, "scanning": false, "login": login,
           "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
@@ -1495,6 +1647,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("background checks: newest failure after older status", monitorNewestFailure),
             ("places: older list after a removal", placesOlderListAfterRemoval),
             ("places: older failure after newer list", placesOlderFailureAfterNewer),
+            ("places: removal refusal preserves folders and reports why", placesRemovalRefusal),
             ("places: newest failure after older list", placesNewestFailure),
             ("scan: refreshes while a scan runs", scanDoesNotHoldRefreshes),
             ("background checks: foreground follows the helper", foregroundFollowsHelper),
@@ -1515,6 +1668,11 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("updates: a refused save", updatesSettingFailure),
             ("engine text: exact keys and templates", engineTextMatches),
             ("engine text: the table for the window's language", engineTextTableChoice),
+            ("manual report: session lifetime wording", manualReportSessionWording),
+            ("filter: usable-list counts", filterResultCounts),
+            ("window: initial size fits visible screen", initialWindowFitsScreen),
+            ("inspector: compact until a selection", compactInspectorSelection),
+            ("grouped copies: filter every path", groupedPathFiltering),
             ("engine text: filter and sort by what is shown", engineTextFilterAndSort),
         ]
         for (name, run) in cases {

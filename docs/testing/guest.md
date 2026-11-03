@@ -82,6 +82,28 @@ unlocked:
 LOOSE_KEYS_APP_CHECK=synthetic-home sh gui/tests/check-app.sh "$HOME/app-check-1"
 ```
 
+The driver declines first-run update checks through the window and verifies
+the saved answer. It waits for the sidebar rather than assuming that a fast
+scan has finished drawing it. Saving selects Documents explicitly through the
+native destination menu, including a paced pointer move and click at the
+current Accessibility bounds; AX selection alone can change the menu label
+without navigating the panel. The actual exported file, mode and contents
+remain the assertions, with unchanged deadlines. A previous picker directory
+must not decide the test's destination. The script refuses non-VirtualMac hosts.
+
+Also run the first-run quit regression against the same bundle:
+
+```sh
+LOOSE_KEYS_APP_CHECK=synthetic-home sh gui/tests/check-update-quit.sh "$HOME/update-quit-1"
+```
+
+It leaves update consent unanswered and checks normal native termination,
+menu Quit and Command-Q, relaunching against the same synthetic home between
+them. It also checks that the question explains what GitHub sees and that no
+paths or findings are sent. It sends no update request. The owned process and
+synthetic home are cleaned up; the published pre-fix bundle must fail the quit
+assertion. A killed process is cleanup, never a passing normal-quit assertion.
+
 The negative control adds `LOOSE_KEYS_APP_CHECK_OMIT_AWS=1`, with another new
 work folder. It must fail with `timeout: specific fixture findings in window`.
 

@@ -184,6 +184,7 @@ final class AppModel: ObservableObject {
     @Published var overviewCheckDetails = false
     @Published var inspectorWhy = false
     @Published var inspectorDetails = false
+    @Published var inspectorCopies = false
     /// The sidebar as the person left it. The first page hides it until there
     /// is something to list, unless the person has opened it or used it since.
     @Published var columns = NavigationSplitViewVisibility.automatic
@@ -193,14 +194,26 @@ final class AppModel: ObservableObject {
     private var accessCancelled = false
     @Published var progress: ScanProgress?
     @Published var started: Date?
-    @Published var selectedReviews: Set<ReviewItem.ID> = []
+    @Published var selectedReviews: Set<ReviewItem.ID> = [] {
+        didSet {
+            if selectedReviews != oldValue, pane == .review || pane == .setAside {
+                showInspectorForSelection(!selectedReviews.isEmpty)
+            }
+        }
+    }
     /// Single-item callers and the inspector never pick an arbitrary member.
     var selectedReview: ReviewItem.ID? {
         get { selectedReviews.count == 1 ? selectedReviews.first : nil }
         set { selectedReviews = newValue.map { [$0] } ?? [] }
     }
     @Published private(set) var decidingSelection = false
-    @Published var selectedStored: StoredRow.ID?
+    @Published var selectedStored: StoredRow.ID? {
+        didSet {
+            if selectedStored != oldValue, pane == .stored {
+                showInspectorForSelection(selectedStored != nil)
+            }
+        }
+    }
     /// The column headings each list is sorted by, the last one clicked first.
     /// Status is where the review list starts: open first, then by risk.
     @Published var reviewSort = [KeyPathComparator(\ReviewItem.statusRank)]
@@ -213,7 +226,14 @@ final class AppModel: ObservableObject {
             if !search.isEmpty, pane != .review, pane != .setAside, pane != .stored { pane = .review }
         }
     }
-    @Published var inspectorShown = true
+    @Published var inspectorShown = false
+
+    /// Keep space for the list until a selection needs details. Like the
+    /// toolbar, this can outrun the window's report of an earlier close.
+    private func showInspectorForSelection(_ shown: Bool) {
+        inspectorShown = shown
+        inspectorPressed = Date()
+    }
     /// A problem to show in an alert on the main window.
     @Published var failure: String?
     /// What went wrong with an action taken in Settings, for an alert there.
@@ -406,7 +426,17 @@ final class AppModel: ObservableObject {
         return reviewPaneItems.filter {
             leaves(wanted, [$0.shownTitle, $0.path, $0.subject.map(EngineText.about), $0.detail.map(EngineText.about),
                             $0.title, $0.subject, $0.detail])
+                || ($0.places ?? []).contains { leaves(wanted, [$0.path]) }
         }
+    }
+
+    /// Secondary paths that explain why this group matches the Filter field.
+    func matchingReviewPaths(_ item: ReviewItem) -> [String] {
+        let wanted = search.trimmingCharacters(in: .whitespaces)
+        guard !wanted.isEmpty else { return [] }
+        return Set((item.places ?? []).filter {
+            $0.path != item.path && leaves(wanted, [$0.path])
+        }.map(\.path)).sorted()
     }
 
     var reviewRows: [ReviewItem] {
@@ -417,12 +447,44 @@ final class AppModel: ObservableObject {
     /// Enough to find one of them or to count them.
     var storedShown: [StoredRow] {
         let wanted = search.trimmingCharacters(in: .whitespaces)
+        return storedItems.filter {
+            leaves(wanted, [$0.shownTitle, $0.file.path, $0.file.subject.map(EngineText.about), $0.group.title, $0.file.subject])
+        }
+    }
+
+    private var storedItems: [StoredRow] {
         return (results?.groups ?? [])
             .filter { $0.kind == "inventory" }
             .flatMap { group in group.items.map { (file: $0, group: group) } }
             .enumerated()
             .map { StoredRow(file: $0.element.file, group: $0.element.group, place: $0.offset) }
-            .filter { leaves(wanted, [$0.shownTitle, $0.file.path, $0.file.subject.map(EngineText.about), $0.group.title, $0.file.subject]) }
+    }
+
+    /// Filtered rows out of the usable list, never a scan or error count.
+    var filterSummary: String? {
+        guard !search.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        let shown: Int
+        let total: Int
+        switch pane {
+        case .review, .setAside:
+            guard review != nil, reviewProblem == nil else { return nil }
+            shown = reviewShown.count
+            total = reviewPaneItems.count
+        case .stored:
+            guard results != nil else { return nil }
+            shown = storedShown.count
+            total = storedItems.count
+        default:
+            return nil
+        }
+        guard total > 0 else { return nil }
+        return String(localized: "Showing \(shown) of \(total) items",
+                      comment: "Filtered list: the number of matching rows followed by the total rows on this page, including fixed findings.")
+    }
+
+    var filterHasNoMatches: Bool {
+        guard filterSummary != nil else { return false }
+        return pane == .stored ? storedShown.isEmpty : reviewShown.isEmpty
     }
 
     var storedRows: [StoredRow] {
@@ -958,7 +1020,10 @@ final class AppModel: ObservableObject {
     /// The engine acts only while the two agree, so a second press that lands
     /// after the list has moved up does nothing to the folder now in that place.
     func removeFolder(_ index: Int, shown: String) {
-        attempt { _ = try await self.changePlaces("remove_place", ["index": index, "shown": shown]) }
+        attempt {
+            let places = try await self.changePlaces("remove_place", ["index": index, "shown": shown])
+            if let error = places.error { self.failure = EngineText.shown(error) }
+        }
     }
 
     /// A change to the folders, answered with the list after it. The list is

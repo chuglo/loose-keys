@@ -40,9 +40,10 @@ struct OverviewView: View {
                             Button("Scan Now") { model.startScan() }
                                 .disabled(model.places?.home == nil)
                         } label: {
-                            Text("One-Time Scan")
-                            Text("Check once and get a full report.")
+                            Text(ManualReportText.noScanTitle)
                         }
+                    } footer: {
+                        Text(ManualReportText.lifetime)
                     }
                 }
             }
@@ -191,6 +192,7 @@ struct OverviewView: View {
                 if let note = model.findingsNote {
                     Text(note)
                 }
+                Text(ManualReportText.lifetime)
             }
         }
     }

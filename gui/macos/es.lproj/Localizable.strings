@@ -1,6 +1,18 @@
 /* The window's own text and the notification, in Spanish. Keys are the
    English source text. */
 
+/* Lists.swift: matching secondary copy, already escaped by the engine. */
+"Matches: %@" = "Coincide: %@";
+
+/* Models.swift: full manual reports are not restored at the next launch. */
+"No Manual Scan This Session" = "Sin análisis manual en esta sesión";
+"Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting." = "Los detalles del análisis manual solo se conservan hasta que sales de la app. Los hallazgos y las decisiones guardados siguen disponibles. Usa Analizar ahora para obtener detalles actuales y guarda el informe antes de salir.";
+
+/* Lists.swift: the active filter, not the scan's findings. */
+"Clear Filter" = "Borrar filtro";
+"No Matches" = "Sin coincidencias";
+"No items in this list match the filter. Clear it to see all items." = "Ningún elemento de esta lista coincide con el filtro. Bórralo para ver todos los elementos.";
+
 /* [App.swift:150, MainView.swift:148, Overview.swift:27, Overview.swift:78] */
 "Scan Now" = "Analizar ahora";
 
@@ -153,6 +165,9 @@
 
 /* [Inspector.swift:138, Overview.swift:247] */
 "Hide Details" = "Ocultar detalles";
+/* Inspector: expand or collapse the other files holding a grouped credential. */
+"Hide Copies" = "Ocultar copias";
+"Show Copies" = "Mostrar copias";
 
 /* [Inspector.swift:138, Overview.swift:247] */
 "Show Details" = "Mostrar detalles";
@@ -303,6 +318,8 @@
 
 /* [Lists.swift:247] */
 "Scans skip these folders." = "Los análisis omiten estas carpetas.";
+/* Exceptions to excluding a folder from discovery. */
+"Known sign-in files and files directly in AI tools' folders are still read by full scans. Existing findings are rechecked." = "Los archivos de inicio de sesión conocidos y los archivos directamente en las carpetas de herramientas de IA se siguen leyendo en los análisis completos. Los hallazgos existentes se vuelven a comprobar.";
 
 /* [MainView.swift:21] */
 "Filter" = "Filtrar";
@@ -456,12 +473,6 @@
 
 /* [Overview.swift:13] */
 "Cancel Preparation" = "Cancelar preparación";
-
-/* [Overview.swift:30] */
-"One-Time Scan" = "Análisis puntual";
-
-/* [Overview.swift:31] */
-"Check once and get a full report." = "Comprueba una vez y obtén un informe completo.";
 
 /* [Overview.swift:59] */
 "Find Passwords and Keys Left in Files" = "Encuentra contraseñas y claves que quedaron en archivos";
@@ -715,7 +726,7 @@
 "Check for Updates Automatically?" = "¿Buscar actualizaciones automáticamente?";
 
 /* Under the title of the alert asking whether the app may check for updates. [MainView.swift] */
-"Loose Keys can ask GitHub once a day whether a newer version is out." = "Loose Keys puede preguntar a GitHub una vez al día si hay una versión más reciente.";
+"Loose Keys can ask GitHub once a day whether a newer version is out. No paths or findings are sent. GitHub sees the request and your IP address." = "Loose Keys puede preguntar a GitHub una vez al día si hay una versión más reciente. No se envían rutas ni hallazgos. GitHub ve la solicitud y tu dirección IP.";
 
 /* [MainView.swift] */
 "Check Automatically" = "Buscar automáticamente";

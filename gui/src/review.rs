@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Item {
@@ -222,6 +222,9 @@ pub struct Review {
     pub decisions: Vec<Decision>,
     #[serde(default)]
     pub skipped: Vec<Skip>,
+    /// Extra roots for manual scans only. The helper still watches the home.
+    #[serde(default)]
+    pub selected_places: Vec<PathBuf>,
     /// What the organization's settings list as expected, as `set_expected`
     /// checked it: decisions with `Reason::Expected`, applied for the place.
     #[serde(default)]
@@ -272,6 +275,8 @@ pub struct Agent {
     pub unread_places: Option<UnreadPlaces>,
 }
 
+pub const MAX_SELECTED_PLACES: usize = 8;
+pub const MAX_SELECTED_PATH_BYTES: usize = 4096;
 pub const MAX_UNREAD: usize = 4096;
 const UNREAD_BYTES: usize = 512 * 1024;
 
@@ -380,6 +385,22 @@ fn registry_rule(rule: &str) -> bool {
 }
 
 impl Review {
+    fn selected_places_valid(&self) -> bool {
+        self.selected_places.len() <= MAX_SELECTED_PLACES
+            && self.selected_places.iter().enumerate().all(|(n, path)| {
+                path.is_absolute()
+                    && path.to_str().is_some_and(|text| {
+                        text.len() <= MAX_SELECTED_PATH_BYTES && !text.contains('\0')
+                    })
+                    && !path.components().any(|part| part == Component::ParentDir)
+                    && !self
+                        .selected_places
+                        .iter()
+                        .take(n)
+                        .any(|prior| prior == path)
+            })
+    }
+
     fn upgrade_registry_labels(&mut self) {
         if self.registry_labels == 0 {
             for item in &mut self.items {
@@ -1280,7 +1301,7 @@ impl Store {
             .map_err(|e| e.to_string())?;
         let mut review: Review = serde_json::from_str(&json)
             .map_err(|_| "The review list file is damaged or in an unknown format.")?;
-        if !review.ids_hold() || review.registry_labels > 1 {
+        if !review.ids_hold() || review.registry_labels > 1 || !review.selected_places_valid() {
             return Err("The review list file is damaged or in an unknown format.".into());
         }
         if review.items.len() > 4096
@@ -1306,6 +1327,7 @@ impl Store {
     pub fn save(&self, review: &Review) -> Result<(), String> {
         if review.items.len() > 4096
             || !review.ids_hold()
+            || !review.selected_places_valid()
             || review
                 .agent
                 .unread_places
@@ -2609,6 +2631,76 @@ mod tests {
         }
         drop(store);
         std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn old_state_has_no_added_folders_and_maximum_valid_roots_round_trip() {
+        let home = synthetic_home("saved-places-migration");
+        let store = Store::open(&home).unwrap();
+        let mut legacy = serde_json::to_value(Review::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("selected_places");
+        let path = home.join(STATE_DIR).join("state.json");
+        fsutil::write_export(&path, &legacy.to_string(), false).unwrap();
+        let mut state = store.read().unwrap();
+        assert!(state.selected_places.is_empty());
+        state.selected_places = (0..MAX_SELECTED_PLACES)
+            .map(|n| {
+                let prefix = format!("/fixture/{n}/");
+                PathBuf::from(format!(
+                    "{prefix}{}",
+                    "x".repeat(MAX_SELECTED_PATH_BYTES - prefix.len())
+                ))
+            })
+            .collect();
+        assert_eq!(
+            state.selected_places[0].as_os_str().len(),
+            MAX_SELECTED_PATH_BYTES
+        );
+        store.save(&state).unwrap();
+        assert_eq!(store.read().unwrap().selected_places, state.selected_places);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn saved_added_folders_are_bounded_before_they_can_be_scanned() {
+        let mut accepted = Vec::new();
+        let many: Vec<PathBuf> = (0..9)
+            .map(|n| PathBuf::from(format!("/fixture/{n}")))
+            .collect();
+        for (name, paths) in [
+            ("many", many),
+            (
+                "long",
+                vec![PathBuf::from(format!("/{}", "x".repeat(4096)))],
+            ),
+            ("relative", vec![PathBuf::from("fixture")]),
+            ("parent", vec![PathBuf::from("/fixture/../elsewhere")]),
+            ("nul", vec![PathBuf::from("/fixture/\0")]),
+            (
+                "duplicate",
+                vec![PathBuf::from("/fixture"), PathBuf::from("/fixture")],
+            ),
+        ] {
+            let home = synthetic_home(&format!("saved-places-{name}"));
+            let store = Store::open(&home).unwrap();
+            let review = Review {
+                selected_places: paths,
+                ..Review::default()
+            };
+            let state = home.join(STATE_DIR).join("state.json");
+            fsutil::write_export(&state, &serde_json::to_string(&review).unwrap(), false).unwrap();
+            let before = std::fs::read(&state).unwrap();
+            if store.read().is_ok() || store.save(&review).is_ok() {
+                accepted.push(name);
+            }
+            let unchanged = std::fs::read(&state).unwrap() == before;
+            std::fs::remove_dir_all(home).unwrap();
+            assert!(unchanged, "invalid added folders changed the store");
+        }
+        assert!(
+            accepted.is_empty(),
+            "accepted invalid added folders: {accepted:?}"
+        );
     }
 
     /// The window names an item by its id, so two items with one id let a

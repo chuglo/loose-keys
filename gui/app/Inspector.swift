@@ -99,9 +99,13 @@ private struct ReviewInspector: View {
                     FileRow(path: item.path, line: item.line, index: item.id, review: true)
                 }
                 if let places = item.places, places.count > 1 {
-                    DisclosureGroup(String(localized: "The same credential is in \(places.count) places",
-                                           comment: "Inspector, the heading over the list of files one credential was found in.")) {
-                        ForEach(places) { place in
+                    Text(String(localized: "The same credential is in \(places.count) places",
+                                comment: "Inspector, the heading over the list of files one credential was found in."))
+                    Button(model.inspectorCopies ? "Hide Copies" : "Show Copies") {
+                        model.inspectorCopies.toggle()
+                    }
+                    if model.inspectorCopies {
+                        ForEach(places.filter { $0.id != item.id }) { place in
                             // A path is whatever the file's maker chose, so it is shown as plain text.
                             Text(place.fixed
                                  ? String(localized: "\(place.path) (fixed here)",
@@ -112,6 +116,11 @@ private struct ReviewInspector: View {
                                  : place.path)
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
+                            if place.actionable == true {
+                                FileActions(index: place.id, review: true)
+                            } else if place.actionable == false {
+                                Text(unusualName).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -135,7 +144,7 @@ private struct ReviewInspector: View {
 
             if item.status != "set-aside" {
                 if item.status != "fixed", let folder = item.folder {
-                    Section("Folder") {
+                    Section {
                         if folderSkipped(folder) {
                             // A folder's name is whatever its maker chose, so it is shown as plain text.
                             Text(verbatim: String(localized: "Scans will skip \(folder). You can include it again from Not Checked.",
@@ -149,6 +158,10 @@ private struct ReviewInspector: View {
                                                       comment: "Inspector, Folder section: a button that leaves a folder out of scans. %@ is the folder's path, shown as it is."))
                             }
                         }
+                    } header: {
+                        Text("Folder")
+                    } footer: {
+                        Text(FolderScopeText.exceptions)
                     }
                 }
             }
@@ -262,7 +275,6 @@ private func pathAndLine(_ path: String, _ line: Int?) -> String {
 }
 
 private struct FileRow: View {
-    @EnvironmentObject private var model: AppModel
     let path: String
     let line: Int?
     let index: Int
@@ -272,9 +284,21 @@ private struct FileRow: View {
         Text(pathAndLine(path, line))
             .font(.callout.monospaced())
             .textSelection(.enabled)
+        FileActions(index: index, review: review)
+    }
+}
+
+private struct FileActions: View {
+    @EnvironmentObject private var model: AppModel
+    let index: Int
+    let review: Bool
+
+    var body: some View {
         HStack {
             Button("Show in Finder") { model.showInFinder(index, review: review) }
+                .accessibilityIdentifier("show-file-\(review ? "review" : "stored")-\(index)")
             Button("Copy Path") { model.copyPath(index, review: review) }
+                .accessibilityIdentifier("copy-path-\(review ? "review" : "stored")-\(index)")
         }
     }
 }

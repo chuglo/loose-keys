@@ -50,6 +50,7 @@ let report = files.homeDirectoryForCurrentUser.appendingPathComponent("Documents
     .appendingPathComponent("loose-keys-bundle-check-" + UUID().uuidString + ".json")
 let process = Process()
 var launched = false
+var quitNormally = false
 var outcome = 0
 var secrets: [String] = []
 func leaks(_ text: String) -> Bool {
@@ -108,6 +109,20 @@ do {
     }
     try wait("app window") { try alive(); return !windowElements().isEmpty }
     print("PASS: built bundle launched and window is accessible")
+    try wait("first-run update consent") { button("Don’t Check") != nil }
+    // A sheet can disappear before AX returns, invalidating the pressed
+    // element. Read back both the UI and saved answer instead of retrying.
+    if let decline = button("Don’t Check") {
+        _ = AXUIElementPerformAction(decline, kAXPressAction as CFString)
+    }
+    try wait("update checks explicitly declined") {
+        guard button("Don’t Check") == nil else { return false }
+        let state = home.appendingPathComponent("Library/Application Support/dev.loosekeys.desktop/state.json")
+        guard let data = try? Data(contentsOf: state),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return json["update_check"] as? Bool == false
+    }
+    print("PASS: first-run update checks declined through the window and saved")
     try wait("home ready for scan") {
         windowElements().contains { attribute($0, kAXRoleAttribute) as? String == kAXButtonRole &&
             texts($0).contains("Scan Now") && attribute($0, kAXEnabledAttribute) as? Bool == true }
@@ -120,6 +135,22 @@ do {
         return menuItem("Save Report…").map { attribute($0, kAXEnabledAttribute) as? Bool == true } ?? false
     }
     print("PASS: scan through app interface completed with app alive")
+    // The welcome page hides the sidebar, and the split view may retain that
+    // layout after a fast scan. Open it through its real control if needed.
+    try wait("sidebar navigation ready") {
+        button("Show Sidebar") != nil || windowElements().contains {
+            attribute($0, kAXRoleAttribute) as? String == kAXRowRole &&
+                descendants($0).flatMap { texts($0) }.contains("Worth Reviewing")
+        }
+    }
+    if let show = button("Show Sidebar") { try press(show, "Show Sidebar") }
+    try wait("Worth Reviewing sidebar ready") {
+        try alive()
+        return windowElements().contains {
+            attribute($0, kAXRoleAttribute) as? String == kAXRowRole &&
+                descendants($0).flatMap { texts($0) }.contains("Worth Reviewing")
+        }
+    }
     guard let row = windowElements().first(where: {
         attribute($0, kAXRoleAttribute) as? String == kAXRowRole &&
             descendants($0).flatMap { texts($0) }.contains("Worth Reviewing")
@@ -216,6 +247,49 @@ do {
     guard AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, report.lastPathComponent as CFString) == .success else {
         try fail("cannot set report destination")
     }
+    // NSSavePanel remembers the previous directory outside this synthetic
+    // HOME. Navigate explicitly; never weaken the Documents assertion below.
+    func destinationMenu() -> AXUIElement? {
+        windowElements().first {
+            attribute($0, kAXRoleAttribute) as? String == kAXPopUpButtonRole && texts($0).contains("Where:")
+        }
+    }
+    try press(destinationMenu(), "save destination menu")
+    func documentsDestination() -> AXUIElement? {
+        guard let menu = destinationMenu() else { return nil }
+        return descendants(menu).first {
+            attribute($0, kAXRoleAttribute) as? String == kAXMenuItemRole && texts($0).contains("Documents")
+        }
+    }
+    try wait("Documents destination in save menu") { documentsDestination() != nil }
+    if let documents = documentsDestination() {
+        // AXPress can change the pop-up's label without navigating the
+        // save panel. Click the current native menu item's actual bounds.
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == process.processIdentifier,
+              let position = attribute(documents, kAXPositionAttribute),
+              let extent = attribute(documents, kAXSizeAttribute),
+              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(extent) == AXValueGetTypeID() else {
+            try fail("save destination menu is not ready for a guest click")
+        }
+        var point = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
+              AXValueGetValue(extent as! AXValue, .cgSize, &size), size.width > 0, size.height > 0 else {
+            try fail("save destination menu has no bounds")
+        }
+        point.x += size.width / 2
+        point.y += size.height / 2
+        for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)
+            event?.flags = []
+            event?.post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+    }
+    try wait("save panel navigated to Documents") {
+        destinationMenu().map { attribute($0, kAXValueAttribute) as? String == "Documents" } ?? false
+    }
     guard let destination = windowElements().first(where: {
         attribute($0, kAXRoleAttribute) as? String == kAXPopUpButtonRole && texts($0).contains("Where:")
     }), attribute(destination, kAXValueAttribute) as? String == "Documents" else {
@@ -305,7 +379,10 @@ if launched {
         attribute($0, kAXRoleAttribute) as? String == kAXButtonRole && texts($0).contains("Cancel")
     }) { try? press(cancel, "cancel save panel") }
     if let running = NSRunningApplication(processIdentifier: process.processIdentifier) { running.terminate() }
-    do { try wait("app quit") { !process.isRunning } }
+    do {
+        try wait("app quit") { !process.isRunning }
+        quitNormally = true
+    }
     catch {
         process.terminate()
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
@@ -317,7 +394,7 @@ if files.fileExists(atPath: args[2] + "/app.log") {
     do {
         let log = try String(contentsOfFile: args[2] + "/app.log", encoding: .utf8)
         if leaks(log) { fputs("FAIL: app log contains planted secret\n", stderr); outcome = 1 }
-        else if launched { print("PASS: app quit; log exposes no planted values, prefixes or suffixes") }
+        else if quitNormally { print("PASS: app quit; log exposes no planted values, prefixes or suffixes") }
     } catch { fputs("FAIL: cannot check app log\n", stderr); outcome = 1 }
 }
 if files.fileExists(atPath: home.path) {

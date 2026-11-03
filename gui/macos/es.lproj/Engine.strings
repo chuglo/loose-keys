@@ -595,8 +595,8 @@
 "%@ The file's permissions let other users on this Mac read it, unless a folder above it or an access list blocks them." = "%@ Los permisos del archivo dejan que otros usuarios de tu Mac lo lean, salvo que se lo impida una carpeta superior o una lista de acceso.";
 
 /* not_checked reason permission-denied: label, then help */
-"Blocked by system permissions" = "Bloqueado por permisos del sistema";
-"macOS protects these folders, so Loose Keys could not look inside them." = "macOS protege estas carpetas, así que Loose Keys no pudo mirar dentro.";
+"Permission denied" = "Permiso denegado";
+"File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again." = "Los permisos del archivo o los ajustes de privacidad de macOS bloquearon el acceso. Revisa los permisos del archivo o de la carpeta y vuelve a analizar.";
 
 /* not_checked reason cloud-only-file: label, then help */
 "Stored only in the cloud" = "Guardado solo en la nube";

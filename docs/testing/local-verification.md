@@ -112,6 +112,20 @@ two- and thirty-second timers and the daily update check, so it does not
 check real timing. Its update cases use a stand-in for GitHub; no check here
 makes a request to GitHub.
 
+The model check covers grouped-secondary-path filtering (open, fixed and
+set-aside copies), matching-path context without changing representative ids,
+filtered counts and failure precedence, copy hints, inspector selection
+changes, manual-report lifetime wording and initial content-size bounds.
+It also checks that a folder-removal refusal or save failure inside a successful
+engine response reaches the alert state without losing the usable folder list.
+This uses controlled responses, not a failed write in the running bundle.
+The window check also presses Clear Filter on Worth Reviewing, Set Aside
+and Stored Sign-ins and checks the matching-copy text, copy hint, empty
+inspector and initial window frame. It sets filter text in the model, not
+with keyboard input. These checks do not establish actual typing, restored
+window sizing, multiple displays or Spanish layout; those need a guest
+interaction pass. No host UI is needed for the model check.
+
 ```sh
 sh gui/tests/check-window-guest.sh "$TMPDIR/window-check"
 sh gui/tests/check-model.sh "$TMPDIR/model-check"

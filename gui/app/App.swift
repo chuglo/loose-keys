@@ -148,7 +148,7 @@ struct LooseKeysApp: App {
                 .environmentObject(model)
                 .frame(minWidth: 760, minHeight: 480)
         }
-        .defaultSize(width: 1180, height: 720)
+        .defaultSize(initialWindowSize(in: NSScreen.main?.visibleFrame.size ?? CGSize(width: 1220, height: 800)))
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { model.checkForUpdates() }

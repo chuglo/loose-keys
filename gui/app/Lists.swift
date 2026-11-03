@@ -1,6 +1,36 @@
 // The lists the sidebar opens: what to review, what is stored, what was not checked.
 import SwiftUI
 
+/// Keep the table and its column headings in place while explaining a
+/// filter. Read failures and genuinely empty source lists never use this.
+private struct FilterPresentation: ViewModifier {
+    @EnvironmentObject private var model: AppModel
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            if let summary = model.filterSummary {
+                HStack {
+                    Text(summary).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Clear Filter") { model.search = "" }
+                }
+                .padding(12)
+            }
+            content.overlay {
+                if model.filterHasNoMatches {
+                    ContentUnavailableView {
+                        Label("No Matches", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("No items in this list match the filter. Clear it to see all items.")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background)
+                }
+            }
+        }
+    }
+}
+
 struct ReviewTable: View {
     @EnvironmentObject private var model: AppModel
 
@@ -41,19 +71,33 @@ struct ReviewTable: View {
                 TableColumn("Finding", value: \.shownTitle) { (item: ReviewItem) in
                     // Most rows are open, and Set Aside lists only set-aside
                     // ones, so only a fixed row says what it is.
-                    if item.status == "fixed" {
-                        HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if item.status == "fixed" {
+                            HStack(spacing: 8) {
+                                Text(item.shownTitle).lineLimit(1)
+                                Text(item.statusText).fixedSize()
+                            }
+                            .foregroundStyle(.secondary)
+                        } else {
                             Text(item.shownTitle).lineLimit(1)
-                            Text(item.statusText).fixedSize()
                         }
-                        .foregroundStyle(.secondary)
-                    } else {
-                        Text(item.shownTitle).lineLimit(1)
+                        if let hint = item.copyHint {
+                            Text(hint).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .width(min: 180, ideal: 320)
                 TableColumn("Where", value: \.path) { (item: ReviewItem) in
-                    PathText(path: item.path)
+                    VStack(alignment: .leading, spacing: 4) {
+                        PathText(path: item.path)
+                        ForEach(model.matchingReviewPaths(item), id: \.self) { path in
+                            Text(String(localized: "Matches: \(path)",
+                                        comment: "Under a grouped finding's representative path: another copy's path matches the Filter field."))
+                                .font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(2).truncationMode(.middle)
+                                .help(path)
+                        }
+                    }
                 }
                 .width(min: 130, ideal: 190)
                 // The first click puts the highest risk at the top.
@@ -78,6 +122,7 @@ struct ReviewTable: View {
                     model.showInFinder(id, review: true)
                 }
             }
+            .modifier(FilterPresentation())
         }
     }
 }
@@ -168,9 +213,10 @@ struct StoredTable: View {
     var body: some View {
         if model.results == nil {
             ContentUnavailableView {
-                Label("No Scan Yet", systemImage: "key")
+                Label(ManualReportText.noScanTitle, systemImage: "key")
             } description: {
                 Text("After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them.")
+                Text(ManualReportText.lifetime)
             }
         } else {
             Table(model.storedRows, selection: $model.selectedStored, sortOrder: $model.storedSort) {
@@ -190,6 +236,7 @@ struct StoredTable: View {
                     Button("Copy Path") { model.copyPath(id, review: false) }
                 }
             }
+            .modifier(FilterPresentation())
         }
     }
 }
@@ -207,11 +254,12 @@ struct GapsView: View {
         Group {
             if gaps.isEmpty && skipped.isEmpty && !unread && !model.hasAutomaticCoverage && model.automaticCoverageError == nil {
                 ContentUnavailableView {
-                    Label(model.results == nil ? "No Scan Yet" : "Nothing Skipped", systemImage: "eye.slash")
+                    Label(model.results == nil ? ManualReportText.noScanTitle : String(localized: "Nothing Skipped"), systemImage: "eye.slash")
                 } description: {
                     Text(model.results == nil
                          ? "After a scan, places Loose Keys could not read appear here."
                          : "Loose Keys read every place in the last scan.")
+                    if model.results == nil { Text(ManualReportText.lifetime) }
                 }
             } else {
                 Form {
@@ -253,6 +301,10 @@ struct GapsView: View {
                         Section("Last Automatic Scan") { ProgressView("Loading Details…") }
                     }
                     Section {
+                        if model.results == nil {
+                            Text(ManualReportText.noScanTitle).font(.headline)
+                            Text(ManualReportText.lifetime).foregroundStyle(.secondary)
+                        }
                         if let results = model.results, model.hasAutomaticCoverage {
                             Text("Last Manual Scan").font(.headline)
                             Text(localTime(results.generatedAt)).foregroundStyle(.secondary)
@@ -300,6 +352,7 @@ struct GapsView: View {
                             Text("Folders You Left Out")
                         } footer: {
                             Text("Scans skip these folders.")
+                            Text(FolderScopeText.exceptions)
                         }
                     }
                 }

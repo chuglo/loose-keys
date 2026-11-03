@@ -477,6 +477,32 @@ The threats are a local user racing a root run with links, and hostile files
   link leads, which the function does not follow, so that item stays open
   until the folder is included again.
 
+### Saved manual roots and grouped file actions
+
+The app stores explicitly added manual roots in `Review.selected_places`,
+in the existing owner-only state. The list has at most eight distinct absolute
+UTF-8 paths, each at most 4096 bytes, with no NUL or parent component. Load
+and save both validate it; invalid state is unavailable, not an empty scope.
+Old state defaults to no extra roots. Adding and removing roots uses the
+store transaction, so a failed save leaves the prior list and another writer's
+changes intact. The app no longer keeps a separate mutable root list. Scans
+snapshot the latest usable list and use the scanner's existing no-follow,
+bounded access; an unavailable root remains listed and produces a gap.
+The helper preserves this field when saving but does not watch these roots.
+An older app or helper can drop the field when it saves: downgrade persistence
+is not promised. Full manual reports still last only until the app quits.
+
+Each grouped `PlaceView` includes `actionable`, computed from its original
+name before escaping. The window offers the existing file actions for an
+actionable secondary copy and sends only its existing id to `item_path`.
+The command still resolves that id afresh and validates the path and parent;
+the window never supplies a path to act on. Missing actionability in an older
+response offers no extra action. Public reports, exports and the five C
+functions are unchanged. Tests cover restart/removal, limits and legacy state,
+failed saves, shared writers, linked roots, per-copy ids and unusual names;
+the window check presses the secondary copy's control. Permission-denial
+wording names both file permissions and macOS privacy, not an assumed cause.
+
 ### Saved automatic coverage
 
 The helper keeps the last completed automatic pass's unread paths and reasons
@@ -947,6 +973,16 @@ build scripts are not read, and a remote URL passed to a reader such as
 `Data(contentsOf:)` would not be caught), the model check's `updates:`
 cases, and the window check's update steps.
 
+Update questions and results use a native `NSAlert` sheet with
+`preventsApplicationTerminationWhenModal` disabled on that alert alone.
+SwiftUI's multi-button alert otherwise blocks termination before the app
+delegate. Only explicit button responses save consent or open the fixed
+download page; system dismissal and Quit leave consent unanswered. The
+guest-only `check-update-quit.sh` checks native, menu and keyboard Quit,
+relaunches against the same synthetic home, and checks the privacy wording.
+No other modal or global termination policy is changed. Runtime behavior on
+macOS 14 and simultaneous unrelated sheets remains unverified.
+
 Remaining risks: a compromised GitHub account or API can announce a fake
 newer version, though Download still opens the real release page; TLS trust
 is the system's, with no pinning; GitHub sees the IP address and that the
@@ -1078,6 +1114,26 @@ is replaced (macOS behaviour).
   the window check: AppKit refuses a second search field in a toolbar, and
   the first was not always gone by then. Do not make a toolbar's search field
   depend on the page.
+- Filtering a review group checks every listed path, including fixed and
+  set-aside copies. Matching secondary paths are display-only context below
+  the representative path; the row's id, revision, sort key and file-action
+  target do not change. Copy hints count all listed places, not only active
+  ones. Filtered counts compare visible rows with this page's usable list,
+  including fixed rows, never the scan's finding count. No Matches and Clear
+  Filter do not replace read/save errors or a genuinely empty source list.
+- The inspector starts hidden. A changed selection opens it, clearing that
+  selection closes it, and the toolbar can explicitly show an empty
+  inspector. An unchanged selection does not undo a manual hide. Selection
+  changes use the same delayed-close guard as toolbar presses.
+  The initial content size is capped against the main screen's visible
+  frame with room for the title bar and toolbar; restored window sizes are
+  not changed. Screens smaller than the 760 by 480 content minimum plus
+  window chrome remain unsupported by this sizing rule.
+- Full manual reports, inventory and manual gaps live only in this app
+  session. Overview, Stored Sign-ins and Not Checked say so, distinguish
+  that from saved review findings and decisions, and advise saving a report
+  before quitting. An empty, never-scanned review list keeps its onboarding
+  rather than claiming that saved findings exist.
 - A row's selection is cleared in the model when the filter hides the row
   (`dropHiddenSelection`), and a stored sign-in's when new results arrive,
   because its id is its place in the results.

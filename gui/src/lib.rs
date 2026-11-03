@@ -39,7 +39,6 @@ struct App {
     /// background agent's job, in its own process.
     monitor: monitor::Monitor,
     home: Result<PathBuf, &'static str>,
-    places: Mutex<Vec<PathBuf>>,
     report: Mutex<Option<Report>>,
     scanning: AtomicBool,
     review: Mutex<review::Review>,
@@ -556,6 +555,8 @@ struct PlaceView {
     fixed: bool,
     /// Still there, and set aside by a decision that covers this place.
     set_aside: bool,
+    /// Determined from the unescaped name; item_path checks it again on use.
+    actionable: bool,
 }
 
 #[derive(Serialize, Default)]
@@ -625,6 +626,7 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             line: item.line,
             fixed: item.resolved,
             set_aside: decision.is_some(),
+            actionable: plain(&item.path),
         };
         // Copies of one credential are one entry with several places.
         if let Some(&n) = item.secret.as_deref().and_then(|s| grouped.get(s)) {
@@ -825,7 +827,6 @@ impl App {
         App {
             monitor: monitor::Monitor::new(false, false),
             home,
-            places: Mutex::new(Vec::new()),
             report: Mutex::new(None),
             scanning: AtomicBool::new(false),
             review: Mutex::new(review::Review::default()),
@@ -878,7 +879,6 @@ impl App {
     /// After a command panicked: let later ones take the locks it held. What
     /// each guards is only ever replaced whole, so none is left half-made.
     fn recover(&self) {
-        self.places.clear_poison();
         self.report.clear_poison();
         self.review.clear_poison();
         self.storage_error.clear_poison();
@@ -1103,10 +1103,12 @@ struct PlacesView {
 }
 
 fn places_view(app: &App, error: Option<String>) -> PlacesView {
+    let state = refresh_state(app);
+    let error = error.or_else(|| app.storage_error.lock().unwrap().clone());
     PlacesView {
         home: app.home.as_ref().ok().map(|h| show(h)),
         home_error: app.home.as_ref().err().copied(),
-        extra: app.places.lock().unwrap().iter().map(|p| show(p)).collect(),
+        extra: state.selected_places.iter().map(|p| show(p)).collect(),
         error,
     }
 }
@@ -1121,16 +1123,23 @@ fn add_place(app: &App, path: &Path) -> Answer<()> {
     }
     let p = scan::selected_root(path.as_os_str())
         .map_err(|e| format!("Cannot add that folder: {e}."))?;
-    let mut places = app.places.lock().unwrap();
-    if !places.contains(&p) && app.home.as_ref() != Ok(&p) {
-        if places.len() >= 8 || p.as_os_str().len() > 4096 {
-            return Err(
-                "You can add up to eight folders. Very long folder paths cannot be added.".into(),
-            );
-        }
-        places.push(p);
+    if !p.to_str().is_some_and(|text| !text.contains('\0')) {
+        return Err("That folder's name cannot be used.".into());
     }
-    Ok(())
+    try_update_state(app, |state| {
+        if !state.selected_places.contains(&p) && app.home.as_ref() != Ok(&p) {
+            if state.selected_places.len() >= review::MAX_SELECTED_PLACES
+                || p.as_os_str().len() > review::MAX_SELECTED_PATH_BYTES
+            {
+                return Err(
+                    "You can add up to eight folders. Very long folder paths cannot be added."
+                        .into(),
+                );
+            }
+            state.selected_places.push(p);
+        }
+        Ok(())
+    })
 }
 
 fn places(app: &App) -> PlacesView {
@@ -1150,13 +1159,18 @@ fn type_place(app: &App, text: String) -> PlacesView {
 
 /// As for `unskip_folder`: the place in the list, and what was shown there.
 fn remove_place(app: &App, index: usize, shown: String) -> PlacesView {
-    let mut places = app.places.lock().unwrap();
-    let there = places.get(index).is_some_and(|place| show(place) == shown);
-    if there && !app.scanning.load(Ordering::SeqCst) {
-        places.remove(index);
-    }
-    drop(places);
-    places_view(app, None)
+    let error = try_update_state(app, |state| {
+        if app.scanning.load(Ordering::SeqCst) {
+            return Err("Wait for the scan to finish.".into());
+        }
+        let places = &mut state.selected_places;
+        if places.get(index).is_some_and(|place| show(place) == shown) {
+            places.remove(index);
+        }
+        Ok(())
+    })
+    .err();
+    places_view(app, error)
 }
 
 // ---- Scan and results ----
@@ -1281,8 +1295,16 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
 
 /// Returns when the scan ends, so the front end calls it off its main thread.
 fn start_scan(app: &App) -> Answer<ResultsView> {
-    let extra = app.places.lock().unwrap().clone();
-    perform_scan(app, &extra, monitor::ScanKind::Manual)
+    // Use the latest saved scope, or its last usable copy if reading fails.
+    // As in perform_scan, a store failure is reported by the save; it must
+    // not silently erase the chosen roots or cancel an otherwise usable scan.
+    let state = app
+        .store
+        .as_ref()
+        .ok()
+        .and_then(|store| store.read().ok())
+        .unwrap_or_else(|| app.review.lock().unwrap().clone());
+    perform_scan(app, &state.selected_places, monitor::ScanKind::Manual)
 }
 
 /// Said when the monitor refuses a scan the person asked for. In this process
@@ -1525,8 +1547,8 @@ fn still_there(item: &review::Item, home: &Path, key: &[u8]) -> Option<review::S
 fn gap_text(reason: &str, root: bool) -> (&str, &str) {
     match reason {
         "permission-denied" => (
-            "Blocked by system permissions",
-            "macOS protects these folders, so Loose Keys could not look inside them.",
+            "Permission denied",
+            "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.",
         ),
         "unreadable" => (
             "Could not be read",
@@ -2622,6 +2644,111 @@ mod tests {
     }
 
     #[test]
+    fn added_folders_and_their_removal_survive_reopening_the_app() {
+        let (home, app) = engine("saved-places");
+        // An unavailable drive is still a chosen root, not silently dropped.
+        let folder = home.join("Unavailable drive");
+        let typed = json!({ "text": folder }).to_string();
+        let added = ask(&app, "type_place", &typed);
+        assert_eq!(added["ok"]["error"], Value::Null);
+        let reopened = App::open(Ok(home.clone()));
+        reopened.ready();
+        let restored = ask(&reopened, "places", "{}");
+        let remove = json!({ "index": 0, "shown": show(&folder) }).to_string();
+        let removed = ask(&reopened, "remove_place", &remove);
+        let again = App::open(Ok(home.clone()));
+        again.ready();
+        let after_removal = ask(&again, "places", "{}");
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(restored["ok"]["extra"], json!([show(&folder)]));
+        assert_eq!(removed["ok"]["extra"], json!([]));
+        assert_eq!(after_removal["ok"]["extra"], json!([]));
+    }
+
+    #[test]
+    fn saved_added_folders_are_scanned_without_following_links() {
+        use std::os::unix::fs::symlink;
+        let _alone = one_scan();
+        let (home, app) = engine("saved-places-scan");
+        let extra = home.with_extension("extra");
+        let link = home.with_extension("link");
+        std::fs::create_dir(&extra).unwrap();
+        std::fs::write(
+            extra.join(".env"),
+            "SERVICE_PASSWORD=synthetic-only-value\n",
+        )
+        .unwrap();
+        symlink(&extra, &link).unwrap();
+        assert!(add_place(&app, &extra).is_ok());
+        let reopened = App::open(Ok(home.clone()));
+        reopened.ready();
+        let scanned = ask(&reopened, "start_scan", "{}");
+        assert_eq!(scanned["ok"]["review"], 1);
+        let removed = remove_place(&reopened, 0, show(&extra));
+        assert!(removed.error.is_none());
+        assert!(add_place(&reopened, &link).is_ok());
+        let with_link = App::open(Ok(home.clone()));
+        with_link.ready();
+        let scanned_link = ask(&with_link, "start_scan", "{}");
+        assert_eq!(scanned_link["ok"]["review"], 0);
+        assert_eq!(scanned_link["ok"]["status"], "partial");
+        assert!(scanned_link["ok"]["gaps"]
+            .to_string()
+            .contains(&show(&link)));
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_dir_all(extra).unwrap();
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn invalid_added_folder_input_does_not_poison_the_saved_list() {
+        let (home, app) = engine("saved-places-invalid-input");
+        let first = home.join("One");
+        assert!(add_place(&app, &first).is_ok());
+        let invalid = json!({ "text": format!("{}/bad\0name", show(&home)) }).to_string();
+        let refused = ask(&app, "type_place", &invalid);
+        let poisoned = app.storage_error.lock().unwrap().is_some();
+        let retained = places(&app).extra;
+        std::fs::remove_dir_all(home).unwrap();
+        assert!(refused["ok"]["error"].is_string());
+        assert_eq!(retained, vec![show(&first)]);
+        assert!(
+            !poisoned,
+            "invalid folder input is not a saved-state failure"
+        );
+    }
+
+    #[test]
+    fn added_folder_changes_are_shared_and_failed_saves_keep_the_previous_list() {
+        let (home, app) = engine("saved-places-failure");
+        let first = home.join("One");
+        let second = home.join("Two");
+        assert!(add_place(&app, &first).is_ok());
+        let other = App::open(Ok(home.clone()));
+        other.ready();
+        assert!(add_place(&other, &second).is_ok());
+        assert_eq!(places(&app).extra, vec![show(&first), show(&second)]);
+        // A helper saving its own state must preserve manual-only roots.
+        app.store
+            .as_ref()
+            .unwrap()
+            .update(|state| {
+                state.agent.changes += 1;
+                Ok(())
+            })
+            .unwrap();
+        std::fs::create_dir(home.join(review::STATE_DIR).join("state.tmp")).unwrap();
+        assert!(add_place(&app, &home.join("Three")).is_err());
+        let failed = remove_place(&app, 0, show(&first));
+        assert!(failed.error.is_some());
+        assert_eq!(failed.extra, vec![show(&first), show(&second)]);
+        let reopened = App::open(Ok(home.clone()));
+        reopened.ready();
+        assert_eq!(places(&reopened).extra, vec![show(&first), show(&second)]);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
     fn a_folder_is_removed_or_put_back_only_while_it_is_the_one_shown() {
         let (home, app) = engine("by-name");
         let shown = show(&home);
@@ -2651,6 +2778,60 @@ mod tests {
         assert_eq!(ask(&app, "unskip_folder", first), json!({ "ok": null }));
         assert_eq!(skipped(), json!(["~/b"]));
         std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn a_permission_gap_does_not_guess_which_access_control_denied_it() {
+        let (label, help) = gap_text("permission-denied", false);
+        assert_eq!(label, "Permission denied");
+        assert_eq!(help, "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.");
+    }
+
+    #[test]
+    fn every_grouped_copy_has_its_own_validated_file_action() {
+        let _alone = one_scan();
+        let (home, app) = engine("copy-actions");
+        let secret = ["synthetic-copy", "only-value"].join("-");
+        for folder in ["One", "Two", "caf\u{e9}"] {
+            std::fs::create_dir(home.join(folder)).unwrap();
+            std::fs::write(
+                home.join(folder).join(".env"),
+                format!("PASSWORD={secret}\n"),
+            )
+            .unwrap();
+        }
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 3);
+        let listed = ask(&app, "pending_review", "{}");
+        let items = listed["ok"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        let copies = items[0]["places"].as_array().unwrap();
+        assert_eq!(copies.len(), 3);
+        assert!(!listed.to_string().contains(&secret));
+        let mut flags = Vec::new();
+        for copy in copies {
+            let path = copy["path"].as_str().unwrap();
+            let args = json!({"index":copy["id"],"review":true}).to_string();
+            let answer = ask(&app, "item_path", &args);
+            let expected = path.starts_with("~/One/") || path.starts_with("~/Two/");
+            flags.push((copy["actionable"].clone(), expected));
+            assert_eq!(answer.get("ok").is_some(), expected);
+            if expected {
+                assert_eq!(
+                    answer["ok"],
+                    home.join(path.strip_prefix("~/").unwrap())
+                        .to_str()
+                        .unwrap()
+                );
+            }
+        }
+        std::fs::remove_dir_all(home).unwrap();
+        for (actual, expected) in flags {
+            assert_eq!(
+                actual,
+                json!(expected),
+                "copy actionability must be explicit"
+            );
+        }
     }
 
     #[test]
@@ -3459,7 +3640,7 @@ mod tests {
         // Poison a lock, as a command that panicked while holding it would.
         std::thread::scope(|scope| {
             let held = scope.spawn(|| {
-                let _places = app.places.lock().unwrap();
+                let _review = app.review.lock().unwrap();
                 panic!("synthetic");
             });
             assert!(held.join().is_err());

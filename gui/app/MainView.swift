@@ -1,4 +1,5 @@
 // The window: a sidebar, the selected list, and an inspector.
+import AppKit
 import SwiftUI
 
 /// What the update alert asks or says.
@@ -29,14 +30,8 @@ struct MainView: View {
                     Inspector()
                         .inspectorColumnWidth(min: 270, ideal: 320, max: 460)
                 }
-                // One alert for the question and for what Check for Updates…
-                // found, on a view of its own: a view drops one of two alerts.
-                .alert(Text(updateAlert.map(updateTitle) ?? ""), isPresented: updateAlertShown,
-                       presenting: updateAlert) { alert in
-                    updateButtons(alert)
-                } message: { alert in
-                    Text(updateMessage(alert))
-                }
+                .background(UpdateAlertPresenter(value: updateAlert, makeAlert: makeUpdateAlert,
+                                                 respond: answerUpdateAlert))
         }
         // A sidebar the person has used is not hidden from them again: not on
         // coming back to Overview, nor when the first page's question returns.
@@ -64,11 +59,6 @@ struct MainView: View {
         return model.shouldAskAboutUpdates ? .question : nil
     }
 
-    /// Closed only by its buttons, which say what was chosen.
-    private var updateAlertShown: Binding<Bool> {
-        Binding(get: { updateAlert != nil }, set: { _ in })
-    }
-
     private func updateTitle(_ alert: UpdateAlert) -> String {
         switch alert {
         case .question:
@@ -89,7 +79,7 @@ struct MainView: View {
     private func updateMessage(_ alert: UpdateAlert) -> String {
         switch alert {
         case .question:
-            return String(localized: "Loose Keys can ask GitHub once a day whether a newer version is out.",
+            return String(localized: "Loose Keys can ask GitHub once a day whether a newer version is out. No paths or findings are sent. GitHub sees the request and your IP address.",
                           comment: "Under the title of the alert asking whether the app may check for updates.")
         case .result(.newer(let release)), .result(.upToDate(let release)):
             return String(localized: "You have \(release.current).",
@@ -99,19 +89,33 @@ struct MainView: View {
         }
     }
 
-    @ViewBuilder private func updateButtons(_ alert: UpdateAlert) -> some View {
+    private func makeUpdateAlert(_ value: UpdateAlert) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = updateTitle(value)
+        alert.informativeText = updateMessage(value)
+        switch value {
+        case .question:
+            alert.addButton(withTitle: String(localized: "Check Automatically"))
+            alert.addButton(withTitle: String(localized: "Don’t Check")).keyEquivalent = "\u{1b}"
+        case .result(.newer):
+            alert.addButton(withTitle: String(localized: "Download"))
+            alert.addButton(withTitle: String(localized: "Not Now")).keyEquivalent = "\u{1b}"
+        case .result:
+            alert.addButton(withTitle: String(localized: "OK"))
+        }
+        return alert
+    }
+
+    private func answerUpdateAlert(_ alert: UpdateAlert, _ response: NSApplication.ModalResponse) {
         switch alert {
         case .question:
-            Button("Check Automatically") { model.answerUpdateQuestion(true) }
-            Button("Don’t Check", role: .cancel) { model.answerUpdateQuestion(false) }
+            model.answerUpdateQuestion(response == .alertFirstButtonReturn)
         case .result(.newer):
-            Button("Download") {
-                model.updateResult = nil
-                model.openURL(Releases.page)
-            }
-            Button("Not Now", role: .cancel) { model.updateResult = nil }
+            model.updateResult = nil
+            if response == .alertFirstButtonReturn { model.openURL(Releases.page) }
         case .result:
-            Button("OK") { model.updateResult = nil }
+            model.updateResult = nil
         }
     }
 

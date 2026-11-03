@@ -104,6 +104,8 @@ struct ReviewPlace: Decodable, Identifiable {
     let fixed: Bool
     /// Still there, and set aside by a decision that covers this place.
     let setAside: Bool?
+    /// From the unescaped engine path; absent in older responses.
+    let actionable: Bool?
 }
 
 struct MonitorStatus: Decodable {
@@ -374,6 +376,13 @@ extension ReviewItem {
     /// The title as the window shows it, which the Finding heading sorts by.
     var shownTitle: String { EngineText.shown(title) }
 
+    /// Includes every listed location, including fixed and set-aside copies.
+    var copyHint: String? {
+        guard let count = places?.count, count > 1 else { return nil }
+        return String(localized: "\(count) copies",
+                      comment: "Under a grouped finding's title: all listed copies, including fixed and set-aside locations.")
+    }
+
     /// What it concerns, or failing that a count the rule gives, as for a
     /// browser's saved logins, as the window shows it.
     var shownAbout: String? { (subject ?? detail).map(EngineText.about) }
@@ -404,6 +413,33 @@ extension ReviewItem {
     var order: Int {
         statusRank * 10 + (2 - riskLevel)
     }
+}
+
+/// Shared wording for the manual report, distinct from saved review history.
+enum ManualReportText {
+    static var noScanTitle: String {
+        String(localized: "No Manual Scan This Session",
+               comment: "Stored Sign-ins, Not Checked and Overview when this launch has no manual report. Saved review findings may exist.")
+    }
+    static var lifetime: String {
+        String(localized: "Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting.",
+               comment: "Explains that full manual reports are session-only, unlike saved review history. Scan Now is a button name.")
+    }
+}
+
+enum FolderScopeText {
+    static var exceptions: String {
+        String(localized: "Known sign-in files and files directly in AI tools' folders are still read by full scans. Existing findings are rechecked.",
+               comment: "Explains the exceptions when a folder is left out of discovery. Full scans include manual scans and the helper's full passes.")
+    }
+}
+
+/// The first window's content size, before the person resizes it.
+func initialWindowSize(in visible: CGSize) -> CGSize {
+    // defaultSize measures content, not the title bar and toolbar. Keep a
+    // margin for those and the screen edges; do not change restored windows.
+    CGSize(width: min(1180, max(760, visible.width - 40)),
+           height: min(720, max(480, visible.height - 80)))
 }
 
 /// Rows in the order the clicked headings ask for. `tie` settles rows they rank the same.
