@@ -289,7 +289,10 @@ helper refused.
   home directory, regardless of extension (including renamed files);
 - unencrypted Bitwarden JSON exports of a personal vault that hold login
   passwords;
-- Docker registry passwords stored in `~/.docker/config.json`;
+- Docker registry passwords and tokens stored in `~/.docker/config.json`
+  (`auth`, `identitytoken` and `registrytoken` fields); the same fields in
+  `~/.config/containers/auth.json` and
+  `~/Library/Preferences/helm/registry/config.json` are also checked;
 - AWS access keys in `~/.aws/credentials`;
 - HTTP(S) username/password URLs in `~/.git-credentials`;
 - `user:password` pairs, and tokens in a known issuer format, inside remote

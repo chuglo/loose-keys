@@ -912,6 +912,34 @@ vendors change their settings.
   matched one after the other. Not verified: tokens vendors issue today
   beyond the published formats, and how often ordinary text matches one.
 
+### Docker registry token coverage
+
+The Docker rule checks literal string values in `auth`, `identitytoken` and
+`registrytoken` inside each `auths` entry at its existing Docker, Podman and
+Helm paths. Docker's [AuthConfig definition](https://github.com/docker/cli/blob/fb2fe0eac78bb48b63905b31d95f3950dcb1b588/cli/config/types/authconfig.go)
+names the token fields, and [SaveToWriter](https://github.com/docker/cli/blob/fb2fe0eac78bb48b63905b31d95f3950dcb1b588/cli/config/configfile/file.go)
+preserves them while encoding username/password auth. This is source-level
+format evidence, not a live Docker login check. Tokens are not decoded or
+validated. Empty values, nonstrings, whitespace and reference/masking forms
+are skipped; JSON token values otherwise retain literal shell characters.
+
+The rule still emits one finding per file, with no registry subject or value.
+It reads no new paths, runs no helpers and retains the 1 MiB no-follow config
+read limit. Detection and private fingerprint material use the same field
+selection. Auth-only material retains its old serialized pairs; token material
+also includes its field name, so field changes and token rotation cannot reuse
+an auth-only or other token field's fingerprint. Files with newly covered token
+fields can need review again under value-based decisions. Kept and managed
+decisions retain their existing rule/file scope; no state schema changes.
+
+`rules::docker::tests` checks detection, rejected values, one-finding behavior,
+material identity and legacy auth-only bytes. The shared detection corpus
+checks CLI/engine exports and leaks at the three paths; the background test
+`docker_token_fingerprints_follow_tokens_not_config_layout` checks native keyed
+fingerprints for rotation, removal and permission changes. Real Docker/Podman/
+Helm login flows, helper-backed secrets, app alerts and Binance's undisclosed
+deployment credential remain unverified. No Binance-specific matcher is added.
+
 ## Tests
 
 - Unit tests are in a `tests` module in the file they test and can reach

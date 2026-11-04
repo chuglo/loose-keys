@@ -405,11 +405,16 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
                 .as_object()
                 .into_iter()
                 .flat_map(|a| a.iter())
-                .filter_map(|(registry, auth)| {
-                    auth["auth"]
-                        .as_str()
-                        .filter(|s| inline_literal(s))
-                        .map(|s| [registry.as_str(), s])
+                .flat_map(|(registry, auth)| {
+                    docker::credentials(auth).map(move |(field, value)| {
+                        if field == "auth" {
+                            // Keep existing auth-only fingerprints unchanged.
+                            vec![registry.as_str(), value]
+                        } else {
+                            // Distinguish tokens from auth and from each other.
+                            vec![registry.as_str(), field, value]
+                        }
+                    })
                 })
                 .collect();
             pairs.sort();

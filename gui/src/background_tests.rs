@@ -30,6 +30,34 @@ fn keyed_material_ignores_comments_and_detects_credentials_and_mode_changes() {
 }
 
 #[test]
+fn docker_token_fingerprints_follow_tokens_not_config_layout() {
+    let digest = |bytes: &[u8], shared| {
+        crate::material_fingerprint("dev.docker.inline-auth", &[7; 32], bytes, shared)
+    };
+    for field in ["identitytoken", "registrytoken"] {
+        for auth in ["", "c3ludGhldGlj"] {
+            let config = |value: &str, ordinary| {
+                serde_json::json!({"auths": {"registry.invalid": {
+                    "auth": auth, field: value
+                }}, "ordinary": ordinary})
+                .to_string()
+            };
+            let first = config("synthetic-first", 1);
+            let layout = config("synthetic-first", 2);
+            let rotated = config("synthetic-second", 1);
+            let removed = config("", 1);
+            for shared in [false, true] {
+                let original = digest(first.as_bytes(), shared);
+                assert!(original == digest(layout.as_bytes(), shared));
+                assert!(original != digest(rotated.as_bytes(), shared));
+                assert!(original != digest(removed.as_bytes(), shared));
+                assert!(original != digest(first.as_bytes(), !shared));
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "isolated resource measurement; run alone with --nocapture"]
 fn resident_fixture_measurement() {
     use crate::{
