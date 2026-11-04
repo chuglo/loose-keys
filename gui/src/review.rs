@@ -189,7 +189,7 @@ pub type Still = Vec<(Option<String>, Option<String>)>;
 const CHANGED: &str =
     "That item changed after it was shown, so nothing was done. Look at it again.";
 
-fn rank(severity: &str) -> usize {
+pub(crate) fn rank(severity: &str) -> usize {
     ["high", "medium", "low"]
         .iter()
         .position(|s| *s == severity)
@@ -470,6 +470,22 @@ impl Review {
         let secret = self.items[at].secret.clone();
         (0..self.items.len())
             .filter(|n| *n == at || (secret.is_some() && self.items[*n].secret == secret))
+            .collect()
+    }
+
+    /// The other copies of this item's value in its own file, found there
+    /// by another rule or under another name. The window shows them as
+    /// places of one entry, and Kept, which is about a file, covers them
+    /// with it.
+    pub fn copies_in_its_file(&self, id: u64) -> Vec<u64> {
+        let Some(item) = self.items.iter().find(|i| i.id == id) else {
+            return Vec::new();
+        };
+        self.copies(id)
+            .into_iter()
+            .map(|n| &self.items[n])
+            .filter(|copy| copy.id != id && copy.path == item.path)
+            .map(|copy| copy.id)
             .collect()
     }
 
@@ -1746,6 +1762,119 @@ mod tests {
         checked(&mut state, &found(&[npm("digest-c"), note]));
         assert_eq!(reason(&state), Some(Reason::Kept));
         assert_eq!(state.items.len(), 2);
+    }
+
+    /// State saved before a known file's own rule gave the digest of its
+    /// value: that item has none, and the service-token rule's item for the
+    /// same value in the same file has one. The next scan gives both the
+    /// digest. Nothing is news, and each decision still covers what it did,
+    /// except that one about the value now covers the other copy too.
+    #[test]
+    fn a_known_file_item_saved_without_its_value_takes_it_quietly() {
+        let npm = |secret| {
+            (
+                "dev.npm.inline-credentials",
+                "~/.npmrc",
+                Some("registry.npmjs.org"),
+                secret,
+            )
+        };
+        let token = (
+            "secret.service-token",
+            "~/.npmrc",
+            Some("npm access token"),
+            Some("digest-a"),
+        );
+        let after = found(&[npm(Some("digest-a")), token]);
+        // Saved and notified before the change, with a decision on one item.
+        let saved = |decided: Option<(usize, Reason)>| {
+            let mut state = Review::default();
+            state.ingest(&found(&[npm(None), token]));
+            if let Some((n, reason)) = decided {
+                let id = state.items[n].id;
+                state.decide(id, reason, 100, "then".into()).unwrap();
+            }
+            seen(&mut state);
+            state
+        };
+        let reasons = |state: &Review| -> Vec<Option<Reason>> {
+            let decided = state.items.iter().map(|i| state.decision(i, 200));
+            decided.map(|d| d.map(|d| d.reason)).collect()
+        };
+        let mut state = saved(None);
+        let before: Vec<_> = state.items.iter().map(|i| (i.id, i.revision)).collect();
+        assert!(!checked(&mut state, &after));
+        let now: Vec<_> = state.items.iter().map(|i| (i.id, i.revision)).collect();
+        assert_eq!(now, before);
+        assert!(state
+            .items
+            .iter()
+            .all(|i| i.secret.as_deref() == Some("digest-a")));
+        assert!(!state.pending(200));
+        // Kept, or a value decision made on the known file's item while it
+        // had no digest: that is about its place and what the file held, so
+        // it still covers that item, and not the token's.
+        for reason in [
+            Reason::Kept,
+            Reason::Testing,
+            Reason::NotACredential,
+            Reason::NoLongerWorks,
+        ] {
+            let mut state = saved(Some((0, reason)));
+            assert_eq!(state.decisions[0].secret, None);
+            assert!(!checked(&mut state, &after));
+            assert_eq!(reasons(&state), [Some(reason), None]);
+            assert!(!state.pending(200));
+        }
+        // A value decision made on the token's item is about the value. It
+        // did not cover the known file's item, which had none; now it does.
+        for reason in [
+            Reason::Testing,
+            Reason::NotACredential,
+            Reason::NoLongerWorks,
+        ] {
+            let mut state = saved(Some((1, reason)));
+            assert_eq!(reasons(&state), [None, Some(reason)]);
+            assert!(!checked(&mut state, &after));
+            assert_eq!(reasons(&state), [Some(reason), Some(reason)]);
+            assert!(!state.pending(200));
+        }
+    }
+
+    /// Saved before its rule gave each value's digest, one item stood for
+    /// every finding of a rule at one place: a kubeconfig's two tokens, with
+    /// no subject to tell them apart. Given their digests, each is an item,
+    /// and the one that had none is news once, unless it is a copy of a
+    /// value already listed.
+    #[test]
+    fn a_known_file_item_that_stood_for_two_values_splits_and_is_news_once() {
+        let kube = |secret| {
+            (
+                "dev.kube.inline-credentials",
+                "~/.kube/config",
+                None,
+                secret,
+            )
+        };
+        for listed in [false, true] {
+            let token = (
+                "secret.service-token",
+                "~/.kube/config",
+                Some("Synthetic token"),
+                Some("digest-b"),
+            );
+            let extra: &[_] = if listed { &[token] } else { &[] };
+            let mut state = Review::default();
+            state.ingest(&found(&[&[kube(None), kube(None)], extra].concat()));
+            assert_eq!(state.items.len(), 1 + extra.len());
+            seen(&mut state);
+            let after = found(&[&[kube(Some("digest-a")), kube(Some("digest-b"))], extra].concat());
+            assert_eq!(checked(&mut state, &after), !listed);
+            assert_eq!(state.items.len(), 2 + extra.len());
+            assert_eq!(state.pending(200), !listed);
+            seen(&mut state);
+            assert!(!checked(&mut state, &after));
+        }
     }
 
     #[test]

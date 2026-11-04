@@ -53,8 +53,10 @@ fn gh_token_lines(text: &str) -> Vec<Hit> {
         let supported_parent = parents.first().is_some_and(|(level, _, _)| *level == 0)
             && parents.iter().all(|(_, _, mapping)| *mapping)
             && (parents.len() == 1 || (parents.len() == 3 && parents[1].1 == "users"));
-        if key == "oauth_token" && supported_parent && scalar_literal(value).is_some() {
-            out.push(Hit::line(i + 1).about(parents[0].1));
+        if key == "oauth_token" && supported_parent {
+            if let Some(token) = scalar_literal(value) {
+                out.push(Hit::line(i + 1).about(parents[0].1).at(text, token));
+            }
         }
         // Retain nonempty scalar parents as barriers to avoid interpreting
         // text inside block scalars as host/user token mappings.

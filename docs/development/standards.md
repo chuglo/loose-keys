@@ -700,6 +700,93 @@ checker does not catch either. [8]
   digests separately, checking their domain and absence from exports.
   Real window/clipboard behavior and older concurrent
   app/helper behavior remain unverified.
+- A known file's own rule records where its one value is (`Hit::at`, a
+  position), as the service-token rule does, so a token both find in one
+  file gets the same keyed `secret` digest under both and is one review item
+  with two places. `review_items` shows that item as the file's own rule's
+  copy, with its title and steps (`gh auth logout` for GitHub CLI's hosts
+  file), not the token rule's: among the copies it may show (one needing a
+  decision, else one set aside, a fixed one only when all are), one found
+  by a rule whose id does not start with `secret.` comes first. Those
+  rules (service-token, agent-record, env-assignment) look for a kind of
+  value in any file they read. The entry's `severity`, which the window's
+  Risk column shows and sorts by, is the highest (`review::rank`) among the
+  copies in the shown copy's group (needing a decision, else set aside,
+  else fixed), not the shown copy's own: GitHub CLI's and Vault's rules
+  rate a token medium that the token rule rates high, and nothing may look
+  safer than it is. A copy set aside or fixed while another needs a
+  decision does not raise it, as it did not when each copy was its own
+  row. Only the entry built for display changes; stored items, and the
+  severity each Kept decision records and is matched against, do not.
+  Kept chosen in the window covers the value in one file whichever rules
+  found it there: `decide_review` records a Kept for the item the window
+  named and for each other copy of its value at that path
+  (`copies_in_its_file`), each with that copy's own rule, subject, scope,
+  fingerprint, kind, sharing and severity, and none at another path. Move
+  to Worth Reviewing undoes each of those copies the same way, so the
+  entry is never left half set aside. A reason about the value already
+  covers every copy and still records one decision. The revision check
+  (`as_shown`) is still on the item the window named; its copies are those
+  holding that item's value as the store has it now. All copies are
+  decided in one store update, and a refusal saves nothing: with room for
+  fewer decisions than copies, after `make_room` (which drops only
+  decisions no listed item uses), the press fails as a whole with the
+  usual "Too many findings are set aside" error. npm, Yarn and pnpm,
+  RubyGems, PyPI and Poetry, GitHub
+  CLI, Vault, kubeconfig, Cargo, MySQL, the warehouse configs' named fields
+  and Continue's YAML record the literal as the line holds it, without its
+  quotes. An MCP config records a server's value only when that server has
+  one value, its name is shown as no other server's is, and the value is in
+  the file as JSON decodes it. Only a header named Authorization or
+  Proxy-Authorization (case-insensitive) omits a `Bearer`-style scheme.
+  Environment values, even a variable named Authorization, other headers,
+  arguments and apiKey fields keep their whole literal. Applying the
+  detection heuristic's scheme stripping to these values made distinct
+  passwords share decisions and hid prefix-only rotations from review.
+  Span selection now uses the field's container before that context is lost;
+  detection and the sorted, deduplicated literal triples used for material
+  fingerprints are unchanged. Tests cover distinct-password decisions,
+  rotation and revision changes through the native engine, ordinary fields,
+  header case and schemes, nonmatches, mixed-field ambiguity, and exact
+  material bytes. Several distinct values, colliding display names or a
+  decoded value absent from the original text still leave a finding without
+  a value identity. This is not a full authorization parser: unsupported
+  scheme syntax and escaped values may not group with a token found by
+  another rule. No saved-state fields or migration are added; existing
+  identities are refreshed by a scan, not by loading state alone. Rules whose
+  one finding can stand for several values in a file or on a line (netrc,
+  Maven, Composer, Docker, Terraform state, Codex's TOML headers), whose
+  values are rebuilt rather than read as they are (pgpass), or whose value
+  the token rule does not match whole (Bundler's user:password, AWS's
+  secret key, Terraform's token file) record none, so a token the
+  service-token rule also finds there is still a second item. Findings,
+  lines, subjects and the JSON report are unchanged: the report was
+  compared with the previous build's on the harness home and on a home of
+  multi-value and colliding-name cases.
+  Items saved without a digest take one on the next scan without becoming
+  news (ingest compares fingerprints when one side has none). A decision
+  saved on such an item, kept or about the value, still covers it by place
+  and fingerprint; a decision about the value made on the token's copy now
+  covers the known file's copy too. If only the known file's copy was set
+  aside, the grouped entry is open in Worth Reviewing until the other copy
+  is decided; Kept chosen for the entry then covers both. One item that
+  stood for several values of a rule at one
+  place, such as a kubeconfig's tokens, which have no subject, splits into
+  one item per value, and each value not already listed is news once.
+  Tests: `a_token_in_a_known_file_has_one_identity_under_every_rule_that_finds_it`,
+  `a_server_with_one_value_says_where_it_is`,
+  `a_token_two_rules_find_in_one_file_is_one_item`,
+  `a_token_in_a_known_file_is_shown_with_that_file_s_advice`,
+  `an_entry_speaks_for_the_file_s_own_rule_within_what_needs_attention`,
+  `a_known_file_entry_shows_the_highest_risk_of_its_copies`,
+  `an_entry_s_risk_is_the_highest_of_the_copies_its_state_comes_from`,
+  `keeping_an_entry_covers_each_copy_of_its_value_in_that_file`,
+  `moving_an_entry_back_returns_each_copy_of_its_value_in_that_file`,
+  `keeping_an_entry_without_room_for_each_copy_keeps_none`,
+  `a_known_file_item_saved_without_its_value_takes_it_quietly`,
+  `a_known_file_item_that_stood_for_two_values_splits_and_is_news_once` and
+  `a_known_file_item_saved_without_its_value_joins_the_token_s_entry`.
+  Not verified: the running app's list and notifications after an update.
 - A type that holds file bytes has no `Debug` or `Display` (`Head` has
   neither), and `Incomplete`'s `Debug` shows only its fixed reason and hit
   count. What goes to the window is rebuilt field by field: `shown` clears

@@ -73,16 +73,32 @@ pub const MCP_SECRET: Rule = Rule {
 fn mcp_hits(bytes: &[u8]) -> Hits {
     let v = settings(bytes).ok_or("unreadable")?;
     let mut found = Vec::new();
-    secrets(&v, 0, &mut found);
+    secrets(&v, 0, true, &mut found);
     let mut names: Vec<&str> = found.iter().map(|secret| secret.0).collect();
     names.sort();
     names.dedup();
-    capped_hits(
-        names
-            .into_iter()
-            .map(|name| Hit::file().about(&format!("server {name}"))),
-        100,
-    )
+    // One past the cap, as `capped_hits` looks for it.
+    let mut hits: Vec<Hit> = names
+        .iter()
+        .take(101)
+        .map(|name| Hit::file().about(&format!("server {name}")))
+        .collect();
+    // A holder's one value, where the file has it as written, is what the
+    // service-token rule finds there. A holder with several values, or shown
+    // as another is (the scan keeps one finding for both), has no one place.
+    let text = std::str::from_utf8(bytes).ok();
+    for n in 0..hits.len() {
+        let mut values = found
+            .iter()
+            .filter(|secret| secret.0 == names[n])
+            .map(|secret| secret.2);
+        let value = values.next().filter(|first| values.all(|v| v == *first));
+        let alone = hits.iter().filter(|h| h.subject == hits[n].subject).count() == 1;
+        if let (Some(text), Some(value), true) = (text, value, alone) {
+            hits[n].span = text.find(value).map(|at| at..at + value.len());
+        }
+    }
+    capped_hits(hits, 100)
 }
 
 /// What the app fingerprints for this rule: each literal secret, with the
@@ -91,7 +107,7 @@ fn mcp_hits(bytes: &[u8]) -> Hits {
 pub(super) fn mcp_material(bytes: &[u8]) -> Option<Vec<u8>> {
     let v = settings(bytes)?;
     let mut found = Vec::new();
-    secrets(&v, 0, &mut found);
+    secrets(&v, 0, false, &mut found);
     found.sort();
     found.dedup();
     serde_json::to_vec(&found).ok()
@@ -156,14 +172,20 @@ fn without_comments(bytes: &[u8]) -> Vec<u8> {
 
 /// Each literal secret, as what holds it (a server, or the file's own
 /// settings), the field it is in, and the value. Server maps sit at the top
-/// level or under per-project settings.
-fn secrets<'a>(v: &'a serde_json::Value, depth: usize, out: &mut Vec<(&'a str, &'a str, &'a str)>) {
+/// level or under per-project settings. For identity, only authorization
+/// headers omit their scheme; material always keeps the original triples.
+fn secrets<'a>(
+    v: &'a serde_json::Value,
+    depth: usize,
+    for_identity: bool,
+    out: &mut Vec<(&'a str, &'a str, &'a str)>,
+) {
     let Some(object) = v.as_object().filter(|_| depth < 6) else {
         return;
     };
     // A settings file's own environment block and model keys count as well.
     if depth == 0 {
-        server_secrets("settings", v, out);
+        server_secrets("settings", v, for_identity, out);
     }
     for (key, value) in object {
         if let Some(s) = value.as_str().filter(|_| key == "apiKey") {
@@ -173,7 +195,7 @@ fn secrets<'a>(v: &'a serde_json::Value, depth: usize, out: &mut Vec<(&'a str, &
         }
         if let Some(list) = value.as_array() {
             for entry in list {
-                secrets(entry, depth + 1, out);
+                secrets(entry, depth + 1, for_identity, out);
             }
         }
         match value.as_object() {
@@ -184,10 +206,10 @@ fn secrets<'a>(v: &'a serde_json::Value, depth: usize, out: &mut Vec<(&'a str, &
                 ) =>
             {
                 for (name, server) in servers {
-                    server_secrets(name, server, out);
+                    server_secrets(name, server, for_identity, out);
                 }
             }
-            _ => secrets(value, depth + 1, out),
+            _ => secrets(value, depth + 1, for_identity, out),
         }
     }
 }
@@ -196,6 +218,7 @@ fn secrets<'a>(v: &'a serde_json::Value, depth: usize, out: &mut Vec<(&'a str, &
 fn server_secrets<'a>(
     holder: &'a str,
     server: &'a serde_json::Value,
+    for_identity: bool,
     out: &mut Vec<(&'a str, &'a str, &'a str)>,
 ) {
     // Zed once kept the command, its arguments and its environment together
@@ -205,7 +228,19 @@ fn server_secrets<'a>(
         for field in ["env", "environment", "headers"] {
             for (name, value) in part[field].as_object().into_iter().flatten() {
                 if let Some(s) = value.as_str().filter(|s| secret(name, s)) {
-                    out.push((holder, name, s));
+                    // Detection's scheme heuristic is not a safe identity for
+                    // passwords or API keys. Even an environment variable
+                    // named Authorization holds its full literal value.
+                    let value = if for_identity
+                        && field == "headers"
+                        && (name.eq_ignore_ascii_case("Authorization")
+                            || name.eq_ignore_ascii_case("Proxy-Authorization"))
+                    {
+                        after_scheme(s)
+                    } else {
+                        s
+                    };
+                    out.push((holder, name, value));
                 }
             }
         }
@@ -229,16 +264,20 @@ fn secret(name: &str, s: &str) -> bool {
         .any(|word| upper.ends_with(word));
     // "Bearer <value>", "Basic <value>" or "token <value>" is a literal after
     // its scheme; "${VAR}" and "$VAR" are references.
-    let literal = s
-        .split_once(' ')
-        .filter(|(scheme, _)| !scheme.is_empty() && scheme.bytes().all(|b| b.is_ascii_alphabetic()))
-        .map_or(s, |(_, value)| value);
+    let literal = after_scheme(s);
     token::has_token(s.as_bytes())
         || (named
             && literal.len() >= 12
             && !reference(literal)
             && inline_literal(literal)
             && plausible(literal))
+}
+
+/// What follows an authorization scheme ("Bearer <value>"), or all of it.
+fn after_scheme(s: &str) -> &str {
+    s.split_once(' ')
+        .filter(|(scheme, _)| !scheme.is_empty() && scheme.bytes().all(|b| b.is_ascii_alphabetic()))
+        .map_or(s, |(_, value)| value)
 }
 
 /// opencode's way of naming a variable or a file to read the value from.
@@ -489,6 +528,202 @@ mod tests {
         let hits = mcp_hits(config.to_string().as_bytes()).unwrap();
         let names: Vec<_> = hits.iter().map(|h| h.subject.as_deref().unwrap()).collect();
         assert_eq!(names, ["server db", "server search"]);
+    }
+
+    /// A holder's one value is where the file has it, as the service-token
+    /// rule would find it, so both findings name the same credential. One
+    /// finding that stands for several values has no single place.
+    #[test]
+    fn a_server_with_one_value_says_where_it_is() {
+        let config = serde_json::json!({
+            "mcpServers": {
+                "env": {"command": "npx", "env": {"FIXTURE_API_KEY": "synthetic-first-value"}},
+                "header": {"url": "https://example.invalid",
+                           "headers": {"Authorization": "Bearer synthetic-second-value"}},
+                "repeated": {"command": "npx", "env": {"FIXTURE_API_KEY": "synthetic-third-value",
+                                                       "OTHER_API_KEY": "synthetic-third-value"}},
+                "several": {"command": "npx", "env": {"ONE_TOKEN": "synthetic-fourth-value",
+                                                      "TWO_TOKEN": "synthetic-fifth-value"}},
+                // Two names shown alike are one finding, whatever each holds.
+                "odd!": {"command": "npx", "env": {"FIXTURE_TOKEN": "synthetic-sixth-value"}},
+                "odd?": {"command": "npx", "env": {"FIXTURE_TOKEN": "synthetic-seventh-value"}},
+            },
+        })
+        .to_string();
+        let hits = mcp_hits(config.as_bytes()).unwrap();
+        let placed: Vec<_> = hits
+            .iter()
+            .map(|h| (h.subject.as_deref(), h.span.clone().map(|s| &config[s])))
+            .collect();
+        assert_eq!(
+            placed,
+            [
+                (Some("server env"), Some("synthetic-first-value")),
+                (Some("server header"), Some("synthetic-second-value")),
+                (None, None),
+                (None, None),
+                (Some("server repeated"), Some("synthetic-third-value")),
+                (Some("server several"), None),
+            ]
+        );
+        // A value written with an escape is not in the file as it is read.
+        let escaped =
+            br#"{"mcpServers": {"fixture": {"env": {"FIXTURE_TOKEN": "synthetic\/only-value"}}}}"#;
+        let hits = mcp_hits(escaped).unwrap();
+        assert_eq!((hits.len(), hits[0].span.clone()), (1, None));
+    }
+
+    #[test]
+    fn mcp_ordinary_fields_keep_the_whole_value() {
+        // Arguments match only when they contain a recognized token. Never
+        // print either the constructed value or the span's contents.
+        let token = concat!("gh", "p_0123456789abcdefghijABCDEFGHIJ012345");
+        let value = ["First", " ", token].concat();
+        let mut servers = Vec::new();
+        for field in ["env", "environment", "headers"] {
+            for name in ["DATABASE_PASSWORD", "X-Api-Key", "X-Authorization"] {
+                servers.push(serde_json::json!({field: {name: value}}));
+            }
+        }
+        // An environment variable's name is not an HTTP header's context.
+        for field in ["env", "environment"] {
+            servers.push(serde_json::json!({field: {"Authorization": value}}));
+        }
+        for field in ["args", "command"] {
+            servers.push(serde_json::json!({field: [value]}));
+        }
+        let mut configs = Vec::new();
+        for server in servers {
+            configs.push(serde_json::json!({"mcpServers": {"fixture": server}}));
+            configs.push(serde_json::json!({"context_servers": {"fixture": {"command": server}}}));
+        }
+        configs.push(serde_json::json!({"env": {"DATABASE_PASSWORD": value}}));
+        for (case, config) in configs.iter().enumerate() {
+            let text = config.to_string();
+            let hits = mcp_hits(text.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1, "case {case}");
+            let whole = hits[0].span.clone().and_then(|s| text.get(s)) == Some(value.as_str());
+            assert!(
+                whole,
+                "ordinary field must keep the whole value: case {case}"
+            );
+        }
+        // apiKey does not match a literal containing spaces, but an accepted
+        // key still gets its complete value as its identity.
+        let config = serde_json::json!({"models": [{"apiKey": token}]}).to_string();
+        let hits = mcp_hits(config.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].span.clone().and_then(|s| config.get(s)) == Some(token));
+    }
+
+    #[test]
+    fn mcp_authorization_headers_share_only_the_credential() {
+        let value = ["synthetic", "credential", "suffix"].join("-");
+        for name in [
+            "Authorization",
+            "authorization",
+            "AUTHORIZATION",
+            "Proxy-Authorization",
+        ] {
+            for scheme in ["Bearer", "bearer", "Basic", "token"] {
+                let config = serde_json::json!({"servers": {"fixture": {
+                    "headers": {name: format!("{scheme} {value}")}
+                }}})
+                .to_string();
+                let hits = mcp_hits(config.as_bytes()).unwrap();
+                assert_eq!(hits.len(), 1);
+                assert!(hits[0].span.clone().and_then(|s| config.get(s)) == Some(value.as_str()));
+            }
+        }
+        // Without a scheme, or with a non-scheme prefix, do not guess a suffix.
+        let token = concat!("gh", "p_0123456789abcdefghijABCDEFGHIJ012345");
+        for literal in [value.clone(), format!("Not-a-scheme {token}")] {
+            let config = serde_json::json!({"servers": {"fixture": {
+                "headers": {"Authorization": literal}
+            }}})
+            .to_string();
+            let hits = mcp_hits(config.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1);
+            assert!(hits[0].span.clone().and_then(|s| config.get(s)) == Some(literal.as_str()));
+        }
+    }
+
+    #[test]
+    fn mcp_mixed_field_values_have_no_single_identity() {
+        let suffix = ["synthetic", "shared", "suffix"].join("-");
+        let first = format!("First {suffix}");
+        let second = format!("Second {suffix}");
+        for server in [
+            serde_json::json!({"env": {"DATABASE_PASSWORD": first, "OTHER_PASSWORD": second}}),
+            serde_json::json!({"env": {"Authorization": first}, "headers": {"Authorization": first}}),
+            serde_json::json!({"environment": {"DATABASE_PASSWORD": first}, "headers": {"Authorization": second}}),
+        ] {
+            let config = serde_json::json!({"mcpServers": {"fixture": server}}).to_string();
+            let hits = mcp_hits(config.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1);
+            assert!(
+                hits[0].span.is_none(),
+                "different field values have no one identity"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_identity_keeps_nonmatching_fields_out() {
+        for server in [
+            serde_json::json!({"env": {"DATABASE_PASSWORD": "${FIXTURE_PASSWORD}"}}),
+            serde_json::json!({"environment": {"Authorization": "Bearer {env:FIXTURE_TOKEN}"}}),
+            serde_json::json!({"headers": {"authorization": "Bearer $FIXTURE_TOKEN"}}),
+            serde_json::json!({"headers": {"X-Fixture": "synthetic-only-value"}}),
+            serde_json::json!({"args": ["First synthetic-only-value"]}),
+            serde_json::json!({"env": ["synthetic-only-value"], "headers": "synthetic-only-value"}),
+            serde_json::json!({"env": {"DATABASE_PASSWORD": {"value": "synthetic-only-value"}}}),
+        ] {
+            let config = serde_json::json!({"mcpServers": {"fixture": server}}).to_string();
+            assert!(mcp_hits(config.as_bytes()).unwrap().is_empty());
+        }
+        // apiKey has a stricter existing literal matcher: spaces do not match.
+        let config =
+            serde_json::json!({"models": [{"apiKey": "First synthetic-only-value"}]}).to_string();
+        assert!(mcp_hits(config.as_bytes()).unwrap().is_empty());
+        assert!(mcp_hits(br#"{"mcpServers": {"fixture": "#).is_err());
+    }
+
+    #[test]
+    fn mcp_material_keeps_literal_triples() {
+        let token = concat!("gh", "p_0123456789abcdefghijABCDEFGHIJ012345");
+        let value = ["First", " ", token].concat();
+        let config = serde_json::json!({
+            "env": {"Authorization": value},
+            "models": [{"apiKey": token}],
+            "mcpServers": {"fixture": {
+                "env": {"DATABASE_PASSWORD": value, "Authorization": value},
+                "environment": {"DATABASE_PASSWORD": value},
+                "headers": {"Authorization": value, "authorization": value, "X-Api-Key": value},
+                "args": [value],
+                "command": {"env": {"DATABASE_PASSWORD": value}, "args": [value], "command": [value]},
+            }},
+        }).to_string();
+        // Pin the pre-identity representation: sorted, deduplicated triples,
+        // with the literal unmodified even for an authorization header.
+        let mut triples = vec![
+            ("settings", "Authorization", value.as_str()),
+            ("apiKey", "apiKey", token),
+        ];
+        for field in [
+            "DATABASE_PASSWORD",
+            "Authorization",
+            "authorization",
+            "X-Api-Key",
+            "args",
+            "command",
+        ] {
+            triples.push(("fixture", field, value.as_str()));
+        }
+        triples.sort();
+        let expected = serde_json::to_vec(&triples).unwrap();
+        assert!(mcp_material(config.as_bytes()).as_deref() == Some(expected.as_slice()));
+        assert!(crate::rules::material(MCP_SECRET.id, config.as_bytes()) == expected);
     }
 
     #[test]

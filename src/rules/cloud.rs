@@ -120,7 +120,7 @@ fn kube_hits(bytes: &[u8]) -> Hits {
                     key,
                     "token" | "password" | "client-key-data" | "refresh-token" | "client-secret"
                 );
-                (named && shown).then(|| Hit::line(i + 1))
+                (named && shown).then(|| Hit::line(i + 1).at(text, value))
             })
             .collect()
     })
@@ -286,8 +286,9 @@ pub const VAULT_TOKEN: Rule = Rule {
 
 fn vault_hits(bytes: &[u8]) -> Hits {
     utf8_lines(bytes, |text| {
-        inline_literal(text.trim())
-            .then(Hit::file)
+        let token = text.trim();
+        inline_literal(token)
+            .then(|| Hit::file().at(text, token))
             .into_iter()
             .collect()
     })

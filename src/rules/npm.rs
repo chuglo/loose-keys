@@ -60,7 +60,7 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
             // Yarn: "npmAuthToken: value" at any depth.
             if let Some((key, value)) = line.split_once(':') {
                 if matches!(key.trim(), "npmAuthToken" | "npmAuthIdent") {
-                    return scalar_literal(value).map(|_| Hit::line(i + 1));
+                    return scalar_literal(value).map(|value| Hit::line(i + 1).at(text, value));
                 }
             }
             let (key, value) = line.split_once('=')?;
@@ -76,8 +76,12 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
             let registry = key
                 .rsplit_once(':')
                 .map_or("", |(r, _)| r.trim_matches('/'));
-            scalar_literal(value)
-                .map(|_| Hit::line(i + 1).about(url_host(registry)).scoped(text, key))
+            scalar_literal(value).map(|value| {
+                Hit::line(i + 1)
+                    .about(url_host(registry))
+                    .scoped(text, key)
+                    .at(text, value)
+            })
         })
         .collect()
 }

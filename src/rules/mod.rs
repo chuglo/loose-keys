@@ -620,7 +620,7 @@ fn keyed_secret_lines(text: &str, keys: &[&str]) -> Vec<Hit> {
                 .any(|word| lower.ends_with(word));
             let value = scalar_literal(value.trim().trim_end_matches(','))?;
             ((keys.contains(&name) || secret_name) && value.len() >= 8 && plausible(value))
-                .then(|| Hit::line(i + 1).about(name))
+                .then(|| Hit::line(i + 1).about(name).at(text, value))
         })
         .collect()
 }

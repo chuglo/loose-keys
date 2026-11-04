@@ -46,7 +46,7 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
     let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
     // twine reads .pypirc raw, so "$" and "!" are text there.
     let mut hits = ini_hits_by(text, &["password"], |value| {
-        scalar_literal_by(value, |value, _| verbatim_literal(value)).is_some()
+        scalar_literal_by(value, |value, _| verbatim_literal(value))
     });
     // Poetry: under [pypi-token], each name is a repository and each
     // value its token.
@@ -60,9 +60,10 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
         if line.starts_with('[') {
             tokens = line == "[pypi-token]";
         } else if let Some((repository, value)) = line.split_once('=').filter(|_| tokens) {
-            if scalar_literal(value).is_some() {
+            if let Some(value) = scalar_literal(value) {
                 if hits.len() < 100 {
-                    hits.push(Hit::line(i + 1).about(repository.trim().trim_matches('"')));
+                    let repository = repository.trim().trim_matches('"');
+                    hits.push(Hit::line(i + 1).about(repository).at(text, value));
                 } else {
                     limited = true;
                 }
@@ -82,11 +83,12 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
 /// Lines in an INI or TOML file that set one of `keys` to a literal, labelled
 /// with their section.
 fn ini_hits(text: &str, keys: &[&str]) -> Vec<Hit> {
-    ini_hits_by(text, keys, |value| scalar_literal(value).is_some())
+    ini_hits_by(text, keys, scalar_literal)
 }
 
-/// As `ini_hits`, with `literal` saying which values are literals.
-fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> bool) -> Vec<Hit> {
+/// As `ini_hits`, with `literal` giving the value of a line's literal, if
+/// it is one. The hit says where that value is.
+fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> Option<&str>) -> Vec<Hit> {
     let mut section = "";
     let mut out = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -94,8 +96,10 @@ fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> bool) -> Vec<Hit>
         if line.starts_with('[') && line.ends_with(']') {
             section = &line[1..line.len() - 1];
         } else if let Some((key, value)) = line.split_once(['=', ':']) {
-            if keys.contains(&key.trim()) && literal(value) {
-                out.push(Hit::line(i + 1).about(section));
+            if keys.contains(&key.trim()) {
+                if let Some(value) = literal(value) {
+                    out.push(Hit::line(i + 1).about(section).at(text, value));
+                }
             }
         }
     }
@@ -188,7 +192,12 @@ fn gem_hits(bytes: &[u8]) -> Hits {
                         (url, value, url_host(rest))
                     }
                 };
-                scalar_literal(value).map(|_| Hit::line(i + 1).about(shown).scoped(text, key))
+                scalar_literal(value).map(|value| {
+                    Hit::line(i + 1)
+                        .about(shown)
+                        .scoped(text, key)
+                        .at(text, value)
+                })
             })
             .collect()
     })
@@ -402,13 +411,13 @@ fn mycnf_hits(bytes: &[u8]) -> Hits {
 /// A value in a MySQL option file, which expands nothing: what is there,
 /// quoted or up to a comment, is the password, "$" and "!" included. Only a
 /// template's "${...}" is passed over.
-fn mycnf_literal(raw: &str) -> bool {
+fn mycnf_literal(raw: &str) -> Option<&str> {
     let raw = raw.trim();
     let value = match raw.chars().next() {
         Some(quote @ ('"' | '\'')) => raw[1..].find(quote).map_or("", |end| &raw[1..=end]),
         _ => raw.split_once('#').map_or(raw, |(value, _)| value).trim(),
     };
-    !value.is_empty() && !value.starts_with("${")
+    (!value.is_empty() && !value.starts_with("${")).then_some(value)
 }
 
 /// One word of a netrc file.

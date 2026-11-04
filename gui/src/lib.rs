@@ -647,22 +647,47 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
         });
     }
     for entry in &mut out {
-        // Each copy that is still there, with the decision that sets it aside.
-        let open: Vec<(&review::Item, Option<&review::Decision>)> = entry
+        // Each copy, with the decision that sets it aside.
+        let copies: Vec<(&review::Item, Option<&review::Decision>)> = entry
             .places
             .iter()
             .filter_map(|p| state.items.iter().position(|i| i.id == p.id))
             .map(|n| (&state.items[n], decided[n]))
+            .collect();
+        let open: Vec<_> = copies
+            .iter()
             .filter(|(i, _)| !i.resolved)
+            .copied()
             .collect();
         // The entry's path is the one the person is shown and acts on. It is
         // a copy that still needs a decision, or failing that one that is
-        // still there: never a fixed copy while another remains.
-        let lead = open.iter().find(|(_, d)| d.is_none()).or(open.first());
+        // still there: never a fixed copy while another remains. Within each
+        // of those, a copy found by its file's own rule, whose title and
+        // steps are about that file, before one found by a rule for a kind of
+        // value rather than a file (an id starting `secret.`).
+        let lead = copies
+            .iter()
+            .min_by_key(|(i, d)| (i.resolved, d.is_some(), i.rule.starts_with("secret.")));
         if let Some((lead, _)) = lead.filter(|(i, _)| i.id != entry.item.id) {
             entry.item = shown(lead);
             entry.folder = offered_folder(&lead.path);
             entry.actionable = plain(&lead.path);
+        }
+        // Its risk is the highest of the copies like the lead: those needing
+        // a decision, else those set aside, else the fixed ones, which the
+        // entry's state comes from too. The lead's title and steps may be
+        // those of a rule that rates the value lower than another rule
+        // finding it, and nothing may look safer than it is. A copy set
+        // aside or fixed while another needs a decision does not count, as
+        // it did not when each copy was a row of its own.
+        if let Some(&(lead, decision)) = lead {
+            let tier = (lead.resolved, decision.is_some());
+            let highest = copies
+                .iter()
+                .filter(|(i, d)| (i.resolved, d.is_some()) == tier)
+                .map(|(i, _)| &i.severity)
+                .min_by_key(|severity| review::rank(severity));
+            entry.item.severity = highest.unwrap_or(&lead.severity).clone();
         }
         // The credential was first seen where it was found first, fixed or
         // not. The same clock writes every date, so text order is time order.
@@ -723,17 +748,26 @@ fn pending_review(app: &App) -> ReviewView {
 /// The item is still found and still counted; it stops asking for attention.
 /// `revision` is the one the front end drew the item with. The decision is
 /// about what the item holds as the store has it now, so it is refused once
-/// that is no longer what was shown.
+/// that is no longer what was shown. The item is the one its entry speaks
+/// for. Kept is about a file, so it is recorded for each copy of the value
+/// in that file as well, each with its own decision, and moving the entry
+/// back returns each; a reason about the value covers every copy already.
+/// A refusal for one copy saves nothing for any.
 fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reason>) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Loose Keys could not open its saved data.".into());
     }
     try_update_state(app, |state| {
         state.as_shown(id, revision)?;
+        let mut here = std::iter::once(id).chain(state.copies_in_its_file(id));
         match reason {
+            Some(review::Reason::Kept) => {
+                let (at, stamp) = (now(), report::utc_now());
+                here.try_for_each(|id| state.decide(id, review::Reason::Kept, at, stamp.clone()))
+            }
             Some(reason) => state.decide(id, reason, now(), report::utc_now()),
             None => {
-                state.undo(id);
+                here.for_each(|id| state.undo(id));
                 Ok(())
             }
         }
@@ -1723,7 +1757,16 @@ mod tests {
         drop(app);
         std::fs::remove_dir_all(home).unwrap();
         assert_eq!(scanned["ok"]["review"], 3);
-        assert_eq!(review["ok"]["items"].as_array().unwrap().len(), 3);
+        // The same value in npm's and RubyGems' files is one credential, one
+        // item with both places. Bundler's finding records no value.
+        let mut copies: Vec<usize> = review["ok"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["places"].as_array().unwrap().len())
+            .collect();
+        copies.sort();
+        assert_eq!(copies, [1, 2]);
         for text in &outputs {
             for scope in &scopes {
                 assert!(
@@ -2837,6 +2880,564 @@ mod tests {
         }
     }
 
+    /// A token in a known sign-in file is found by the file's own rule and by
+    /// the service-token rule. Worth Reviewing had an item for each.
+    #[test]
+    fn a_token_two_rules_find_in_one_file_is_one_item() {
+        let _alone = one_scan();
+        let (home, app) = engine("one-item-per-token");
+        let run = |n: usize, set: &str| -> String { set.chars().cycle().take(n).collect() };
+        let alnum = "0123456789abcdefghijABCDEFGHIJklmnopKLMNOP";
+        let tokens = [
+            format!("{}{}", concat!("np", "m_"), run(36, alnum)),
+            format!(
+                "{}{}",
+                concat!("ruby", "gems_"),
+                run(48, "0123456789abcdef")
+            ),
+            format!("{}{}", concat!("pypi-", "AgEIcHlwaS5vcmc"), run(60, alnum)),
+            format!("{}{}", concat!("gh", "p_"), run(36, &alnum[1..])),
+        ];
+        let files = [
+            (
+                ".npmrc",
+                format!("//registry.npmjs.org/:_authToken={}\n", tokens[0]),
+            ),
+            (
+                ".gem/credentials",
+                format!("---\n:rubygems_api_key: {}\n", tokens[1]),
+            ),
+            (
+                ".pypirc",
+                format!("[pypi]\nusername = __token__\npassword = {}\n", tokens[2]),
+            ),
+            (
+                "Library/Application Support/Claude/claude_desktop_config.json",
+                json!({"mcpServers": {"github": {"command": "npx",
+                    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": tokens[3]}}}})
+                .to_string(),
+            ),
+        ];
+        for (path, body) in &files {
+            let path = home.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let scanned = ask(&app, "start_scan", "{}");
+        let listed = ask(&app, "pending_review", "{}");
+        std::fs::remove_dir_all(home).unwrap();
+        // Each file has two findings, one from each rule.
+        assert_eq!(scanned["ok"]["review"], 8);
+        let items = listed["ok"]["items"].as_array().unwrap();
+        let mut places: Vec<Vec<String>> = items
+            .iter()
+            .map(|item| {
+                let places = item["places"].as_array().unwrap().iter();
+                places.map(|p| p["path"].as_str().unwrap().into()).collect()
+            })
+            .collect();
+        let mut expected: Vec<Vec<String>> = files
+            .iter()
+            .map(|(path, _)| vec![format!("~/{path}"); 2])
+            .collect();
+        places.sort();
+        expected.sort();
+        // One item for each file, with both findings as its places.
+        assert_eq!(places, expected);
+        let text = listed.to_string();
+        assert!(tokens.iter().all(|token| !text.contains(token)));
+    }
+
+    /// The one item for a token in GitHub CLI's hosts file says what the
+    /// file's own rule says, such as signing out with gh, not what the
+    /// service-token rule says of a token in any file.
+    #[test]
+    fn a_token_in_a_known_file_is_shown_with_that_file_s_advice() {
+        let _alone = one_scan();
+        let (home, app) = engine("known-file-advice");
+        let run = |n: usize, set: &str| -> String { set.chars().cycle().take(n).collect() };
+        let token = format!(
+            "{}{}",
+            concat!("gh", "o_"),
+            run(36, "0123456789abcdefghijABCDEFGHIJklmnop")
+        );
+        let hosts = home.join(".config/gh/hosts.yml");
+        std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
+        std::fs::write(
+            &hosts,
+            format!("github.com:\n    user: fixture\n    oauth_token: {token}\n"),
+        )
+        .unwrap();
+        let scanned = ask(&app, "start_scan", "{}");
+        let listed = ask(&app, "pending_review", "{}");
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 2);
+        let items = listed["ok"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["places"].as_array().unwrap().len(), 2);
+        let gh = rules::RULES
+            .iter()
+            .find(|r| r.id == "dev.gh.inline-token")
+            .unwrap();
+        let shown = (
+            items[0]["rule"].as_str(),
+            items[0]["title"].as_str(),
+            items[0]["steps"].clone(),
+        );
+        assert_eq!(
+            shown,
+            (Some(gh.id), Some(gh.title), json!(gh.advice.steps)),
+            "the entry speaks for the hosts file's own rule"
+        );
+        assert!(!listed.to_string().contains(&token));
+    }
+
+    /// Which copy an entry of several speaks for: one that needs a decision,
+    /// then one set aside, never a fixed one while another is still there,
+    /// and within each of those, one the file's own rule found before one
+    /// found by a rule for any file's content.
+    #[test]
+    fn an_entry_speaks_for_the_file_s_own_rule_within_what_needs_attention() {
+        let copy = |id: u64, rule: &str, title: &str| -> review::Item {
+            serde_json::from_value(json!({
+                "id": id, "revision": id, "rule": rule,
+                "path": "~/.config/gh/hosts.yml", "secret": "digest-a", "line": 3,
+                "title": title, "explanation": "e", "reason": null, "next_step": null,
+            }))
+            .unwrap()
+        };
+        let fresh = || review::Review {
+            items: vec![
+                copy(1, "secret.service-token", "generic"),
+                copy(2, "dev.gh.inline-token", "own"),
+            ],
+            ..Default::default()
+        };
+        let lead = |state: &review::Review| {
+            let entries = review_items(state).0;
+            assert_eq!(entries.len(), 1);
+            (
+                entries[0].item.id,
+                entries[0].item.title.clone(),
+                entries[0].state,
+            )
+        };
+        // Both need a decision: the file's own rule's copy.
+        let mut state = fresh();
+        assert_eq!(lead(&state), (2, "own".into(), "open"));
+        // That copy kept, the other still needs a decision: that one.
+        state
+            .decide(2, review::Reason::Kept, now(), "then".into())
+            .unwrap();
+        assert_eq!(lead(&state), (1, "generic".into(), "open"));
+        // Both set aside: the file's own rule's copy again.
+        state
+            .decide(1, review::Reason::Kept, now(), "then".into())
+            .unwrap();
+        assert_eq!(lead(&state), (2, "own".into(), "set-aside"));
+        // That copy fixed while the other is still there, even set aside.
+        state.items[1].resolved = true;
+        assert_eq!(lead(&state), (1, "generic".into(), "set-aside"));
+        let mut state = fresh();
+        state.items[1].resolved = true;
+        assert_eq!(lead(&state), (1, "generic".into(), "open"));
+        // Both fixed: the file's own rule's copy.
+        state.items[0].resolved = true;
+        assert_eq!(lead(&state), (2, "own".into(), "fixed"));
+    }
+
+    /// GitHub CLI's hosts file in a synthetic home, signed in with a token
+    /// put together here. Its own rule and the service-token rule find it.
+    fn gh_hosts(home: &std::path::Path) -> String {
+        let run: String = "0123456789abcdefghijABCDEFGHIJklmnop"
+            .chars()
+            .cycle()
+            .take(36)
+            .collect();
+        let token = format!("{}{run}", concat!("gh", "o_"));
+        let hosts = home.join(".config/gh/hosts.yml");
+        std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
+        std::fs::write(
+            &hosts,
+            format!("github.com:\n    user: fixture\n    oauth_token: {token}\n"),
+        )
+        .unwrap();
+        token
+    }
+
+    /// The one entry for a token in GitHub CLI's hosts file speaks for that
+    /// file's rule, which rates it lower than the service-token rule does.
+    /// It was shown at the lower risk, where one of the two rows it replaced
+    /// had the higher.
+    #[test]
+    fn a_known_file_entry_shows_the_highest_risk_of_its_copies() {
+        let _alone = one_scan();
+        let (home, app) = engine("known-file-risk");
+        let token = gh_hosts(&home);
+        let scanned = ask(&app, "start_scan", "{}");
+        let listed = ask(&app, "pending_review", "{}");
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 2);
+        let rule = |id: &str| rules::RULES.iter().find(|r| r.id == id).unwrap();
+        let (gh, any) = (rule("dev.gh.inline-token"), rule("secret.service-token"));
+        assert_eq!((gh.severity, any.severity), ("medium", "high"));
+        let items = listed["ok"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        let shown = (
+            items[0]["rule"].as_str(),
+            items[0]["title"].as_str(),
+            items[0]["steps"].clone(),
+            items[0]["severity"].as_str(),
+        );
+        assert_eq!(
+            shown,
+            (
+                Some(gh.id),
+                Some(gh.title),
+                json!(gh.advice.steps),
+                Some("high")
+            ),
+            "the file's own rule's advice, at the higher of the two risks"
+        );
+        assert!(!listed.to_string().contains(&token));
+    }
+
+    /// Which risk an entry of several shows: the highest of the copies its
+    /// state comes from. Those needing a decision, else those set aside,
+    /// else the fixed ones, as each was shown as a row of its own before.
+    #[test]
+    fn an_entry_s_risk_is_the_highest_of_the_copies_its_state_comes_from() {
+        let copy = |id: u64, rule: &str, severity: &str| -> review::Item {
+            serde_json::from_value(json!({
+                "id": id, "revision": id, "rule": rule, "severity": severity,
+                "path": "~/.config/gh/hosts.yml", "secret": "digest-a", "line": 3,
+                "title": "t", "explanation": "e", "reason": null, "next_step": null,
+            }))
+            .unwrap()
+        };
+        let mut state = review::Review {
+            items: vec![
+                copy(1, "secret.service-token", "high"),
+                copy(2, "dev.gh.inline-token", "medium"),
+            ],
+            ..Default::default()
+        };
+        let shown = |state: &review::Review| {
+            let entries = review_items(state).0;
+            assert_eq!(entries.len(), 1);
+            let entry = &entries[0];
+            (entry.item.id, entry.item.severity.clone(), entry.state)
+        };
+        // Both need a decision: the file's own rule's copy, at the higher.
+        assert_eq!(shown(&state), (2, "high".into(), "open"));
+        // Only the lower-rated copy needs one: its risk.
+        state
+            .decide(1, review::Reason::Kept, now(), "then".into())
+            .unwrap();
+        assert_eq!(shown(&state), (2, "medium".into(), "open"));
+        // Both set aside: the higher again.
+        state
+            .decide(2, review::Reason::Kept, now(), "then".into())
+            .unwrap();
+        assert_eq!(shown(&state), (2, "high".into(), "set-aside"));
+        // The higher-rated copy fixed, the other still there.
+        state.items[0].resolved = true;
+        assert_eq!(shown(&state), (2, "medium".into(), "set-aside"));
+        // Both fixed: the higher.
+        state.items[1].resolved = true;
+        assert_eq!(shown(&state), (2, "high".into(), "fixed"));
+    }
+
+    /// The window's list, and the entry with a place in GitHub CLI's hosts
+    /// file, as the window has them.
+    fn hosts_entry(app: &App) -> (Value, Value) {
+        let list = ask(app, "pending_review", "{}")["ok"].clone();
+        let items = list["items"].as_array().unwrap();
+        let in_hosts = |item: &&Value| {
+            let mut places = item["places"].as_array().unwrap().iter();
+            places.any(|p| p["path"] == "~/.config/gh/hosts.yml")
+        };
+        let entry = items.iter().find(in_hosts).unwrap().clone();
+        (list, entry)
+    }
+
+    /// Each place of an entry, by path, and whether it is set aside.
+    fn set_aside_places(entry: &Value) -> Vec<(String, bool)> {
+        let places = entry["places"].as_array().unwrap().iter();
+        let mut places: Vec<(String, bool)> = places
+            .map(|p| {
+                let path = p["path"].as_str().unwrap().to_string();
+                (path, p["set_aside"].as_bool().unwrap())
+            })
+            .collect();
+        places.sort();
+        places
+    }
+
+    /// A press on an entry as the window makes it: its id, the revision it
+    /// was drawn with and the reason, or null to move it back.
+    fn press(app: &App, entry: &Value, reason: Value) -> Value {
+        let args = json!({ "id": entry["id"], "revision": entry["revision"], "reason": reason });
+        ask(app, "decide_review", &args.to_string())
+    }
+
+    fn mcp_password_config(prefix: &str) -> String {
+        let password = [prefix, " ", "synthetic-shared-suffix"].concat();
+        json!({"mcpServers":{"fixture":{"env":{"DATABASE_PASSWORD": password}}}}).to_string()
+    }
+
+    #[test]
+    fn mcp_passwords_do_not_share_value_decisions() {
+        let _alone = one_scan();
+        let (home, app) = engine("mcp-password-collision");
+        std::fs::create_dir_all(home.join(".cursor")).unwrap();
+        std::fs::write(home.join(".cursor/mcp.json"), mcp_password_config("First")).unwrap();
+        std::fs::write(home.join(".mcp.json"), mcp_password_config("Second")).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 2);
+        let listed = ask(&app, "pending_review", "{}")["ok"].clone();
+        let row = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| {
+                row["places"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["path"] == "~/.cursor/mcp.json")
+            })
+            .unwrap();
+        assert_eq!(press(&app, row, json!("testing")), json!({"ok": null}));
+        let stored = app.store.as_ref().unwrap().read().unwrap();
+        let other = stored
+            .items
+            .iter()
+            .find(|i| i.path == "~/.mcp.json")
+            .unwrap();
+        let undecided = stored.decision(other, now()).is_none();
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert!(
+            undecided,
+            "a value decision must not cover a different MCP environment password"
+        );
+        assert_eq!(listed["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn mcp_rotated_password_returns_to_review() {
+        let _alone = one_scan();
+        let (home, app) = engine("mcp-password-rotation");
+        std::fs::create_dir_all(home.join(".cursor")).unwrap();
+        let path = home.join(".cursor/mcp.json");
+        std::fs::write(&path, mcp_password_config("First")).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 1);
+        let row = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
+        assert_eq!(
+            press(&app, &row, json!("no-longer-works")),
+            json!({"ok": null})
+        );
+        std::fs::write(&path, mcp_password_config("Second")).unwrap();
+        assert_eq!(ask(&app, "start_scan", "{}")["ok"]["review"], 1);
+        let listed = ask(&app, "pending_review", "{}")["ok"].clone();
+        let open = listed["counts"]["open"].as_u64().unwrap();
+        drop(app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(
+            open, 1,
+            "a rotated MCP password must not inherit No Longer Works"
+        );
+        assert_eq!(listed["items"][0]["id"], row["id"]);
+        assert_ne!(listed["items"][0]["revision"], row["revision"]);
+    }
+
+    /// Keeping It Here on Purpose is about a file. Chosen for the one entry
+    /// of a token two rules find in GitHub CLI's hosts file, it covered only
+    /// the copy the entry spoke for, and the entry stayed in Worth
+    /// Reviewing. It covers each copy in that file, each by a decision of its
+    /// own, and not a copy of the value in another file.
+    #[test]
+    fn keeping_an_entry_covers_each_copy_of_its_value_in_that_file() {
+        let _alone = one_scan();
+        let hosts = "~/.config/gh/hosts.yml".to_string();
+        // Only in the hosts file.
+        let (home, app) = engine("kept-in-one-file");
+        let token = gh_hosts(&home);
+        let scanned = ask(&app, "start_scan", "{}");
+        let (_, entry) = hosts_entry(&app);
+        let pressed = press(&app, &entry, json!("kept"));
+        let (list, entry) = hosts_entry(&app);
+        let stored = review::Store::open(&home).unwrap().read().unwrap();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 2);
+        assert_eq!(pressed, json!({ "ok": null }));
+        assert_eq!(
+            set_aside_places(&entry),
+            [(hosts.clone(), true), (hosts.clone(), true)]
+        );
+        assert_eq!(
+            (&entry["state"], &entry["set_aside"]),
+            (&json!("set-aside"), &json!("kept"))
+        );
+        assert_eq!(
+            list["counts"],
+            json!({ "open": 0, "set_aside": 1, "kept": 1, "fixed": 0 })
+        );
+        // Each copy by a decision of its own, with what was agreed to there:
+        // its rule, kind, risk, what the file held and its place.
+        assert_eq!(stored.decisions.len(), 2);
+        let mut rules: Vec<&str> = stored.decisions.iter().map(|d| d.rule.as_str()).collect();
+        rules.sort();
+        assert_eq!(rules, ["dev.gh.inline-token", "secret.service-token"]);
+        assert!(stored.decisions.iter().all(|d| {
+            d.reason == review::Reason::Kept
+                && d.secret.is_none()
+                && stored.items.iter().any(|i| {
+                    (&i.rule, &i.path, &i.subject, &i.scope, &i.fingerprint)
+                        == (&d.rule, &d.path, &d.subject, &d.scope, &d.fingerprint)
+                        && (&i.token_type, i.shared, &i.severity)
+                            == (&d.token_type, d.shared, &d.severity)
+                })
+        }));
+        assert!(!list.to_string().contains(&token));
+
+        // In the hosts file and in a note: kept in the hosts file only.
+        let (home, app) = engine("kept-not-elsewhere");
+        let token = gh_hosts(&home);
+        std::fs::write(home.join("notes.txt"), format!("{token}\n")).unwrap();
+        let scanned = ask(&app, "start_scan", "{}");
+        let (_, entry) = hosts_entry(&app);
+        let lead = entry["path"].clone();
+        let pressed = press(&app, &entry, json!("kept"));
+        let (list, entry) = hosts_entry(&app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 3);
+        assert_eq!(lead, json!(hosts));
+        assert_eq!(pressed, json!({ "ok": null }));
+        assert_eq!(
+            set_aside_places(&entry),
+            [
+                (hosts.clone(), true),
+                (hosts.clone(), true),
+                ("~/notes.txt".to_string(), false)
+            ]
+        );
+        assert_eq!(entry["state"], "open");
+        assert_eq!(
+            list["counts"],
+            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0 })
+        );
+        assert!(!list.to_string().contains(&token));
+    }
+
+    /// Move to Worth Reviewing on such an entry returned the copy it spoke
+    /// for and left the other set aside, so the entry was half set aside.
+    #[test]
+    fn moving_an_entry_back_returns_each_copy_of_its_value_in_that_file() {
+        let _alone = one_scan();
+        let hosts = "~/.config/gh/hosts.yml".to_string();
+        let (home, app) = engine("returned-in-one-file");
+        let token = gh_hosts(&home);
+        let scanned = ask(&app, "start_scan", "{}");
+        // Each copy kept by a decision of its own.
+        update_state(&app, |state| {
+            let ids: Vec<u64> = state.items.iter().map(|i| i.id).collect();
+            for id in ids {
+                state
+                    .decide(id, review::Reason::Kept, now(), "then".into())
+                    .unwrap();
+            }
+        })
+        .unwrap();
+        let (_, entry) = hosts_entry(&app);
+        let kept = (entry["state"].clone(), set_aside_places(&entry));
+        let pressed = press(&app, &entry, Value::Null);
+        let (list, entry) = hosts_entry(&app);
+        let stored = review::Store::open(&home).unwrap().read().unwrap();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 2);
+        assert_eq!(
+            kept,
+            (
+                json!("set-aside"),
+                vec![(hosts.clone(), true), (hosts.clone(), true)]
+            )
+        );
+        assert_eq!(pressed, json!({ "ok": null }));
+        assert_eq!(
+            set_aside_places(&entry),
+            [(hosts.clone(), false), (hosts.clone(), false)]
+        );
+        assert_eq!(
+            (&entry["state"], &entry["set_aside"]),
+            (&json!("open"), &Value::Null)
+        );
+        assert_eq!(
+            list["counts"],
+            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0 })
+        );
+        assert!(stored.decisions.is_empty());
+        assert!(!list.to_string().contains(&token));
+    }
+
+    /// Keeping such an entry takes a decision for each copy. With room for
+    /// one only, nothing is kept and nothing saved, not one copy of the two.
+    #[test]
+    fn keeping_an_entry_without_room_for_each_copy_keeps_none() {
+        let _alone = one_scan();
+        let (home, app) = engine("kept-without-room");
+        let hosts_token = gh_hosts(&home);
+        std::fs::write(home.join("notes.txt"), format!("{}\n", token('B'))).unwrap();
+        let scanned = ask(&app, "start_scan", "{}");
+        // Decisions about the note's place fill all the room for decisions
+        // but one. A listed item uses them, so none makes room.
+        update_state(&app, |state| {
+            let other = state
+                .items
+                .iter()
+                .find(|i| i.path == "~/notes.txt")
+                .unwrap()
+                .clone();
+            for _ in 1..review::MAX_ITEMS {
+                state.decisions.push(review::Decision {
+                    reason: review::Reason::Kept,
+                    secret: None,
+                    rule: other.rule.clone(),
+                    path: other.path.clone(),
+                    subject: other.subject.clone(),
+                    scope: other.scope.clone(),
+                    fingerprint: None,
+                    token_type: None,
+                    shared: false,
+                    severity: "high".into(),
+                    decided: "2026-01-01T00:00:00Z".into(),
+                    decided_at: 0,
+                });
+            }
+        })
+        .unwrap();
+        let path = home.join(review::STATE_DIR).join("state.json");
+        let before = std::fs::read(&path).unwrap();
+        let (_, entry) = hosts_entry(&app);
+        let refused = press(&app, &entry, json!("kept"));
+        let unchanged = std::fs::read(&path).unwrap() == before;
+        let (list, entry) = hosts_entry(&app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scanned["ok"]["review"], 3);
+        assert_eq!(
+            refused["error"],
+            "Too many findings are set aside. Move some back to Worth Reviewing."
+        );
+        assert!(unchanged, "a refused choice saved part of itself");
+        let hosts = "~/.config/gh/hosts.yml".to_string();
+        assert_eq!(
+            set_aside_places(&entry),
+            [(hosts.clone(), false), (hosts, false)]
+        );
+        assert_eq!(entry["state"], "open");
+        assert!(!list.to_string().contains(&hosts_token));
+    }
+
     #[test]
     fn a_review_item_the_app_cannot_act_on_says_so() {
         let (home, app) = engine("accented");
@@ -3839,6 +4440,86 @@ mod tests {
         // Returned to review, it has none either.
         state.undo(1);
         assert_eq!(review_items(&state).0[0].set_aside_at, None);
+    }
+
+    /// A known file's item saved before its rule gave the digest of its
+    /// value, beside the service-token rule's item for that value in the same
+    /// file. After the next scan they are one entry, whatever was decided.
+    #[test]
+    fn a_known_file_item_saved_without_its_value_joins_the_token_s_entry() {
+        use review::Reason::*;
+        let finding = |rule: &'static str, secret: Option<&str>| report::Finding {
+            rule,
+            category: "developer-cloud",
+            kind: "review",
+            severity: "high",
+            title: "t",
+            explanation: "e",
+            path: "~/.npmrc".into(),
+            secret: secret.map(str::to_string),
+            fingerprint: Some(format!("{rule}-file-digest")),
+            ..report::Finding::default()
+        };
+        let scan = |known: Option<&str>| Report {
+            schema: "loose-keys/report/1",
+            tool_version: "0.1.0",
+            generated_at: report::utc_now(),
+            status: "complete",
+            context: "user",
+            coverage: None,
+            findings: vec![
+                finding("dev.npm.inline-credentials", known),
+                finding("secret.service-token", Some("digest-a")),
+            ],
+            not_checked: Vec::new(),
+        };
+        // The entries before and after, given what was decided about which item.
+        let entries = |decided: Option<(usize, review::Reason)>| {
+            let mut state = review::Review::default();
+            state.ingest(&scan(None));
+            if let Some((n, reason)) = decided {
+                let id = state.items[n].id;
+                state.decide(id, reason, now(), "then".into()).unwrap();
+            }
+            let shown = |state: &review::Review| -> Vec<_> {
+                let entries = review_items(state).0;
+                entries
+                    .iter()
+                    .map(|e| (e.places.len(), e.state, e.set_aside))
+                    .collect()
+            };
+            let before = shown(&state);
+            state.ingest(&scan(Some("digest-a")));
+            (before, shown(&state))
+        };
+        assert_eq!(
+            entries(None),
+            (
+                vec![(1, "open", None), (1, "open", None)],
+                vec![(2, "open", None)]
+            )
+        );
+        // Decided at the known file: still so there, and the token's copy,
+        // never decided, keeps the entry in review.
+        for reason in [Kept, Testing, NotACredential, NoLongerWorks] {
+            assert_eq!(
+                entries(Some((0, reason))),
+                (
+                    vec![(1, "set-aside", Some(reason)), (1, "open", None)],
+                    vec![(2, "open", Some(reason))]
+                )
+            );
+        }
+        // A value decided on at the token's copy now covers both copies.
+        for reason in [Testing, NotACredential, NoLongerWorks] {
+            assert_eq!(
+                entries(Some((1, reason))),
+                (
+                    vec![(1, "open", None), (1, "set-aside", Some(reason))],
+                    vec![(2, "set-aside", Some(reason))]
+                )
+            );
+        }
     }
 
     #[test]

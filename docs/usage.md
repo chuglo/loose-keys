@@ -84,7 +84,10 @@ findings no longer on its list, so such a credential found again appears in
 Worth Reviewing.
 
 **Keeping It Here on Purpose** covers one file. The same credential turning
-up elsewhere is still reported. It still applies if you change the value in
+up elsewhere is still reported. It covers the credential in that file
+whichever checks found it there, as GitHub CLI's check and the general token
+check both do in `~/.config/gh/hosts.yml`, and **Move to Worth Reviewing**
+returns it for each. It still applies if you change the value in
 that file, and ends if the file becomes readable by others, if a different kind
 of credential appears there, or after six months. For npm, RubyGems and Bundler
 registry entries, it covers that entry's scope, not a new scope in the same file.
@@ -95,6 +98,22 @@ labels are removed even from fixed history. An old unresolved entry whose scope
 cannot be recovered can remain beside newly found entries until a full recheck
 finds none of that credential kind in its file; it is not marked fixed merely
 because its label was removed.
+
+Earlier versions listed a token twice when a sign-in file's own check and the
+general token check both found it in that file, as in `~/.npmrc`; it is now
+one item, which shows the file's own check's steps unless only that copy has
+been set aside. A token in `~/.config/gh/hosts.yml` shows GitHub CLI's steps
+at High, the general token check's risk, though GitHub CLI's check rates it
+Medium. Any item shows the highest risk among its findings that still need a
+decision, or, when none does, among those set aside, or else the fixed ones.
+A choice made earlier at the token check's listing (any
+reason but
+**Keeping It Here on Purpose**) now covers both. One made at the file's own
+listing still covers that copy only, so the item stays in Worth Reviewing
+until the other copy is set aside too, as choosing **Keeping It Here on
+Purpose** for the item does. A file holding several credentials of
+one kind, such as a Kubernetes config with several tokens, now lists each, and
+one not listed before may be reported as new once.
 
 **Expected by your organization** appears when a managed setting from your
 organization lists the finding's rule and file. It covers only that file; a

@@ -445,6 +445,89 @@ fn a_credential_in_a_url_has_the_identity_of_its_value() {
     assert_eq!(secrets("secret.service-token"), ["the token", "the token"]);
 }
 
+/// A known file's own rule and the service-token rule found the same token
+/// in it, and the window listed it twice: only the token rule's finding had
+/// the digest of the value that groups copies of one credential.
+#[test]
+fn a_token_in_a_known_file_has_one_identity_under_every_rule_that_finds_it() {
+    let f = Fixture::new("known-file-identity");
+    let run = |n: usize, set: &str| -> String { set.chars().cycle().take(n).collect() };
+    let (alnum, hex) = (
+        "0123456789abcdefghijABCDEFGHIJklmnopKLMNOP",
+        "0123456789abcdef",
+    );
+    // Each file holds a token of its own, put together here from pieces.
+    let files: Vec<(&str, String, String)> = [
+        (".npmrc", format!("{}{}", concat!("np", "m_"), run(36, alnum)), "//registry.npmjs.org/:_authToken=@T@\n"),
+        (".yarnrc.yml", format!("{}{}", concat!("np", "m_"), run(36, &alnum[1..])), "npmScopes:\n  fixture:\n    npmAuthToken: \"@T@\"\n"),
+        (".gem/credentials", format!("{}{}", concat!("ruby", "gems_"), run(48, hex)), "---\n:rubygems_api_key: @T@\n"),
+        (".pypirc", format!("{}{}", concat!("pypi-", "AgEIcHlwaS5vcmc"), run(60, alnum)), "[pypi]\nusername = __token__\npassword = @T@\n"),
+        ("Library/Application Support/pypoetry/auth.toml", format!("{}{}", concat!("pypi-", "AgEIcHlwaS5vcmc"), run(60, &alnum[2..])), "[pypi-token]\npypi = \"@T@\"\n"),
+        (".config/gh/hosts.yml", format!("{}{}", concat!("gh", "o_"), run(36, alnum)), "github.com:\n    user: fixture\n    oauth_token: @T@\n    git_protocol: https\n"),
+        (".vault-token", format!("{}{}", concat!("hv", "s."), run(95, alnum)), "@T@\n"),
+        (".kube/config", format!("{}{}", concat!("dop", "_v1_"), run(64, hex)), "apiVersion: v1\nkind: Config\nusers:\n- name: fixture\n  user:\n    token: @T@\n"),
+        (".cargo/credentials.toml", format!("{}{}", concat!("gh", "p_"), run(36, alnum)), "[registries.fixture]\ntoken = \"@T@\"\n"),
+        (".dbt/profiles.yml", format!("{}{}", concat!("da", "pi"), run(32, hex)), "fixture:\n  outputs:\n    prod:\n      type: databricks\n      token: @T@\n"),
+        ("Library/Application Support/Claude/claude_desktop_config.json", format!("{}{}", concat!("gh", "p_"), run(36, &alnum[3..])), "{\"mcpServers\":{\"github\":{\"command\":\"npx\",\"env\":{\"GITHUB_PERSONAL_ACCESS_TOKEN\":\"@T@\"}}}}"),
+        (".cursor/mcp.json", format!("{}{}", concat!("gh", "p_"), run(36, &alnum[4..])), "{\"mcpServers\":{\"remote\":{\"url\":\"https://mcp.example.invalid\",\"headers\":{\"Authorization\":\"Bearer @T@\"}}}}"),
+        (".continue/config.yaml", format!("{}{}", concat!("sk-", "ant-"), run(90, alnum)), "models:\n  - name: fixture\n    apiKey: @T@\n"),
+    ]
+    .into_iter()
+    .map(|(path, token, form)| (path, form.replace("@T@", &token), token))
+    .collect();
+    for (path, body, _) in &files {
+        put(&f.0, path, body.as_bytes());
+    }
+    // A stand-in for the keyed digest that shows which bytes it was given.
+    let exact = |rule: &str, bytes: &[u8], _: bool| {
+        if rule.is_empty() {
+            format!("value:{}", String::from_utf8_lossy(bytes))
+        } else {
+            "file".to_string()
+        }
+    };
+    let r = Scan::report_controlled(
+        &f.0,
+        &[],
+        &[],
+        Arc::new(AtomicBool::new(false)),
+        exact,
+        |_| {},
+    );
+    // Named, so a failure here does not print the token.
+    let named = |at: &str, token: &str| -> Vec<(&str, &str)> {
+        let mut found: Vec<(&str, &str)> = r
+            .findings
+            .iter()
+            .filter(|x| x.path == at)
+            .map(|x| match x.secret.as_deref() {
+                Some(s) if s == format!("value:{token}") => (x.rule, "the token"),
+                Some(_) => (x.rule, "something else"),
+                None => (x.rule, "none"),
+            })
+            .collect();
+        found.sort();
+        found.dedup();
+        found
+    };
+    let mut wrong = Vec::new();
+    for (path, _, token) in &files {
+        let at = format!("~/{path}");
+        let found = named(&at, token);
+        // Found by the file's own rule and by the token rule, as that value.
+        let both = found
+            .iter()
+            .any(|(rule, _)| *rule == "secret.service-token")
+            && found.iter().any(|(rule, _)| !rule.starts_with("secret."));
+        if !both || found.iter().any(|(_, value)| *value != "the token") {
+            wrong.push((at, found));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:?}");
+    let export = crate::report::to_ascii_json(&r);
+    assert!(files.iter().all(|(_, _, token)| !export.contains(token)));
+}
+
 #[test]
 fn a_sweep_in_slices_covers_everything_once() {
     let f = Fixture::new("sweep");
@@ -3802,21 +3885,30 @@ fn monitor_bounds_findings_and_hashes_each_file_once() {
     .unwrap();
     let hashed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let scopes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let values = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = hashed.clone();
     let scope_count = scopes.clone();
+    let value_count = values.clone();
     let r = Scan::report_controlled(
         &f.0,
         &[],
         &[],
         Arc::new(AtomicBool::new(false)),
         move |rule, bytes, shared| {
-            if rule.is_empty() {
+            if rule.is_empty() && bytes.starts_with(b"loose-keys/registry-scope/1\0") {
                 // Private scope identity is separate from the file's
                 // material fingerprint and excludes the stored value.
                 assert!(bytes == b"loose-keys/registry-scope/1\0_authToken");
                 assert!(!shared);
                 scope_count.fetch_add(1, Ordering::SeqCst);
                 "private-synthetic-scope-digest".into()
+            } else if rule.is_empty() {
+                // The value's own identity is the value alone, under no
+                // rule's name, as the service-token rule's is.
+                assert!(bytes == b"synthetic-only");
+                assert!(!shared);
+                value_count.fetch_add(1, Ordering::SeqCst);
+                "private-synthetic-value-digest".into()
             } else {
                 assert_eq!(rule, "dev.npm.inline-credentials");
                 count.fetch_add(1, Ordering::SeqCst);
@@ -3828,10 +3920,12 @@ fn monitor_bounds_findings_and_hashes_each_file_once() {
     assert_eq!(r.findings.len(), 4096);
     assert_eq!(hashed.load(Ordering::SeqCst), 1);
     assert_eq!(scopes.load(Ordering::SeqCst), 4096);
+    assert_eq!(values.load(Ordering::SeqCst), 4096);
     assert_eq!(r.status, "partial");
     let export = crate::report::to_ascii_json(&r);
     assert!(!export.contains("private-synthetic-digest"));
     assert!(!export.contains("private-synthetic-scope-digest"));
+    assert!(!export.contains("private-synthetic-value-digest"));
     assert!(!export.contains("synthetic-only"));
 }
 
