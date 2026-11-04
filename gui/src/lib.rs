@@ -674,7 +674,10 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             .min();
         let decision = open.iter().find_map(|(_, d)| *d);
         entry.set_aside = decision.map(|d| d.reason);
-        entry.set_aside_at = decision.map(|d| d.decided.clone());
+        // The organization's list was not decided at a time: it has none.
+        entry.set_aside_at = decision
+            .filter(|d| d.reason != review::Reason::Expected)
+            .map(|d| d.decided.clone());
         entry.state = if open.is_empty() {
             counts.fixed += 1;
             "fixed"
@@ -4461,6 +4464,9 @@ mod tests {
         let shown = list(&app);
         assert_eq!(shown["items"][0]["state"], "set-aside");
         assert_eq!(shown["items"][0]["set_aside"], "expected");
+        // The organization's list has no time of its own: none is sent for
+        // the window to show where a date goes.
+        assert_eq!(shown["items"][0]["set_aside_at"], json!(null));
         assert_eq!(
             (&shown["counts"]["set_aside"], &shown["counts"]["kept"]),
             (&json!(1), &json!(0))

@@ -603,6 +603,12 @@ final class AppModel: ObservableObject {
     /// The menu's first line: fixed words and a count, never a path or a name.
     var menuBarLine: String {
         switch menuBarMark {
+        case .plain where nothingChecked:
+            return backgroundState == .active
+                ? String(localized: "Checking existing files…",
+                         comment: "The menu bar menu's first line while the helper first reads the home folder, as the Overview says it.")
+                : String(localized: "No scan this session",
+                         comment: "The menu bar menu's first line when the list is empty and nothing has been checked since the app opened: no scan, and no check by the helper.")
         case .open, .plain:
             return String(localized: "\(openCount) loose keys to review",
                           comment: "The menu bar menu's first line: how many findings in Worth Reviewing need the person's attention. A loose key is a credential left in a plain file.")
@@ -1201,6 +1207,15 @@ final class AppModel: ObservableObject {
         if monitor.paused { return .paused }
         if monitor.health.error != nil { return .needsAttention }
         return .active
+    }
+
+    /// Nothing has been checked that a count could come from: the list is
+    /// empty, there is no scan this session, and the helper, whose state has
+    /// been read, has recorded no check. An empty list then means not yet
+    /// looked, not none found.
+    var nothingChecked: Bool {
+        guard let monitor, let review, reviewProblem == nil else { return false }
+        return review.items.isEmpty && results == nil && phase != .scanning && monitor.health.lastScan == nil
     }
 
     /// The first page asks one question: check in the background, or scan

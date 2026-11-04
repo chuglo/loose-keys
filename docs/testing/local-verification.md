@@ -114,8 +114,10 @@ makes a request to GitHub.
 
 The model check covers grouped-secondary-path filtering (open, fixed and
 set-aside copies), matching-path context without changing representative ids,
-filtered counts and failure precedence, copy hints, inspector selection
-changes, manual-report lifetime wording and initial content-size bounds.
+filtered counts and failure precedence, copy hints (one per file, however many
+rules matched in it), inspector selection changes, the menu bar's first line
+before any check, manual-report lifetime wording and initial content-size
+bounds.
 It also checks that a folder-removal refusal or save failure inside a successful
 engine response reaches the alert state without losing the usable folder list.
 This uses controlled responses, not a failed write in the running bundle.

@@ -52,6 +52,9 @@
 /* The menu bar menu's first line while the list is being read. Worth Reviewing is the list's name in the sidebar. [AppModel.swift:382] */
 "Loading Worth Reviewing…" = "Cargando Para revisar…";
 
+/* The menu bar menu's first line when the list is empty and nothing has been checked since the app opened: no scan, and no check by the helper. [AppModel.swift:610] */
+"No scan this session" = "Sin análisis en esta sesión";
+
 /* The menu bar menu's second line: the state of automatic scanning, as Settings shows it. [AppModel.swift:390] */
 "Automatic scanning: %@" = "Análisis automático: %@";
 

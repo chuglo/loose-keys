@@ -1344,6 +1344,36 @@ func initialWindowFitsScreen() {
     }
 }
 
+/// Two rules can find the same credential on the same line of one file. The
+/// engine lists both places, but it is one copy, in one file.
+@MainActor func groupedCopiesInOneFile() async {
+    let model = AppModel(engine: HeldEngine())
+    let item = { (places: [[String: Any]]) -> [String: Any] in
+        ["id": 51, "revision": 3, "rule": "fixture-rule", "path": "~/.example-credentials", "line": 1,
+         "title": "Synthetic grouped finding", "explanation": "Review fixture", "severity": "high",
+         "state": "open", "places": places]
+    }
+    let sameFile: [[String: Any]] = [
+        ["id": 51, "path": "~/.example-credentials", "line": 1, "fixed": false],
+        ["id": 52, "path": "~/.example-credentials", "line": 1, "fixed": false],
+    ]
+    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": [item(sameFile)]]).utf8))
+    check(model.review?.items.first?.copyHint == nil,
+          "grouped copies: two rules in one file are not two copies")
+    let twoFiles: [[String: Any]] = sameFile + [
+        ["id": 53, "path": "~/Projects/shop/.env", "line": 4, "fixed": true],
+        ["id": 54, "path": "~/Projects/shop/.env", "line": 4, "fixed": false, "set_aside": true],
+    ]
+    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": [item(twoFiles)]]).utf8))
+    check(model.review?.items.first?.copyHint == "2 copies",
+          "grouped copies: the hint counts files, fixed and set-aside copies included")
+    let others = model.review?.items.first?.otherLocations ?? []
+    check(others.map(\.path) == ["~/Projects/shop/.env"],
+          "grouped copies: the inspector lists each other file once, not the finding's own file again")
+    check(others.first?.id == 54 && others.first?.fixed == false && others.first?.setAside == true,
+          "grouped copies: a file still holding the credential is not shown as fixed")
+}
+
 func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     json(["enabled": true, "paused": paused, "scanning": false, "login": login,
           "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
@@ -1596,6 +1626,26 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     }
 }
 
+/// An empty list before anything was checked is not a count of none: the
+/// menu says no scan has run, or that the helper is still on its first pass.
+@MainActor func menuBarBeforeAnyCheck() async {
+    let model = AppModel(engine: HeldEngine())
+    model.review = try? decodeEngine(ReviewList.self, from: Data(reviewList(0).utf8))
+    model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: false).utf8))
+    check(model.menuBarMark == .plain && model.menuBarLine == "No scan this session",
+          "menu bar: an empty list with no scan and no helper check is not a count")
+    model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true, running: true).utf8))
+    check(model.menuBarLine == "Checking existing files…",
+          "menu bar: the helper's first pass is checking, not a count")
+    let checked = json(["enabled": true, "paused": false, "scanning": false, "login": 2, "menu_bar": true,
+                        "app_login": 2, "health": ["running": true, "last_scan": "2026-11-03T05:39:00Z"],
+                        "pending_delivery": false, "attempts": 0])
+    model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(checked.utf8))
+    check(model.menuBarLine == "0 loose keys to review", "menu bar: after a helper check, the empty list is counted")
+    model.monitor = nil
+    check(model.menuBarLine == "0 loose keys to review", "menu bar: an unread helper status changes nothing")
+}
+
 @MainActor func automaticCoverageReads() async {
     let bench = Bench()
     let old = #"{"full_pass":"2026-10-20T12:00:00Z","unread":1,"unread_gaps":[{"label":"Could not be read","help":"","count":1,"paths":["~/old"],"more":0}],"unread_truncated":false}"#
@@ -1659,6 +1709,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("failures: shown in the window the person acted in", failuresShownWhereAsked),
             ("menu bar: quitting stops its reads", quittingStopsMenuBarReads),
             ("menu bar: says only what the list says", menuBarSaysOnlyWhatTheListSays),
+            ("menu bar: no count before anything is checked", menuBarBeforeAnyCheck),
             ("updates: asked only when the answer can be kept", updatesAskOnlyWhenStateUsable),
             ("updates: checked at start and every day", updatesCheckAtStartAndDaily),
             ("updates: a failed check waits for the next day", updatesDailyLoopSurvivesFailure),
@@ -1673,6 +1724,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("window: initial size fits visible screen", initialWindowFitsScreen),
             ("inspector: compact until a selection", compactInspectorSelection),
             ("grouped copies: filter every path", groupedPathFiltering),
+            ("grouped copies: one file is one copy", groupedCopiesInOneFile),
             ("engine text: filter and sort by what is shown", engineTextFilterAndSort),
         ]
         for (name, run) in cases {

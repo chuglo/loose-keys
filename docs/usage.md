@@ -49,10 +49,12 @@ count can be higher; the Overview says so when it is.
 **Filter** searches every listed copy's path, including fixed and set-aside
 copies. Matching secondary paths appear under the row's representative path;
 the row still identifies the same grouped finding. A copy-count hint counts
-all its listed locations. Filtered lists say how many rows match out of this
-page's total, or **No Matches**; **Clear Filter** brings all rows back. The
-inspector starts hidden to leave space for the list and opens when you select
-an item. Its toolbar button can show or hide it at any time.
+the files it is listed in, including fixed and set-aside copies; two rules
+matching the same text in one file are one copy. Filtered lists say how many
+rows match out of this page's total, or **No Matches**; **Clear Filter**
+brings all rows back. The inspector starts hidden to leave space for the list
+and opens when you select an item. Its toolbar button can show or hide it at
+any time.
 
 ### Reviewing findings
 
@@ -220,7 +222,10 @@ has a dot while items are open in Worth Reviewing or the list is full, and is
 a warning triangle when the list cannot be read. A key with no dot means
 nothing is open in what was checked, or the list is still being read, not
 that nothing is exposed. Its menu shows the count and the state of automatic
-scanning, and opens the window or Settings; it changes nothing.
+scanning, and opens the window or Settings; it changes nothing. Before any
+check, with nothing on the list, the menu says **No scan this session**, or
+**Checking existing files…** while automatic scanning makes its first pass,
+instead of a count.
 
 While it is on, closing the window leaves the app in the menu bar, with no Dock icon
 until a window opens. With automatic scanning also on, the app is in Login

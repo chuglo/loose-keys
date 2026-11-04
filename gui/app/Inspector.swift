@@ -98,14 +98,15 @@ private struct ReviewInspector: View {
                 } else {
                     FileRow(path: item.path, line: item.line, index: item.id, review: true)
                 }
-                if let places = item.places, places.count > 1 {
-                    Text(String(localized: "The same credential is in \(places.count) places",
+                let locations = item.locations
+                if locations.count > 1 {
+                    Text(String(localized: "The same credential is in \(locations.count) places",
                                 comment: "Inspector, the heading over the list of files one credential was found in."))
                     Button(model.inspectorCopies ? "Hide Copies" : "Show Copies") {
                         model.inspectorCopies.toggle()
                     }
                     if model.inspectorCopies {
-                        ForEach(places.filter { $0.id != item.id }) { place in
+                        ForEach(item.otherLocations) { place in
                             // A path is whatever the file's maker chose, so it is shown as plain text.
                             Text(place.fixed
                                  ? String(localized: "\(place.path) (fixed here)",

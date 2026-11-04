@@ -376,12 +376,33 @@ extension ReviewItem {
     /// The title as the window shows it, which the Finding heading sorts by.
     var shownTitle: String { EngineText.shown(title) }
 
-    /// Includes every listed location, including fixed and set-aside copies.
+    /// Includes every file it is listed in, including fixed and set-aside copies.
     var copyHint: String? {
-        guard let count = places?.count, count > 1 else { return nil }
+        let count = locations.count
+        guard count > 1 else { return nil }
         return String(localized: "\(count) copies",
                       comment: "Under a grouped finding's title: all listed copies, including fixed and set-aside locations.")
     }
+
+    /// The files this credential is listed in, one place for each. Two rules
+    /// can match the same text in one file, and that is still one copy. The
+    /// place that stands for a file is one still needing a decision if there
+    /// is one, then one set aside, then a fixed one.
+    var locations: [ReviewPlace] {
+        func rank(_ place: ReviewPlace) -> Int { place.fixed ? 2 : place.setAside == true ? 1 : 0 }
+        var out: [ReviewPlace] = []
+        for place in places ?? [] {
+            if let at = out.firstIndex(where: { $0.path == place.path }) {
+                if rank(place) < rank(out[at]) { out[at] = place }
+            } else {
+                out.append(place)
+            }
+        }
+        return out
+    }
+
+    /// The files other than the one shown as this finding's place.
+    var otherLocations: [ReviewPlace] { locations.filter { $0.path != path } }
 
     /// What it concerns, or failing that a count the rule gives, as for a
     /// browser's saved logins, as the window shows it.
