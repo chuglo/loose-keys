@@ -989,7 +989,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     await eventually("the second check asks GitHub") { releases.count == 2 }
     releases.answer(.success(Data([0xff, 0xfe])))
     await eventually("the unreadable reply is shown") { bench.model.updateResult != nil }
-    check(bench.model.updateResult == .failed("GitHub's answer was not in the expected form.")
+    check(bench.model.updateResult == .failed("Loose Keys couldn't read GitHub's response. Try again later.")
           && bench.engine.held("check_release").isEmpty,
           "updates: a reply that is not text is refused before the engine is given it")
 

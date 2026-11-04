@@ -12,7 +12,7 @@ protocol ReleaseSource: Sendable {
 /// and the model check.
 struct NoReleases: ReleaseSource {
     func latest() async throws -> Data {
-        throw EngineError(message: String(localized: "Update checks are not available in this build.",
+        throw EngineError(message: String(localized: "This build can't check for updates.",
                                           comment: "In an alert after Check for Updates… in a test build of the app, which never goes online."))
     }
 }
@@ -59,7 +59,7 @@ final class GitHubReleases: ReleaseSource {
             throw Self.notExpected
         }
         guard http.statusCode == 200 else {
-            throw EngineError(message: String(localized: "GitHub answered with an error (\(http.statusCode)).",
+            throw EngineError(message: String(localized: "GitHub returned an error (HTTP \(http.statusCode)). Try again later.",
                                               comment: "In an alert after Check for Updates…. %lld is the HTTP status code GitHub sent."))
         }
         guard http.expectedContentLength <= Int64(Releases.limit) else { throw Self.notExpected }
@@ -72,7 +72,7 @@ final class GitHubReleases: ReleaseSource {
     }
 
     private static var notExpected: EngineError {
-        EngineError(message: String(localized: "GitHub's answer was not in the expected form.",
+        EngineError(message: String(localized: "Loose Keys couldn't read GitHub's response. Try again later.",
                                     comment: "In an alert after Check for Updates…: GitHub's reply was too long or came from somewhere else."))
     }
 }

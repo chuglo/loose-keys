@@ -265,6 +265,14 @@ run from the repository or worktree root as their instructions specify.
 
 ## The window (Swift)
 
+- Write window text as Apple, or a well-made Mac app, words the same
+  situation, and read it aloud before keeping it. Say what happened and what
+  the person can do next, in everyday words with contractions ("couldn't",
+  "you're"). The clipped style of this file and the code's comments is not
+  the window's: no server that "answered", no code terms ("not in the
+  expected form", "a newer version is out"), and no bare fact left for the
+  person to interpret ("You have 0.6.0."). When reporting a change, list
+  each new or changed English string so a person reviews the wording.
 - View state lives in `AppModel` as `@Published`, not in `@State`: the app
   must build with Apple's command-line tools alone, where `@State` does not
   compile.

@@ -8,7 +8,8 @@ use serde::Serialize;
 /// The most of a reply that is read. GitHub's is a few KiB.
 pub(crate) const MAX_BODY: usize = 1_048_576;
 
-pub(crate) const NOT_EXPECTED: &str = "GitHub's answer was not in the expected form.";
+pub(crate) const NOT_EXPECTED: &str =
+    "Loose Keys couldn't read GitHub's response. Try again later.";
 
 #[derive(Serialize)]
 pub(crate) struct ReleaseView {

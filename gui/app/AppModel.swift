@@ -365,7 +365,7 @@ final class AppModel: ObservableObject {
     private func latestRelease() async throws -> ReleaseCheck {
         let data = try await releases.latest()
         guard let body = String(data: data, encoding: .utf8) else {
-            throw EngineError(message: String(localized: "GitHub's answer was not in the expected form.",
+            throw EngineError(message: String(localized: "Loose Keys couldn't read GitHub's response. Try again later.",
                                               comment: "In an alert after Check for Updates…: GitHub's reply was too long or came from somewhere else."))
         }
         return try await engine.request("check_release", ["body": body])

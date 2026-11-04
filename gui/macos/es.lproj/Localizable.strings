@@ -717,19 +717,19 @@
 "See Not Checked for details." = "Consulta los detalles en Sin comprobar.";
 
 /* In an alert after Check for Updates… in a test build of the app, which never goes online. [Updates.swift:15] */
-"Update checks are not available in this build." = "Las búsquedas de actualizaciones no están disponibles en esta versión.";
+"This build can't check for updates." = "Esta versión no puede buscar actualizaciones.";
 
 /* In an alert after Check for Updates…. %lld is the HTTP status code GitHub sent. [Updates.swift:58] */
-"GitHub answered with an error (%lld)." = "GitHub respondió con un error (%lld).";
+"GitHub returned an error (HTTP %lld). Try again later." = "GitHub devolvió un error (HTTP %lld). Vuelve a intentarlo más tarde.";
 
 /* In an alert after Check for Updates…: GitHub's reply was too long or came from somewhere else. [Updates.swift:71] */
-"GitHub's answer was not in the expected form." = "La respuesta de GitHub no tenía la forma esperada.";
+"Loose Keys couldn't read GitHub's response. Try again later." = "Loose Keys no pudo leer la respuesta de GitHub. Vuelve a intentarlo más tarde.";
 
 /* The title of the alert the first time the window opens, asking whether the app may check GitHub for a newer version. [MainView.swift] */
 "Check for Updates Automatically?" = "¿Buscar actualizaciones automáticamente?";
 
 /* Under the title of the alert asking whether the app may check for updates. [MainView.swift] */
-"Loose Keys can ask GitHub once a day whether a newer version is out. No paths or findings are sent. GitHub sees the request and your IP address." = "Loose Keys puede preguntar a GitHub una vez al día si hay una versión más reciente. No se envían rutas ni hallazgos. GitHub ve la solicitud y tu dirección IP.";
+"Loose Keys can check GitHub for a new version once a day. GitHub will see your IP address, but Loose Keys doesn't send anything about your files or findings." = "Loose Keys puede buscar una versión nueva en GitHub una vez al día. GitHub verá tu dirección IP, pero Loose Keys no envía nada sobre tus archivos ni tus hallazgos.";
 
 /* [MainView.swift] */
 "Check Automatically" = "Buscar automáticamente";
@@ -747,7 +747,10 @@
 "Loose Keys %@ Is Available" = "Loose Keys %@ ya está disponible";
 
 /* Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0. [MainView.swift, Overview.swift] */
-"You have %@." = "Tienes la versión %@.";
+"You're using version %@." = "Tienes la versión %@.";
+
+/* Under the title of the alert after Check for Updates… when no newer version is out. %@ is this app's version number, such as 0.6.0. [MainView.swift] */
+"Loose Keys %@ is the latest version." = "Loose Keys %@ es la versión más reciente.";
 
 /* [MainView.swift, Overview.swift] */
 "Download" = "Descargar";
@@ -756,7 +759,7 @@
 "Not Now" = "Ahora no";
 
 /* The title of the alert after Check for Updates… when no newer version is out. [MainView.swift] */
-"Loose Keys Is Up to Date" = "Loose Keys está actualizado";
+"You're Up to Date" = "Estás al día";
 
 /* The title of the alert after Check for Updates… when the check failed. [MainView.swift] */
 "Could Not Check for Updates" = "No se pudieron buscar actualizaciones";

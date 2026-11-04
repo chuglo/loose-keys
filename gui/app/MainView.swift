@@ -68,7 +68,7 @@ struct MainView: View {
             return String(localized: "Loose Keys \(release.newer ?? "") Is Available",
                           comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0.")
         case .result(.upToDate):
-            return String(localized: "Loose Keys Is Up to Date",
+            return String(localized: "You're Up to Date",
                           comment: "The title of the alert after Check for Updates… when no newer version is out.")
         case .result(.failed):
             return String(localized: "Could Not Check for Updates",
@@ -79,11 +79,14 @@ struct MainView: View {
     private func updateMessage(_ alert: UpdateAlert) -> String {
         switch alert {
         case .question:
-            return String(localized: "Loose Keys can ask GitHub once a day whether a newer version is out. No paths or findings are sent. GitHub sees the request and your IP address.",
+            return String(localized: "Loose Keys can check GitHub for a new version once a day. GitHub will see your IP address, but Loose Keys doesn't send anything about your files or findings.",
                           comment: "Under the title of the alert asking whether the app may check for updates.")
-        case .result(.newer(let release)), .result(.upToDate(let release)):
-            return String(localized: "You have \(release.current).",
+        case .result(.newer(let release)):
+            return String(localized: "You're using version \(release.current).",
                           comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0.")
+        case .result(.upToDate(let release)):
+            return String(localized: "Loose Keys \(release.current) is the latest version.",
+                          comment: "Under the title of the alert after Check for Updates… when no newer version is out. %@ is this app's version number, such as 0.6.0.")
         case .result(.failed(let reason)):
             return reason
         }

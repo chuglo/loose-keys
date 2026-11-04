@@ -81,8 +81,8 @@ func launch(_ name: String) throws -> (Process, AXUIElement) {
         return descendants(app).flatMap { texts($0) }.contains("Check for Updates Automatically?")
     }
     let message = descendants(app).flatMap { texts($0) }.joined(separator: "\n")
-    privacyExplained = privacyExplained && message.contains("No paths or findings are sent.")
-        && message.contains("GitHub sees the request and your IP address.")
+    privacyExplained = privacyExplained && message.contains("GitHub will see your IP address,")
+        && message.contains("Loose Keys doesn't send anything about your files or findings.")
     try unanswered()
     return (process, app)
 }

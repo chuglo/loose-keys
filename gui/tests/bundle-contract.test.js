@@ -115,7 +115,7 @@ const NOT_COUNTS = new Set([
   // A line number.
   "%@, line %lld",
   // An HTTP status code, such as 403.
-  "GitHub answered with an error (%lld).",
+  "GitHub returned an error (HTTP %lld). Try again later.",
 ]);
 
 // SwiftUI reads a localized Text as Markdown.
