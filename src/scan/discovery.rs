@@ -136,7 +136,8 @@ impl Scan {
                 if !skipped && p.file_name() == Some(".git".as_ref()) {
                     self.repo(&p, None);
                 }
-            } else if p.file_name() != Some(denied.as_ref()) && !p.ends_with(ASKS) {
+            } else if p.file_name() != Some(denied.as_ref()) && !ASKS.iter().any(|a| p.ends_with(a))
+            {
                 self.check_head(&p, Target::Discovery);
             }
             let dropped = std::mem::replace(&mut self.work_unfinished, left);

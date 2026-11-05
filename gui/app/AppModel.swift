@@ -31,10 +31,13 @@ struct StoredRow: Identifiable {
 /// What automatic scanning is doing, as Overview, Settings and the menu bar
 /// say it. Logic and tests compare the case, never its words.
 enum BackgroundState {
-    case unavailable, off, needsApproval, helperNotRunning, waitingForHelper, paused, needsAttention, active
+    case unavailable, off, needsApproval, starting, helperNotRunning, waitingForHelper, paused, needsAttention, active
 
     var text: String {
         switch self {
+        case .starting:
+            return String(localized: "background.starting", defaultValue: "Starting…",
+                          comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: just turned on, while its helper starts.")
         case .unavailable:
             return String(localized: "background.unavailable", defaultValue: "Unavailable",
                           comment: "The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: the window could not get its status.")
@@ -314,10 +317,14 @@ final class AppModel: ObservableObject {
     private var updateChecks: Task<Void, Never>?
 
     /// Whether to ask if the app may check for updates: never asked, and the
-    /// answer can be saved. Not while the app is only in the menu bar.
+    /// answer can be saved. Not while the app is only in the menu bar, and
+    /// not at first start: only once a scan has an answer, this window's or
+    /// the helper's first full pass, and none is running.
     var shouldAskAboutUpdates: Bool {
         guard asksAboutUpdates, !updatesAnswered, !quietLaunch, let monitor, monitor.updateCheck == nil,
-              monitorFailure == nil, reviewProblem == nil else { return false }
+              monitorFailure == nil, reviewProblem == nil,
+              results != nil || monitor.health.fullPass != nil,
+              phase != .scanning, !preparingAccess else { return false }
         return true
     }
 
@@ -1205,11 +1212,37 @@ final class AppModel: ObservableObject {
         guard let monitor, monitorFailure == nil else { return .unavailable }
         if !monitor.enabled { return .off }
         if monitor.login == 3 { return .needsApproval }
+        if helperStarting { return .starting }
         if monitor.login != 2 || monitor.health.running == false { return .helperNotRunning }
         guard monitor.health.running == true else { return .waitingForHelper }
         if monitor.paused { return .paused }
         if monitor.health.error != nil { return .needsAttention }
         return .active
+    }
+
+    /// When the person turned automatic scanning on in this launch.
+    private var turnedOn: Date?
+
+    /// The helper takes a few seconds to start after automatic scanning is
+    /// turned on. Until it runs, or for 15 seconds, it is starting, not stopped.
+    var helperStarting: Bool {
+        guard let turnedOn, let monitor, monitor.enabled, monitor.health.running != true else { return false }
+        return now().timeIntervalSince(turnedOn) < 15
+    }
+
+    /// The helper is reading every file for the first time and this window
+    /// has not scanned: its findings arrive as it goes.
+    var helperFirstPass: Bool {
+        guard results == nil, let monitor, monitor.enabled, !monitor.paused, monitor.health.fullPass == nil else { return false }
+        return [.starting, .waitingForHelper, .active].contains(backgroundState)
+    }
+
+    /// When the helper last checked a file, for a list this window has not scanned.
+    var lastChecked: String? {
+        monitor?.health.lastScan.map {
+            String(localized: "Last checked \(localTime($0)).",
+                   comment: "Overview, under the answer, when the findings come from automatic scanning. %@ is when it last checked a file, a date and time.")
+        }
     }
 
     /// Nothing has been checked that a count could come from: the list is
@@ -1221,8 +1254,8 @@ final class AppModel: ObservableObject {
         return review.items.isEmpty && results == nil && phase != .scanning && monitor.health.lastScan == nil
     }
 
-    /// The first page asks one question: check in the background, or scan
-    /// once. Only when every answer it depends on has come and none of them
+    /// The first page offers one step, Scan Now, before anything is known.
+    /// Only when every answer it depends on has come and none of them
     /// has anything to show. A state not yet known, or a failure, is the full
     /// page, which says what it is.
     var showsWelcome: Bool {
@@ -1253,6 +1286,7 @@ final class AppModel: ObservableObject {
         attempt(from: origin) {
             if needsAccess, try await !self.prepareAccess() { return }
             try await self.engine.send("set_monitoring", ["enabled": enabled, "paused": paused])
+            if needsAccess { self.turnedOn = self.now() }
             await self.refreshMonitor()
             await self.refreshMonitorSoon()
         }

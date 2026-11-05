@@ -27,6 +27,10 @@ const EXCLUDED: &[&str] = &[
     "Library/Reminders",
     "Library/Photos",
     "Photos Library.photoslibrary",
+    "Library/Group Containers",
+    "Library/Containers",
+    "Movies/TV",
+    "Music/Music",
 ];
 struct Fixture(PathBuf);
 impl Fixture {

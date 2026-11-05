@@ -28,6 +28,9 @@
 /* The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: turned off. [AppModel.swift:42] */
 "background.off" = "Desactivado";
 
+/* The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: just turned on, while its helper starts. */
+"background.starting" = "Iniciando…";
+
 /* The state of automatic scanning (a singular noun), in Overview, Settings and the menu bar: its helper waits for the person to approve it in System Settings. [AppModel.swift:45] */
 "Needs macOS Approval" = "Necesita la aprobación de macOS";
 
@@ -692,16 +695,17 @@
 /* The title of the alert after Check for Updates… when the check failed. [MainView.swift] */
 "Could Not Check for Updates" = "No se pudieron buscar actualizaciones";
 
-/* Overview, the first page: the line under its title, and what each choice does. */
+/* Overview, the first page: the line under its title. */
 "Loose Keys shows you where they are and how to clean them up." = "Loose Keys te muestra dónde están y qué hacer con ellos.";
-"Checks whenever your files change." = "Analiza cada vez que cambian tus archivos.";
-"Checks once, right now." = "Analiza una vez, ahora mismo.";
 
 /* Overview: the answer at the top of the page, and the counts under it. The
    Spanish date ends in "p.m." or "a.m.", so no period follows it. */
 "Nothing Worth Reviewing" = "Nada para revisar";
 "Review Items" = "Revisar elementos";
 "Last scanned %@." = "Último análisis: %@";
+"Last checked %@." = "Última comprobación: %@";
 "From earlier scans." = "De análisis anteriores.";
-"Stored sign-ins appear after a scan." = "Las credenciales guardadas aparecen después de un análisis.";
-"Save the report to keep these details after you quit." = "Guarda el informe para conservar estos detalles después de salir.";
+/* While automatic scanning reads every file for the first time. */
+"Checking Your Files…" = "Comprobando tus archivos…";
+"Findings appear here as they turn up." = "Los hallazgos aparecen aquí a medida que se encuentran.";
+"Still checking your files…" = "Todavía se están comprobando tus archivos…";

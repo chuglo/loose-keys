@@ -66,6 +66,8 @@ final class SampleEngine: Engine {
     /// The app's own Login Items status, when the checks set one.
     static var appLogin: Int?
     static var completedPass = false
+    /// When the helper last checked a file, if the checks set it.
+    static var lastCheck: String?
     /// An error the helper kept from before checks were turned off.
     static var helperError = false
     static var notificationRequests = 0
@@ -262,11 +264,12 @@ final class SampleEngine: Engine {
         let error = listFull ? #""The review list is full, so new findings are not being added.""# : "null"
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
         let helperFailed = helperError ? #""Could not watch the home folder for changes.""# : "null"
+        let lastScan = lastCheck.map { "\"\($0)\"" } ?? "null"
         return """
         {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring && !helperUnregistered ? 2 : 1),
          "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
          "update_check":\(updateCheck.map { String($0) } ?? "null"),
-         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":null,"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
+         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":\(lastScan),"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
          "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
         """
     }
@@ -673,14 +676,13 @@ enum Checks {
         expect(await eventually {
             written().contains("No Manual Scan This Session") && written().contains(ManualReportText.lifetime)
         }, "stored distinguishes session-only manual details from saved review history")
-        // The Overview's answer comes from the saved list, and its counts wait for a scan.
+        // The Overview's answer comes from the saved list.
         await open(.overview)
         expect(await eventually {
             let text = written()
             return text.contains("6 Items Worth Reviewing") && text.contains("From earlier scans.")
-                && text.contains("Stored sign-ins appear after a scan.")
                 && button("Review Items") != nil && linkButton("Show Places Not Checked") == nil
-        }, "before a scan, the Overview answers from saved findings and says the counts come with a scan")
+        }, "before a scan, the Overview answers from saved findings")
         // Before any scan this window has no report to save, so a list that
         // cannot be read must not send the person to save one.
         SampleEngine.storeFailed = true
@@ -704,6 +706,13 @@ enum Checks {
         await model.refreshMonitor()
         expect(await eventually { written().contains("No Findings Yet") },
                "before the first full pass, an empty review list says background checks are still reading")
+        // The Overview says the first pass is still going, not that nothing was scanned.
+        await open(.overview)
+        expect(await eventually {
+            written().contains("Checking Your Files…") && written().contains("Findings appear here as they turn up.")
+        } && !written().contains("No Scan Yet"),
+               "during the first full pass with nothing found yet, the Overview says it is checking")
+        await open(.review)
         SampleEngine.completedPass = true
         await model.refreshMonitor()
         expect(await eventually { written().contains("No Findings") && written().contains("Loose Keys checked your files and found nothing to review.") },
@@ -720,7 +729,7 @@ enum Checks {
         SampleEngine.unread = 0
         await model.refreshMonitor()
         // With nothing listed, nothing scanned and background checks off, the
-        // first page asks one question, and the sidebar waits. The checks have
+        // first page offers one step, and the sidebar waits. The checks have
         // used the sidebar already, so this starts as a window just opened.
         model.pane = .overview
         model.sidebarAsked = false
@@ -733,28 +742,30 @@ enum Checks {
             }
             return onPage.flatMap { value($0, kAXEnabledAttribute) as? Bool } == true
         }
-        expect(welcomed && enabled("Scan Automatically") && enabled("Scan Now") && sidebarRows().isEmpty,
-               "with nothing to list, the first page asks one question and hides the sidebar")
-        // Folders are listed in Settings, not under the question.
+        expect(welcomed && enabled("Scan Now") && button("Scan Automatically") == nil && sidebarRows().isEmpty,
+               "with nothing to list, the first page offers Scan Now alone and hides the sidebar")
+        // Folders are listed in Settings; automatic scanning is offered after an answer.
         expect(button("Show What a Scan Checks") == nil && button("Remove") == nil
-               && written().contains("Checks whenever your files change.") && written().contains("Checks once, right now."),
-               "the first page has no scan reference section or folder list, and says what each choice does")
+               && !written().contains("Checks whenever your files change."),
+               "the first page has no scan reference section, folder list or second choice")
         await press(button("Show Sidebar") ?? button("Toggle Sidebar"), "opening the sidebar from the first page")
         expect(await eventually { sidebarRows().count == 4 } && model.pane == .overview && model.showsWelcome,
                "the sidebar can be opened from the first page, and stays open there")
         model.sidebarAsked = false
         expect(await eventually { sidebarRows().isEmpty }, "the first page hides the sidebar again in a window just opened")
-        await press(button("Scan Automatically"), "enabling background checks from the first page")
-        expect(await eventually { SampleEngine.monitoring && sidebarRows().count == 4 && !model.showsWelcome },
-               "enabling background checks from the first page starts them and brings the sidebar back")
+        // Turned on elsewhere, as from the menu bar or an earlier launch.
+        SampleEngine.monitoring = true
+        await model.refreshMonitor()
+        expect(await eventually { sidebarRows().count == 4 && !model.showsWelcome },
+               "background checks turned on leave the first page for the Overview and bring the sidebar back")
         SampleEngine.monitoring = false
         await model.refreshMonitor()
         expect(await eventually { model.showsWelcome } && sidebarRows().count == 4,
-               "turning background checks off again brings the question back but keeps the sidebar")
+               "turning background checks off again brings the first page back but keeps the sidebar")
         SampleEngine.helperError = true
         await model.refreshMonitor()
         expect(await eventually { !model.showsWelcome && written().contains("Could not watch the home folder for changes.") },
-               "an error the helper kept is shown on the full Overview, not hidden behind the first page's question")
+               "an error the helper kept is shown on the full Overview, not hidden behind the first page")
         SampleEngine.helperError = false
         await model.refreshMonitor()
         model.pane = .review
@@ -819,10 +830,27 @@ enum Checks {
         expect(written().contains("Checking existing files…") && !written().contains("Last Check")
                && button("Show Details") == nil && button("Pause") == nil,
                "the Overview shows initial checking, and leaves check timing and Pause to Settings")
+        // Findings that turn up during the first pass are not "from earlier scans".
+        expect(written().contains("Still checking your files…") && !written().contains("From earlier scans."),
+               "during the first full pass, the Overview's answer says checking goes on")
+        // Just turned on, a helper that is not running yet is starting, not stopped.
+        SampleEngine.helperStopped = true
+        await model.refreshMonitor()
+        expect(await eventually { written().contains(BackgroundState.starting.text) }
+               && !written().contains(BackgroundState.helperNotRunning.text)
+               && !written().contains("Open Settings to restart the helper."),
+               "right after automatic scanning is turned on, the helper is starting, not reported as stopped")
+        SampleEngine.helperStopped = false
+        await model.refreshMonitor()
         SampleEngine.completedPass = true
+        SampleEngine.lastCheck = "2026-10-14T12:30:00Z"
         await model.refreshMonitor()
         expect(await eventually { written().contains(BackgroundState.active.text) && !written().contains("Checking existing files…") },
                "completed initial checking leaves a simple active status")
+        // After the helper's pass, the answer says when it last checked.
+        let checkedAt = "Last checked \(localTime("2026-10-14T12:30:00Z"))."
+        expect(await eventually { written().contains(checkedAt) } && !written().contains("From earlier scans."),
+               "after the helper's full pass, the Overview says when it last checked, not that findings are from earlier scans")
         SampleEngine.permission = "not requested"
         await model.refreshReview()
         await settle()
@@ -840,6 +868,7 @@ enum Checks {
         expect(model.pane == .review && model.results == nil, "background findings can be reviewed without a manual scan")
         SampleEngine.monitoring = false
         SampleEngine.completedPass = false
+        SampleEngine.lastCheck = nil
         await model.refreshMonitor()
         await open(.overview)
         #endif
@@ -850,17 +879,19 @@ enum Checks {
         await open(.overview)
         let scanned = "Last scanned \(localTime(model.results?.generatedAt))."
         expect(await eventually { written().contains(scanned) }, "after a scan, the Overview's answer says when the scan ran")
-        expect(written().contains("Save the report to keep these details after you quit."),
-               "after a manual scan, Overview advises saving the session-only report before quitting")
+        // The details' lifetime is said on Stored Sign-ins, where they are missed.
+        expect(!written().contains { $0.contains("Save the report") },
+               "after a manual scan, Overview has no note about saving the report")
         // Where the link is not found, say what assistive software was told it is.
         let linkRoles = everything().filter { element in
             names(element).contains("Show Places Not Checked") || value(element, kAXValueAttribute) as? String == "Show Places Not Checked"
         }.map(role)
+        // What a scan found is in the sidebar, which has the same names and counts.
         expect(button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
-               && button("Stored Sign-ins") != nil && button("Not Checked") == nil
+               && button("Stored Sign-ins") == nil && button("Not Checked") == nil
                && (linkButton("Show Places Not Checked") != nil) == model.somePlacesNotChecked
                && button("Add Folder or Drive…") == nil,
-               "after a scan, Overview shows stored sign-ins and no count of places not checked, with folder controls left to Settings (the link's roles: \(linkRoles))")
+               "after a scan, Overview repeats no sidebar count, with folder controls left to Settings (the link's roles: \(linkRoles))")
 
         #if PREVIEW
         // The one way to what the scan could not read, without a count.

@@ -265,7 +265,7 @@ struct Sidebar: View {
 
     var body: some View {
         List(selection: $model.pane) {
-            Label("Overview", systemImage: "shield.lefthalf.filled")
+            Label("Overview", systemImage: "house")
                 .tag(Pane.overview)
             Section("Findings") {
                 Label("Worth Reviewing", systemImage: "exclamationmark.triangle")

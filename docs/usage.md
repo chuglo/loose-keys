@@ -4,12 +4,13 @@
 
 ## The app
 
-On the first page, click **Scan Automatically**. A helper then checks your
-home folder on its own, and its findings appear without a manual scan.
-If macOS requires approval, Overview tells you where to give it. Allow
+On the first page, click **Scan Now**. When the scan finishes, the Overview
+says what it found and offers **Scan Automatically**: turned on, a helper
+checks your home folder on its own, and its findings appear without a manual
+scan. If macOS requires approval, Overview tells you where to give it. Allow
 notifications separately if you want alerts while the app is closed.
 
-For a detailed point-in-time report, click **Scan Now**. The sidebar lists
+**Scan Now** gives a detailed point-in-time report. The sidebar lists
 what is worth reviewing and the sign-ins that are stored. When a scan could
 not read some places, **Show Places Not Checked** on the Overview lists them
 with the reasons. Select a finding to see what it is, why it matters and
@@ -262,8 +263,8 @@ Quit lasts until the next login.
 
 ### Updates
 
-The first time the window opens, Loose Keys asks whether it may check for
-updates. If you allow it, the app asks GitHub for the latest release when it
+After your first scan, or automatic scanning's first full pass, Loose Keys
+asks whether it may check for updates. If you allow it, the app asks GitHub for the latest release when it
 starts and once a day while it is open. GitHub sees your IP address and that
 Loose Keys checked; nothing about your files or findings is sent. A newer
 version appears at the top of Overview, and **Download** opens its release
@@ -381,10 +382,15 @@ ending in `.git`, `node_modules`, `target`, `.venv`, `venv`, `__pycache__`,
 `.rustup/toolchains`). It also stays out of the folders where macOS keeps the
 data of its own apps (`Library/Calendars`,
 `Library/Application Support/AddressBook`, `Library/Reminders`,
-`Library/Photos`, `Photos Library.photoslibrary`) and does not open the
-Contacts settings file, `Library/Preferences/com.apple.AddressBook.plist`: no
-rule reads them, and for each one macOS would ask you for your calendar,
-contacts, reminders or photos in the scanner's name. Where a repository's
+`Library/Photos`, `Photos Library.photoslibrary`), other apps' data
+(`Library/Group Containers`, `Library/Containers`) and the TV and Music apps'
+libraries (`Movies/TV`, `Music/Music`), and does not open the Contacts or TV
+settings files (`Library/Preferences/com.apple.AddressBook.plist`,
+`Library/Preferences/com.apple.TV.plist`): no rule reads them, and for each
+one macOS would ask you for your calendar, contacts, reminders, photos,
+media library or other apps' data in the scanner's name. A known sign-in
+location inside them, such as Telegram's App Store copy, is still read, and
+macOS may ask then. Where a repository's
 `.git` is a file pointing elsewhere (a worktree or submodule) or a link, it is
 not followed. Repeat `--select DIR` to add folders or mounted drives;
 explicitly selecting an excluded directory scans that root, while exclusions

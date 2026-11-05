@@ -2865,6 +2865,47 @@ fn a_change_in_a_store_macos_guards_is_not_read() {
     assert_eq!(check("Pictures"), [""; 0]);
 }
 
+/// Listing other apps' data or the TV app's media makes macOS ask the person
+/// mid-scan, or, from the helper, with nobody at the window. No rule reads
+/// them. A known location inside one is still read.
+#[test]
+fn other_apps_data_and_media_stores_are_not_entered() {
+    let f = Fixture::new("app-data-stores");
+    let stores = [
+        "Library/Group Containers/243LU875E5.groups.com.apple.podcasts",
+        "Library/Containers/com.apple.weather.widget/Data",
+        "Movies/TV/TV Library.tvlibrary",
+        "Music/Music/Media.localized",
+    ];
+    for store in stores {
+        files(&f.0.join(store), 0);
+        fs::write(
+            f.0.join(store).join("export.csv"),
+            "url,username,password\n",
+        )
+        .unwrap();
+    }
+    files(&f.0.join("Library/Preferences"), 0);
+    let tv = f.0.join("Library/Preferences/com.apple.TV.plist");
+    fs::write(&tv, "url,username,password\n").unwrap();
+    let telegram = "Library/Containers/org.telegram.desktop/Data/Library/Application Support/Telegram Desktop/tdata";
+    files(&f.0.join(telegram), 0);
+    fs::write(f.0.join(telegram).join("key_datas"), "synthetic-only-value").unwrap();
+    let scan = Scan::run(&f.0, std::slice::from_ref(&f.0));
+    assert_eq!(paths(&scan), [format!("~/{telegram}/key_datas")]);
+    let cancel = || Arc::new(AtomicBool::new(false));
+    let changed = |p: PathBuf| Scan::changed(&f.0, &[], &[p], limits(1000), cancel(), digest).0;
+    for store in stores {
+        assert!(
+            changed(f.0.join(store).join("export.csv"))
+                .findings
+                .is_empty(),
+            "{store}"
+        );
+    }
+    assert!(changed(tv).findings.is_empty());
+}
+
 #[test]
 fn a_changed_repository_config_is_checked_and_the_rest_of_git_is_not() {
     let f = Fixture::new("repo-changed");

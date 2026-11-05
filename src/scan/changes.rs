@@ -271,7 +271,9 @@ impl Scan {
                     begun = s.work_unfinished || s.traversal.remaining > 0;
                     s.discover(p, vec![(p.clone(), 0)]);
                 }
-                Some(_) if file && !p.ends_with(ASKS) => s.check_head(p, Target::Discovery),
+                Some(_) if file && !ASKS.iter().any(|a| p.ends_with(a)) => {
+                    s.check_head(p, Target::Discovery)
+                }
                 _ => {}
             }
             if file {

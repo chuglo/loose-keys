@@ -1234,19 +1234,31 @@ is replaced (macOS behaviour).
   with Cancel or Close beside any Done; a little information goes in a
   popover [19, 20].
 - Overview answers first: a heading with what needs a decision and at most
-  one button, then Stored Sign-ins, then the Scan Automatically switch. A
-  folder macOS kept from the last scan comes between the heading and Stored
-  Sign-ins, with Open System Settings. The heading never says "nothing" for
+  one button, then the Scan Automatically switch. Under the heading is only
+  what the person can act on: a folder macOS kept from the last scan, with
+  Open System Settings. The sidebar's names and counts are not repeated on
+  the page [22]. The first page offers Scan Now alone; Scan Automatically is
+  offered on the Overview after an answer [17]. The heading never says "nothing" for
   a list that was not read, nor before anything was checked. "Nothing Worth
   Reviewing" adds that some places couldn't be checked when any were, and
-  Worth Reviewing's empty states say the same [22]. Folder controls, skipped
+  Worth Reviewing's empty states say the same [22]. While the helper makes
+  its first full pass and this window has not scanned, the heading says
+  Checking Your Files… or, once items turn up, Still checking your files…;
+  after it, the line is when the helper last checked. "From earlier scans."
+  is only for a list nothing has checked in this launch. For 15 seconds
+  after the person turns automatic scanning on, a helper that is not yet
+  running is Starting…, not Helper Not Running (`helperStarting`, timed by
+  the model's clock). The update question waits until a scan or the
+  helper's first full pass has an answer, and none is running, because an
+  alert at launch interrupts before the app has shown anything [17].
+  Folder controls, skipped
   folders, check timing and Pause are in Settings. The
   Overview does not show what a scan covers. That is in
   [usage](../usage.md), in `loose-keys --list-rules` and in every saved
   report, which keeps the scan's exclusions and detection limits.
 - What the last manual scan and the helper's last full pass could not read
   is in one popover, opened only by Show Places Not Checked under the
-  Overview's counts [23]. The link shows only when something went unread.
+  Overview's answer [23]. The link shows only when something went unread.
   The engine's `blocked` names which of Desktop, Documents and Downloads
   the scan was denied, as those fixed words matched against its
   `permission-denied` gaps, never a path; the window shows Finder's name
@@ -1278,8 +1290,8 @@ is replaced (macOS behaviour).
 - Full manual reports, inventory and manual gaps live only in this app
   session. Stored Sign-ins says so, distinguishes that from
   saved review findings and decisions, and advises saving a report before
-  quitting. The Overview counts from saved findings until a scan, says its
-  other counts come with one, and after a scan advises saving the report.
+  quitting. The Overview counts from saved findings until a scan, and says
+  nothing of saving: the answer is in the saved list.
   An empty, never-scanned review list keeps its onboarding rather than
   claiming that saved findings exist.
 - A row's selection is cleared in the model when the filter hides the row

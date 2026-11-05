@@ -426,11 +426,14 @@ func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> 
 }
 
 func monitorStatus(enabled: Bool, paused: Bool = false, menuBar: Bool = false, running: Bool? = nil,
-                   updateCheck: Bool? = nil, error: String? = nil) -> String {
-    json(["enabled": enabled, "paused": paused, "scanning": false, "login": enabled ? 2 : 1,
-          "menu_bar": menuBar, "app_login": menuBar && enabled ? 2 : 1,
-          "update_check": updateCheck.map { $0 as Any } ?? NSNull(), "error": error.map { $0 as Any } ?? NSNull(),
-          "health": running.map { ["running": $0] } ?? [String: Any](), "pending_delivery": false, "attempts": 0])
+                   updateCheck: Bool? = nil, error: String? = nil, fullPass: String? = nil) -> String {
+    var health: [String: Any] = [:]
+    if let running { health["running"] = running }
+    if let fullPass { health["full_pass"] = fullPass }
+    return json(["enabled": enabled, "paused": paused, "scanning": false, "login": enabled ? 2 : 1,
+                 "menu_bar": menuBar, "app_login": menuBar && enabled ? 2 : 1,
+                 "update_check": updateCheck.map { $0 as Any } ?? NSNull(), "error": error.map { $0 as Any } ?? NSNull(),
+                 "health": health, "pending_delivery": false, "attempts": 0])
 }
 
 func places(_ extra: [String], error: String? = nil) -> String {
@@ -706,7 +709,8 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 @MainActor func folderAccessBeforeWork() async {
     for background in [false, true] {
         let clock = HeldSleep()
-        let bench = Bench(clock: clock)
+        let now = FakeNow()
+        let bench = Bench(clock: clock, now: now)
         bench.model.places = try? decodeEngine(ScanPlaces.self, from: Data(places([]).utf8))
         if background { bench.model.setMonitoring(enabled: true, paused: false) }
         else { bench.model.startScan() }
@@ -726,6 +730,13 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
             bench.answer(await bench.next("monitor_status"), .success(monitorStatus(enabled: true)))
             await clock.wake(after: 2_000_000_000)
             bench.answer(await bench.next("monitor_status", after: 1), .success(monitorStatus(enabled: true)))
+            // The helper takes a few seconds to start: starting, not stopped.
+            bench.model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true, running: false).utf8))
+            check(bench.model.backgroundState == .starting,
+                  "background status: just turned on, a helper not yet running is starting")
+            now.date += 16
+            check(bench.model.backgroundState == .helperNotRunning,
+                  "background status: still not running 15 seconds after turning on, the helper is stopped")
         } else {
             bench.answer(await bench.next("start_scan"), .success(scanResults(review: 0)))
             bench.answer(await bench.next("pending_review"), .success(reviewList(0)))
@@ -858,7 +869,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true).utf8))
     check(model.backgroundState == .waitingForHelper, "registration alone is not a running helper")
     // The words each state shows. This check runs in English, so they are the source text.
-    for (state, word) in [(BackgroundState.unavailable, "Unavailable"), (.off, "Off"), (.needsApproval, "Needs macOS Approval"),
+    for (state, word) in [(BackgroundState.unavailable, "Unavailable"), (.off, "Off"), (.needsApproval, "Needs macOS Approval"), (.starting, "Starting…"),
                           (.helperNotRunning, "Helper Not Running"), (.waitingForHelper, "Waiting for Helper Status"),
                           (.paused, "Paused"), (.needsAttention, "Needs Attention"), (.active, "Active")] {
         check(state.text == word, "background status words: \(word), not \(state.text)")
@@ -888,16 +899,20 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     check(!bench.model.shouldAskAboutUpdates,
           "updates: nothing is asked while the saved state cannot be used, since the answer could not be kept")
     await status(bench, .success(monitorStatus(enabled: false)))
-    check(bench.model.shouldAskAboutUpdates, "updates: asked once the saved state says it never was")
-    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true)))
+    check(!bench.model.shouldAskAboutUpdates, "updates: not asked at first start, before any scan has an answer")
+    let checked = "2026-10-13T00:00:00Z"
+    await status(bench, .success(monitorStatus(enabled: true, running: true, fullPass: checked)))
+    check(bench.model.shouldAskAboutUpdates,
+          "updates: asked once the saved state says it never was and the helper's first full pass has an answer")
+    await status(bench, .success(monitorStatus(enabled: false, updateCheck: true, fullPass: checked)))
     check(!bench.model.shouldAskAboutUpdates, "updates: not asked again once answered yes")
-    await status(bench, .success(monitorStatus(enabled: false)))
+    await status(bench, .success(monitorStatus(enabled: false, fullPass: checked)))
     bench.model.answerUpdateQuestion(false)
     check(!bench.model.shouldAskAboutUpdates, "updates: an answer closes the question at once, before it is saved")
     let saved = await bench.next("set_update_check")
     check(saved.args["enabled"] as? Bool == false, "updates: Don't Check saves no")
     bench.answer(saved, .success("null"))
-    bench.answer(await bench.next("monitor_status", after: 5), .success(monitorStatus(enabled: false, updateCheck: false)))
+    bench.answer(await bench.next("monitor_status", after: 6), .success(monitorStatus(enabled: false, updateCheck: false)))
     await eventually("the status after the answer is read") { bench.model.monitor?.updateCheck == false }
 
     let quiet = Bench()

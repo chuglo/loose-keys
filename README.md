@@ -32,8 +32,8 @@ click **Open Anyway** beside the message about Loose Keys. Confirm when asked:
 
 ![Privacy & Security: “Loose Keys” was blocked to protect your Mac, with an Open Anyway button](docs/images/open-anyway.png)
 
-Choose **Scan Now** for a one-time check, or **Scan Automatically** to keep
-checking after you close the window.
+Choose **Scan Now** for a first check. Afterwards, turn on **Scan
+Automatically** on the Overview to keep checking after you close the window.
 
 ## Build the app
 

@@ -82,11 +82,24 @@ pub const EXCLUDED: &[&str] = &[
     "Library/Reminders",
     "Library/Photos",
     "Photos Library.photoslibrary",
+    // Other apps' data and the TV app's media: listing inside makes macOS ask
+    // for "data from other apps" or the media library, seen with SIP on in
+    // macOS 26. A known location inside, such as Telegram's App Store copy,
+    // is still read. Music/Music is the Music app's library, assumed to be
+    // guarded as the TV app's is (unverified).
+    "Library/Group Containers",
+    "Library/Containers",
+    "Movies/TV",
+    "Music/Music",
 ];
 
-/// A settings file of the Contacts app, which macOS guards as it does the
-/// contacts: opening it asks the person for them. Discovery passes it.
-const ASKS: &str = "Library/Preferences/com.apple.AddressBook.plist";
+/// Settings files macOS guards as it does their app's data: opening the
+/// Contacts app's asks for the contacts, the TV app's for the media library.
+/// Discovery passes them.
+const ASKS: &[&str] = &[
+    "Library/Preferences/com.apple.AddressBook.plist",
+    "Library/Preferences/com.apple.TV.plist",
+];
 
 /// Home folders that discovery reaches last: large, and rarely where a
 /// credential file is left. Known locations inside them are checked first.

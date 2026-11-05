@@ -153,6 +153,8 @@ struct SettingsView: View {
     /// What the helper needs, if it is not simply running. macOS reports a
     /// registered helper as enabled even when it will not start.
     private func helperProblem(_ monitor: MonitorStatus) -> (text: String, restarts: Bool)? {
+        // Just turned on, the helper is starting: not yet registered or running.
+        if model.helperStarting, monitor.login == 1 || monitor.login == 2 { return nil }
         switch monitor.login {
         case 0:
             return (String(localized: "Needs macOS 13 or later", comment: "Settings, beside Helper: the state of the helper (a singular noun)."), false)

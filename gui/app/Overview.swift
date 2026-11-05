@@ -22,27 +22,16 @@ struct OverviewView: View {
                         }
                     }
                 }
-                // The answer heads the page, above the counts it comes from. A
-                // folder the person can allow again comes between them.
-                if model.blockedFolders.isEmpty {
-                    Section {
-                        results
-                    } header: {
-                        header
-                    } footer: {
-                        resultsFooter
-                    }
-                } else {
-                    Section {
-                        blocked
-                    } header: {
-                        header
-                    }
-                    Section {
-                        results
-                    } footer: {
-                        resultsFooter
-                    }
+                // The answer heads the page. Under it, only what the person
+                // can act on: a folder to allow again, or why no scan can run.
+                // What a scan found is in the sidebar.
+                Section {
+                    blocked
+                    unscannable
+                } header: {
+                    header
+                } footer: {
+                    resultsFooter
                 }
                 if !model.preparingAccess && model.phase != .scanning {
                     automatic
@@ -52,7 +41,7 @@ struct OverviewView: View {
         }
     }
 
-    /// The first page before anything is known to list: one question.
+    /// The first page before anything is known to list: one button, Scan Now.
     private var welcome: some View {
         GeometryReader { space in
             ScrollView {
@@ -74,25 +63,14 @@ struct OverviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 500)
                         .padding(.bottom, 32)
-                    // Each choice says what it does directly beneath it.
-                    HStack(alignment: .top, spacing: 16) {
-                        choice(caption: String(localized: "Checks whenever your files change.",
-                                               comment: "First page, under the Scan Automatically button.")) {
-                            Button { model.setMonitoring(enabled: true, paused: false) } label: {
-                                Text("Scan Automatically").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.monitorFailure != nil || model.phase == .scanning || model.places?.home == nil)
-                        }
-                        choice(caption: String(localized: "Checks once, right now.",
-                                               comment: "First page, under the Scan Now button.")) {
-                            Button { model.startScan() } label: {
-                                Text("Scan Now").frame(maxWidth: .infinity)
-                            }
-                            .disabled(model.places?.home == nil)
-                        }
+                    // One step: an answer first. Scan Automatically is offered
+                    // on the Overview, under what the scan found.
+                    Button { model.startScan() } label: {
+                        Text("Scan Now").frame(width: 210)
                     }
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .disabled(model.places?.home == nil)
                     Text("macOS may ask for access to some folders. You can say no and still scan.")
                         .font(.callout)
                         .multilineTextAlignment(.center)
@@ -111,18 +89,6 @@ struct OverviewView: View {
                 .frame(maxWidth: .infinity, minHeight: space.size.height)
             }
         }
-    }
-
-    private func choice<Control: View>(caption: String, @ViewBuilder control: () -> Control) -> some View {
-        VStack(spacing: 8) {
-            control()
-            Text(caption)
-                .font(.callout)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(width: 210)
     }
 
     // MARK: The answer
@@ -154,13 +120,28 @@ struct OverviewView: View {
             }
         } else if model.review != nil {
             let count = model.reviewCount
+            // When the findings were last looked for: this window's scan, else
+            // the helper's last check. "From earlier scans." only when neither.
             let scanned = model.results.map {
                 String(localized: "Last scanned \(localTime($0.generatedAt)).",
                        comment: "Overview, under the number of items worth reviewing. %@ is when the last scan ran, a date and time.")
-            }
-            if count > 0 {
+            } ?? model.lastChecked
+            if model.helperFirstPass {
+                // The helper's first pass takes minutes: say it is still going.
+                if count > 0 {
+                    headerRow(.attention, itemsTitle(count), String(localized: "Still checking your files…",
+                                                                    comment: "Overview, under the number of items worth reviewing, while automatic scanning reads every file for the first time.")) {
+                        reviewButton
+                    }
+                } else {
+                    headerRow(.progress, String(localized: "Checking Your Files…",
+                                                comment: "Overview title while automatic scanning reads every file for the first time and has found nothing yet."),
+                              String(localized: "Findings appear here as they turn up.",
+                                     comment: "Overview, under Checking Your Files…")) {}
+                }
+            } else if count > 0 {
                 headerRow(.attention, itemsTitle(count), scanned ?? String(localized: "From earlier scans.",
-                                                                           comment: "Overview, under the number of items worth reviewing, when there has been no scan since the app opened.")) {
+                                                                           comment: "Overview, under the number of items worth reviewing, when nothing has been checked since the app opened.")) {
                     reviewButton
                 }
             } else {
@@ -248,23 +229,11 @@ struct OverviewView: View {
                       comment: "Overview, while a scan runs: how many files and folders it has looked at, and how many findings it has found.")
     }
 
-    // MARK: The counts
+    // MARK: Under the answer
 
-    @ViewBuilder private var results: some View {
-        if !model.preparingAccess && model.phase != .scanning {
-            if let places = model.places, places.home == nil {
-                Label(Self.cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
-            }
-            if let results = model.results {
-                countRow("Stored Sign-ins", results.stored, "key", .stored)
-            } else {
-                LabeledContent {
-                    Button("Scan Now") { model.startScan() }
-                        .disabled(model.places?.home == nil)
-                } label: {
-                    Text("Stored sign-ins appear after a scan.")
-                }
-            }
+    @ViewBuilder private var unscannable: some View {
+        if !model.preparingAccess && model.phase != .scanning, let places = model.places, places.home == nil {
+            Label(Self.cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
         }
     }
 
@@ -296,11 +265,10 @@ struct OverviewView: View {
     }
 
     @ViewBuilder private var resultsFooter: some View {
-        if !model.preparingAccess && model.phase != .scanning && (model.results != nil || model.somePlacesNotChecked) {
+        // That a manual scan's details last only until quitting is said on
+        // Stored Sign-ins, where they are missed, not here.
+        if !model.preparingAccess && model.phase != .scanning && (model.findingsNote != nil || model.somePlacesNotChecked) {
             VStack(alignment: .leading, spacing: 4) {
-                if model.results != nil {
-                    Text("Save the report to keep these details after you quit.")
-                }
                 if let note = model.findingsNote {
                     Text(note)
                 }
@@ -315,23 +283,6 @@ struct OverviewView: View {
                 }
             }
         }
-    }
-
-    private func countRow(_ title: LocalizedStringKey, _ count: Int, _ symbol: String, _ pane: Pane) -> some View {
-        Button {
-            model.pane = pane
-        } label: {
-            HStack {
-                Label(title, systemImage: symbol)
-                Spacer()
-                Text(verbatim: "\(count)").monospacedDigit().foregroundStyle(.secondary)
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(verbatim: "\(count)"))
     }
 
     // MARK: Automatic scanning
@@ -354,7 +305,7 @@ struct OverviewView: View {
                         }
                         if monitor.login == 3 {
                             Text("Approve Loose Keys in System Settings > General > Login Items.")
-                        } else if monitor.login != 2 || monitor.health.running == false {
+                        } else if model.backgroundState == .helperNotRunning {
                             Text("Open Settings to restart the helper.")
                         }
                     }
