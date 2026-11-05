@@ -1094,7 +1094,8 @@ SwiftUI's multi-button alert otherwise blocks termination before the app
 delegate. Only explicit button responses save consent or open the fixed
 download page; system dismissal and Quit leave consent unanswered. The
 guest-only `check-update-quit.sh` checks native, menu and keyboard Quit,
-relaunches against the same synthetic home, and checks the privacy wording.
+relaunches against the same synthetic home, and checks that the question is
+one line; what GitHub sees is in [usage](../usage.md), not the question.
 No other modal or global termination policy is changed. Runtime behavior on
 macOS 14 and simultaneous unrelated sheets remains unverified.
 

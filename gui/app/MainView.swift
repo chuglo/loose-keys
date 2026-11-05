@@ -79,7 +79,7 @@ struct MainView: View {
     private func updateMessage(_ alert: UpdateAlert) -> String {
         switch alert {
         case .question:
-            return String(localized: "Loose Keys can check GitHub for a new version once a day. GitHub will see your IP address, but Loose Keys doesn't send anything about your files or findings.",
+            return String(localized: "Loose Keys can check GitHub for a new version once a day.",
                           comment: "Under the title of the alert asking whether the app may check for updates.")
         case .result(.newer(let release)):
             return String(localized: "You're using version \(release.current).",

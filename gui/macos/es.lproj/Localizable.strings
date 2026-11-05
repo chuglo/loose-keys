@@ -657,7 +657,7 @@
 "Check for Updates Automatically?" = "¿Buscar actualizaciones automáticamente?";
 
 /* Under the title of the alert asking whether the app may check for updates. [MainView.swift] */
-"Loose Keys can check GitHub for a new version once a day. GitHub will see your IP address, but Loose Keys doesn't send anything about your files or findings." = "Loose Keys puede buscar una versión nueva en GitHub una vez al día. GitHub verá tu dirección IP, pero Loose Keys no envía nada sobre tus archivos ni tus hallazgos.";
+"Loose Keys can check GitHub for a new version once a day." = "Loose Keys puede buscar una versión nueva en GitHub una vez al día.";
 
 /* [MainView.swift] */
 "Check Automatically" = "Buscar automáticamente";

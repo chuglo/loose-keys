@@ -50,7 +50,7 @@ let work = URL(fileURLWithPath: args[2])
 let home = work.appendingPathComponent("home")
 var child: Process?
 var outcome: Int32 = 0
-var privacyExplained = true
+var questionWorded = true
 func unanswered() throws {
     let state = home.appendingPathComponent("Library/Application Support/dev.loosekeys.desktop/state.json")
     if files.fileExists(atPath: state.path) {
@@ -80,9 +80,10 @@ func launch(_ name: String) throws -> (Process, AXUIElement) {
         guard process.isRunning else { try fail("app exited before update question") }
         return descendants(app).flatMap { texts($0) }.contains("Check for Updates Automatically?")
     }
+    // One line says what the check does; what GitHub sees is in the usage guide.
     let message = descendants(app).flatMap { texts($0) }.joined(separator: "\n")
-    privacyExplained = privacyExplained && message.contains("GitHub will see your IP address,")
-        && message.contains("Loose Keys doesn't send anything about your files or findings.")
+    questionWorded = questionWorded && message.contains("Loose Keys can check GitHub for a new version once a day.")
+        && !message.contains("IP address")
     try unanswered()
     return (process, app)
 }
@@ -116,10 +117,10 @@ do {
         try unanswered()
         print("PASS: \(method) quit exits normally without answering update consent")
     }
-    guard privacyExplained else {
-        try fail("update consent must explain paths, findings and GitHub request/IP visibility")
+    guard questionWorded else {
+        try fail("update consent must say in one line that Loose Keys checks GitHub once a day")
     }
-    print("PASS: update consent explains paths, findings and GitHub request/IP visibility")
+    print("PASS: update consent says in one line that Loose Keys checks GitHub once a day")
 } catch {
     fputs("FAIL: \((error as? CheckError)?.message ?? "test setup or file operation failed")\n", stderr)
     outcome = 1
