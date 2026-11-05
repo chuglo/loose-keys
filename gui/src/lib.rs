@@ -1112,12 +1112,15 @@ pub extern "C" fn ch_agent_main() -> ! {
 
 // ---- Places to check ----
 
+/// The home folders macOS asks about one at a time, before a scan.
+const ACCESS_FOLDERS: [&str; 3] = ["Desktop", "Documents", "Downloads"];
+
 /// A user-initiated preparation step, not a scan or a permission verdict.
 /// The fixed locations are already in home scan scope. Listing with a zero
 /// entry budget asks macOS for directory access without retaining names or
 /// opening file contents. No locks are held across a possible system prompt.
 fn prepare_access(app: &App, index: usize) -> Answer<()> {
-    let folder = ["Desktop", "Documents", "Downloads"]
+    let folder = ACCESS_FOLDERS
         .get(index)
         .ok_or("That folder access request is not valid.")?;
     let home = app
@@ -1223,6 +1226,9 @@ struct ResultsView {
     not_checked: usize,
     groups: Vec<GroupView>,
     gaps: Vec<GapView>,
+    /// Which of the folders `prepare_access` asks for the scan was denied,
+    /// as fixed words: the person can allow access to these again.
+    blocked: Vec<&'static str>,
     roots: Vec<String>,
     excluded: Vec<&'static str>,
     limitations: &'static str,
@@ -1311,6 +1317,14 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
             }
         })
         .collect();
+    let blocked = ACCESS_FOLDERS
+        .into_iter()
+        .filter(|folder| {
+            r.not_checked
+                .iter()
+                .any(|gap| gap.reason == "permission-denied" && gap.path == format!("~/{folder}"))
+        })
+        .collect();
     let coverage = r.coverage.as_ref();
     ResultsView {
         status: r.status,
@@ -1322,6 +1336,7 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
         not_checked: r.not_checked.len(),
         groups,
         gaps,
+        blocked,
         roots: coverage.map_or(Vec::new(), |c| {
             c.roots.iter().map(|p| report::escape(p)).collect()
         }),
@@ -1583,31 +1598,32 @@ fn still_there(item: &review::Item, home: &Path, key: &[u8]) -> Option<review::S
 /// `root`: the scan ran as root, where no link is followed.
 fn gap_text(reason: &str, root: bool) -> (&str, &str) {
     match reason {
+        // Labels are headings in the window, so they use title case.
         "permission-denied" => (
-            "Permission denied",
+            "Permission Denied",
             "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.",
         ),
         "unreadable" => (
-            "Could not be read",
+            "Couldn't Be Read",
             "macOS returned an error when Loose Keys tried to read these.",
         ),
         "too-large" => (
-            "Too large to check",
+            "Too Large to Check",
             "Loose Keys skips config and JSON files over 1 MiB.",
         ),
         "cloud-only-file" => (
-            "Stored only in the cloud",
+            "Stored Only in the Cloud",
             "These files are not on this Mac, and Loose Keys does not download them.",
         ),
-        // The heading and the page's opening line say it; the limits are in
+        // The heading and the list's opening line say it; the limits are in
         // the usage guide.
-        "scan-limit" => ("Only partly checked", ""),
+        "scan-limit" => ("Only Partly Checked", ""),
         "symlink" if root => (
-            "Link not followed",
+            "Link Not Followed",
             "These sign-in files are links. Loose Keys follows no links when running as root.",
         ),
         "symlink" => (
-            "Link not followed",
+            "Link Not Followed",
             "These sign-in files are links to places outside your home folder. \
              Loose Keys does not follow such links.",
         ),
@@ -2580,6 +2596,11 @@ mod tests {
         }
         assert!(ask(&app, "prepare_access", r#"{"index":3}"#)["error"].is_string());
         assert!(app.report.lock().unwrap().is_none());
+        // A folder macOS let the scan read, or a link, is nothing to fix.
+        let alone = one_scan();
+        let open = ask(&app, "start_scan", "{}");
+        drop(alone);
+        assert_eq!(open["ok"]["blocked"], json!([]));
         assert!(!app.scanning.load(Ordering::SeqCst));
         assert_eq!(
             std::fs::read(documents.join(&planted)).unwrap(),
@@ -2594,6 +2615,8 @@ mod tests {
         drop(alone);
         std::fs::set_permissions(&documents, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(scanned["ok"]["status"], "partial");
+        // The window names it by a fixed word, never by the path.
+        assert_eq!(scanned["ok"]["blocked"], json!(["Documents"]));
         assert!(app
             .report
             .lock()
@@ -2829,7 +2852,7 @@ mod tests {
     #[test]
     fn a_permission_gap_does_not_guess_which_access_control_denied_it() {
         let (label, help) = gap_text("permission-denied", false);
-        assert_eq!(label, "Permission denied");
+        assert_eq!(label, "Permission Denied");
         assert_eq!(help, "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.");
     }
 
@@ -4184,7 +4207,7 @@ mod tests {
         ch_set_event_handler(Some(stop));
         let stopped = scan();
         ch_set_event_handler(None);
-        assert_eq!(stopped["ok"]["gaps"][0]["label"], "Only partly checked");
+        assert_eq!(stopped["ok"]["gaps"][0]["label"], "Only Partly Checked");
         assert_eq!(full(), true);
         // One that runs to its end has.
         assert_eq!(scan()["ok"]["review"], 0);
@@ -4318,7 +4341,7 @@ mod tests {
 
     #[test]
     fn work_limit_is_named_without_a_note() {
-        assert_eq!(gap_text("scan-limit", false), ("Only partly checked", ""));
+        assert_eq!(gap_text("scan-limit", false), ("Only Partly Checked", ""));
     }
 
     #[test]

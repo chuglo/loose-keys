@@ -165,7 +165,6 @@ struct MainView: View {
         case .overview: OverviewView()
         case .review, .setAside: ReviewTable()
         case .stored: StoredTable()
-        case .gaps: GapsView()
         }
     }
 
@@ -176,7 +175,6 @@ struct MainView: View {
         case .review: return String(localized: "Worth Reviewing", comment: "The name of the list of findings, in the sidebar and as its page's title.")
         case .setAside: return String(localized: "Set Aside", comment: "The name of the list of findings the person set aside, in the sidebar and as its page's title.")
         case .stored: return String(localized: "Stored Sign-ins", comment: "The name of the list of stored sign-ins, in the sidebar and as its page's title.")
-        case .gaps: return String(localized: "Not Checked", comment: "The name of the page that lists what a scan could not check, in the sidebar and as its title.")
         }
     }
 
@@ -196,21 +194,10 @@ struct MainView: View {
         case .stored:
             return model.results == nil ? ""
                 : String(localized: "\(model.storedShown.count) items", comment: "Subtitle of Stored Sign-ins: how many sign-ins the list shows.")
-        case .gaps:
-            let places = model.gapsCount.map {
-                String(localized: "\($0) places", comment: "Subtitle of Not Checked: how many places the last scan could not check. A comma may follow.")
-            }
-            let skipped = model.reviewProblem == nil ? model.review?.skipped?.count ?? 0 : 0
-            let left = skipped > 0
-                ? String(localized: "\(skipped) folders left out", comment: "Part of the subtitle of Not Checked, after a comma: how many folders the person chose to stop checking.")
-                : nil
-            return [places, left].compactMap { $0 }.joined(separator: ", ")
-        default:
-            guard let results = model.results else { return "" }
-            let time = localTime(results.generatedAt)
-            return results.status == "complete"
-                ? String(localized: "Scan complete, \(time)", comment: "Overview subtitle: the last scan read every place it was asked to. %@ is when it ran, a date and time.")
-                : String(localized: "Scan incomplete, \(time)", comment: "Overview subtitle: the last scan could not read some places. %@ is when it ran, a date and time.")
+        case .overview:
+            // The answer on the page says when the scan ran. "Scan incomplete"
+            // would show after nearly every scan, for places macOS keeps private.
+            return ""
         }
     }
 
@@ -287,9 +274,6 @@ struct Sidebar: View {
                 Label("Stored Sign-ins", systemImage: "key")
                     .badge(model.results?.stored ?? 0)
                     .tag(Pane.stored)
-                Label("Not Checked", systemImage: "eye.slash")
-                    .badge(model.gapsCount ?? 0)
-                    .tag(Pane.gaps)
                 Label("Set Aside", systemImage: "archivebox")
                     .badge(model.setAsideCount)
                     .tag(Pane.setAside)

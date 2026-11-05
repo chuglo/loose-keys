@@ -67,19 +67,8 @@ struct SettingsView: View {
                 Text(monitor.enabled ? model.backgroundState.text
                      : String(localized: "Checks your files whenever they change, even when the app is closed.",
                               comment: "Under the Scan Automatically switch while it is off, and under Automatic Scanning in Overview: what turning it on does."))
-                // The count and its details are from the same completed pass.
-                if let unread = monitor.health.unread, unread > 0 {
-                    Text(monitor.health.unreadTruncated == true
-                         ? String(localized: "At least \(unread) places could not be read.",
-                                  comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
-                         : String(localized: "\(unread) places could not be read.",
-                                comment: "Overview and Settings, under the state of automatic scanning: how many places the helper's last full pass could not read."))
-                }
             }
             .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
-            if let unread = monitor.health.unread, unread > 0 {
-                Button("Show Places Not Checked") { model.showUnreadPlaces() }
-            }
             if monitor.enabled, let helper = helperProblem(monitor) {
                 LabeledContent {
                     if helper.restarts {
@@ -110,9 +99,13 @@ struct SettingsView: View {
         }
     }
 
-    /// The folders every scan includes. Added folders are kept until removed;
-    /// the helper watches only the home folder.
+    /// The folders every scan includes, and those the person chose to skip.
+    /// Added folders are kept until removed; the helper watches only the
+    /// home folder.
     @ViewBuilder private var places: some View {
+        // Skipped folders are kept in the review list. One that could not be
+        // read says nothing about which folders are skipped.
+        let skipped = model.reviewProblem == nil ? model.review?.skipped ?? [] : []
         Section {
             if let places = model.places {
                 if let home = places.home {
@@ -132,11 +125,28 @@ struct SettingsView: View {
                     }
                 }
             }
+            // Left out with Stop Checking in the inspector. Known by path,
+            // which the engine keeps unique: the added folders above are
+            // numbered from 0 too, and rows in one section share their IDs.
+            ForEach(Array(skipped.enumerated()), id: \.element) { index, folder in
+                LabeledContent {
+                    Button("Include Again") { model.checkFolderAgain(index, shown: folder, from: .settings) }
+                } label: {
+                    Label(folder, systemImage: "folder.badge.minus")
+                    Text("Skipped", comment: "Settings, under a folder in Places to Check that scans skip because the person chose Stop Checking.")
+                }
+            }
+            if model.reviewProblem != nil {
+                Text("Couldn't read the list of folders you skipped.")
+            }
             Button("Add Folder or Drive…") { model.addFolder(from: .settings) }
         } header: {
             Text("Places to Check")
         } footer: {
             Text("Automatic scanning does not include added folders and drives. Use Scan Now to check them.")
+            if !skipped.isEmpty {
+                Text(FolderScopeText.exceptions)
+            }
         }
     }
 

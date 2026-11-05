@@ -154,8 +154,8 @@
 /* [Inspector.swift:111] */
 "Folder" = "Carpeta";
 
-/* Inspector, Folder section. %@ is a folder's path, shown as it is. Not Checked is the page's name. [Inspector.swift:114] */
-"Scans will skip %@. You can include it again from Not Checked." = "Los análisis omitirán %@. Puedes volver a incluir esta carpeta desde Sin comprobar.";
+/* Inspector, Folder section. %@ is a folder's path, shown as it is. Settings is the app's Settings window, where Places to Check lists the folder. */
+"Scans will skip %@. You can include it again in Settings." = "Los análisis omitirán %@. Puedes volver a incluir esta carpeta en Ajustes.";
 
 /* Inspector, Folder section: a button that leaves a folder out of scans. %@ is the folder's path, shown as it is. [Inspector.swift:121] */
 "Stop Checking %@" = "Dejar de comprobar %@";
@@ -238,8 +238,8 @@
 /* The Set Aside page, empty. [Lists.swift:86] */
 "Findings you set aside appear here." = "Aquí aparecen los hallazgos que dejes a un lado.";
 
-/* Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Not Checked is the page's name. [Lists.swift:94] */
-"Places the scan could not read are in Not Checked." = "Los lugares que el análisis no pudo leer están en Sin comprobar.";
+/* Overview and Worth Reviewing, after a sentence saying nothing was found: the last scan could not read some places. */
+"Some places couldn't be checked." = "No se pudieron comprobar algunos lugares.";
 
 /* Worth Reviewing, empty because every finding is set aside, while automatic scanning has not yet read every file once. [Lists.swift:97] */
 "New findings show up here as Loose Keys checks your files." = "Los nuevos hallazgos aparecen aquí a medida que Loose Keys comprueba tus archivos.";
@@ -286,8 +286,8 @@
 /* Worth Reviewing, empty after a scan that could not read some places. [Lists.swift:148] */
 "Nothing Found" = "No se encontró nada";
 
-/* Worth Reviewing, empty after a scan that could not read some places. Not Checked is the page's name. [Lists.swift:149] */
-"The last scan found nothing to review, but some places could not be checked. See Not Checked." = "El último análisis no encontró nada que revisar, pero no pudo comprobar algunos lugares. Consulta Sin comprobar.";
+/* Worth Reviewing, empty after a scan that could not read some places. */
+"The last scan found nothing to review, but some places couldn't be checked." = "El último análisis no encontró nada que revisar, pero no pudo comprobar algunos lugares.";
 
 /* [Lists.swift:162] */
 "After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them." = "Después de un análisis, aquí verás las credenciales que guardan tus apps. Es normal, pero el malware puede copiarlas.";
@@ -295,32 +295,18 @@
 /* [Lists.swift:166] */
 "Sign-in" = "Credencial";
 
-/* [Lists.swift:198] */
-"Nothing Skipped" = "No se omitió nada";
-
-/* [Lists.swift:201, Lists.swift:210] */
-"After a scan, places Loose Keys could not read appear here." = "Después de un análisis, aquí aparecen los lugares que Loose Keys no pudo leer.";
-
-/* [Lists.swift:202] */
-"Loose Keys read every place in the last scan." = "En el último análisis, Loose Keys pudo leer todos los lugares.";
-
 /* [Lists.swift:208] */
-"These places could not be read, so the scan may have missed something in them." = "Estos lugares no se pudieron leer, así que el análisis puede haber pasado algo por alto en ellos.";
-
-/* [Lists.swift:211] */
-"Loose Keys read every place in the last scan, apart from the folders you left out." = "En el último análisis, Loose Keys pudo leer todos los lugares, salvo las carpetas que dejaste fuera.";
+"These places couldn't be read, so the scan may have missed something in them." = "Estos lugares no se pudieron leer, así que el análisis puede haber pasado algo por alto en ellos.";
 
 /* [Lists.swift:214] */
-"The list of folders you left out could not be read." = "No se pudo leer la lista de carpetas que dejaste fuera.";
+"Couldn't read the list of folders you skipped." = "No se pudo leer la lista de carpetas que omitiste.";
 
 /* [Lists.swift:239] */
 "Include Again" = "Volver a incluir";
 
-/* [Lists.swift:245] */
-"Folders You Left Out" = "Carpetas que dejaste fuera";
+/* Settings, under a folder in Places to Check that scans skip because the person chose Stop Checking. The folder is feminine. */
+"Skipped" = "Omitida";
 
-/* [Lists.swift:247] */
-"Scans skip these folders." = "Los análisis omiten estas carpetas.";
 /* Exceptions to excluding a folder from discovery. */
 "Known sign-in files and files directly in AI tools' folders are still read by full scans. Existing findings are rechecked." = "Los archivos de inicio de sesión conocidos y los archivos directamente en las carpetas de herramientas de IA se siguen leyendo en los análisis completos. Los hallazgos existentes se vuelven a comprobar.";
 
@@ -336,8 +322,13 @@
 /* The name of the list of stored sign-ins, in the sidebar and as its page's title. [MainView.swift:100, MainView.swift:209, Overview.swift:158] */
 "Stored Sign-ins" = "Credenciales guardadas";
 
-/* The name of the page that lists what a scan could not check, in the sidebar and as its title. [MainView.swift:101, MainView.swift:212, Overview.swift:159] */
-"Not Checked" = "Sin comprobar";
+/* Overview: macOS didn't let the last scan read this folder. %@ is the folder's name: Desktop, Documents or Downloads, as Finder shows it. */
+"%@ Wasn't Checked" = "No se comprobó %@";
+"Allow access in System Settings, then scan again." = "Permite el acceso en Ajustes del Sistema y vuelve a analizar.";
+/* The folders' names, as Finder shows them. */
+"Desktop" = "Escritorio";
+"Documents" = "Documentos";
+"Downloads" = "Descargas";
 
 /* Window subtitle while the app asks macOS for access to protected folders. [MainView.swift:107] */
 "Preparing folder access…" = "Preparando el acceso a las carpetas…";
@@ -345,11 +336,6 @@
 /* Window subtitle while a scan runs. [MainView.swift:109] */
 "Scanning…" = "Analizando…";
 
-/* Overview subtitle: the last scan read every place it was asked to. %@ is when it ran, a date and time. [MainView.swift:134] */
-"Scan complete, %@" = "Análisis completo, %@";
-
-/* Overview subtitle: the last scan could not read some places. %@ is when it ran, a date and time. [MainView.swift:135] */
-"Scan incomplete, %@" = "Análisis incompleto, %@";
 
 /* [MainView.swift:145] */
 "Stop" = "Detener";
@@ -657,7 +643,6 @@
 "Could not update these details, so they may be out of date." = "No se pudieron actualizar estos detalles, así que pueden estar desactualizados.";
 "Loading Details…" = "Cargando detalles…";
 
-"See Not Checked for details." = "Consulta los detalles en Sin comprobar.";
 
 /* In an alert after Check for Updates… in a test build of the app, which never goes online. [Updates.swift:15] */
 "This build can't check for updates." = "Esta versión no puede buscar actualizaciones.";
@@ -718,5 +703,5 @@
 "Review Items" = "Revisar elementos";
 "Last scanned %@." = "Último análisis: %@";
 "From earlier scans." = "De análisis anteriores.";
-"Stored sign-ins and places not checked appear after a scan." = "Las credenciales guardadas y los lugares sin comprobar aparecen después de un análisis.";
+"Stored sign-ins appear after a scan." = "Las credenciales guardadas aparecen después de un análisis.";
 "Save the report to keep these details after you quit." = "Guarda el informe para conservar estos detalles después de salir.";

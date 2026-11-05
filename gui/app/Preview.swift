@@ -25,6 +25,8 @@ final class SampleEngine: Engine {
     static var allSetAside = false
     /// Set by the checks: a report cannot be saved.
     static var reportFails = false
+    /// Set by the checks: macOS denied the scan access to Documents.
+    static var documentsBlocked = false
     /// What the window last asked to have done to a folder, for the checks.
     static var folderRequest: [String: Any] = [:]
     /// A file action must name the selected copy, not the group's lead.
@@ -157,7 +159,10 @@ final class SampleEngine: Engine {
             Self.scanRequests += 1
             Thread.sleep(forTimeInterval: 0.3)
             // The sample scan could not read everything: its status is "partial".
-            return Data((Self.nothingFound ? Self.results.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) : Self.results).utf8)
+            var answer = Self.results
+            if Self.nothingFound { answer = answer.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) }
+            if Self.documentsBlocked { answer = answer.replacingOccurrences(of: #""blocked":[]"#, with: #""blocked":["Documents"]"#) }
+            return Data(answer.utf8)
         case "rules_text": return Data(#""key.ssh.private\n   Private key with no passphrase\n   Looks in: any file in the scanned folders, ~/.ssh/*\ndev.aws.inline-credentials\n   AWS access keys stored in a file\n   Looks in: ~/.aws/credentials, ~/.aws/config""#.utf8)
         case "item_path":
             Self.pathRequest = args
@@ -239,14 +244,15 @@ final class SampleEngine: Engine {
        "items":[{"index":0,"path":"~/.codex/auth.json","line":null,"subject":"Codex","actionable":true},{"index":1,"path":"~/.claude/.credentials.json","line":null,"subject":"Claude Code","actionable":true},{"index":4,"path":"~/.gemini/oauth_creds.json","line":null,"subject":null,"actionable":true}]},
       {"kind":"inventory","severity":"medium","title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null,
        "items":[{"index":2,"path":"~/.config/gh/hosts.yml","line":null,"subject":"github.com","actionable":true},{"index":3,"path":"~/.config/glab-cli/config.yml","line":null,"subject":null,"actionable":true}]}],
-     "gaps":[{"label":"Permission denied","help":"File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
+     "gaps":[{"label":"Permission Denied","help":"File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
+     "blocked":[],
      "roots":["~","/Volumes/Backup"],"excluded":["node_modules",".git","target","Caches",".Trash"],
      "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. Finding nothing does not mean this Mac is safe."}
     """
 
     private static var automaticCoverage: String {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
-        let gaps = unread > 0 ? #"[{"label":"Could not be read","help":"macOS returned an error when Loose Keys tried to read these.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
+        let gaps = unread > 0 ? #"[{"label":"Couldn't Be Read","help":"macOS returned an error when Loose Keys tried to read these.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
         return """
         {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
         """
@@ -312,8 +318,10 @@ enum Snapshots {
             model.pane = .stored
             model.selectedStored = model.storedRows.first?.id
             await shot("4-stored")
-            model.pane = .gaps
-            await shot("5-not-checked")
+            model.pane = .overview
+            model.showingPlaces = true
+            await shot("5-places-not-checked")
+            model.showingPlaces = false
             #if compiler(>=6.0)
             model.openSettings()
             await shot("6-settings")
@@ -520,6 +528,18 @@ enum Checks {
         everything(in: root).first { role($0) == kAXButtonRole && names($0).contains(name) }
     }
 
+    /// A button drawn as a link. Assistive software may be told it is a link,
+    /// or a button whose name is only in its text.
+    private static func linkButton(_ name: String, in root: AXUIElement? = nil) -> AXUIElement? {
+        everything(in: root).first { element in
+            var actions: CFArray?
+            guard [kAXButtonRole, "AXLink"].contains(role(element)),
+                  AXUIElementCopyActionNames(element, &actions) == .success,
+                  (actions as? [String])?.contains(kAXPressAction) == true else { return false }
+            return names(element).contains(name) || written(in: element).contains(name)
+        }
+    }
+
     /// A toolbar button, where the page may have a button of the same name.
     private static func toolbarButton(_ name: String) -> AXUIElement? {
         everything().first { role($0) == kAXToolbarRole }.flatMap { button(name, in: $0) }
@@ -639,26 +659,27 @@ enum Checks {
             await choose(sidebarRows()[index], "choosing sidebar row \(index + 1)")
             if let pane = model.pane, pane != before { rowOf[pane] = index }
         }
-        expect(rowOf.count == 5, "choosing each sidebar row opens its page (\(rowOf.count) of 5 opened)")
+        expect(rowOf.count == 4, "choosing each sidebar row opens its page (\(rowOf.count) of 4 opened)")
         func open(_ pane: Pane) async {
             let rows = sidebarRows()
             if let index = rowOf[pane], index < rows.count { await choose(rows[index], "opening \(pane.rawValue)") }
         }
+        // What a scan could not read has no page and no count in the sidebar.
+        expect(!(sidebarRows().flatMap { written(in: $0) }).contains("Not Checked"),
+               "the sidebar has no Not Checked row")
 
         #if PREVIEW
-        for pane in [Pane.stored, .gaps] {
-            await open(pane)
-            expect(await eventually {
-                written().contains("No Manual Scan This Session") && written().contains(ManualReportText.lifetime)
-            }, "\(pane.rawValue) distinguishes session-only manual details from saved review history")
-        }
+        await open(.stored)
+        expect(await eventually {
+            written().contains("No Manual Scan This Session") && written().contains(ManualReportText.lifetime)
+        }, "stored distinguishes session-only manual details from saved review history")
         // The Overview's answer comes from the saved list, and its counts wait for a scan.
         await open(.overview)
         expect(await eventually {
             let text = written()
             return text.contains("6 Items Worth Reviewing") && text.contains("From earlier scans.")
-                && text.contains("Stored sign-ins and places not checked appear after a scan.")
-                && button("Review Items") != nil && button("Not Checked") == nil
+                && text.contains("Stored sign-ins appear after a scan.")
+                && button("Review Items") != nil && linkButton("Show Places Not Checked") == nil
         }, "before a scan, the Overview answers from saved findings and says the counts come with a scan")
         // Before any scan this window has no report to save, so a list that
         // cannot be read must not send the person to save one.
@@ -669,11 +690,6 @@ enum Checks {
         expect(model.results == nil && early.contains("Cannot Open Worth Reviewing")
                && !early.contains { $0.contains("Save the report") },
                "before a scan, a review list that cannot be read does not tell the person to save a report")
-        await open(.gaps)
-        let blind = written()
-        expect(blind.contains("The list of folders you left out could not be read.") && !blind.contains("Nothing Skipped"),
-               "with the review list unreadable, Not Checked says the folders left out could not be listed")
-        await open(.review)
         SampleEngine.storeFailed = false
         // Nor is an empty list "nothing to review" when nothing has been scanned.
         SampleEngine.nothingFound = true
@@ -694,8 +710,11 @@ enum Checks {
                "after a full pass that read everything, an empty review list says background checks found nothing")
         SampleEngine.unread = 3
         await model.refreshMonitor()
-        expect(await eventually { written().contains("No Findings") && written().contains { $0.contains("3 places could not be read") } },
-               "after a full pass that could not read everything, an empty review list says how many places it missed")
+        expect(await eventually {
+            written().contains("No Findings")
+                && written().contains("Loose Keys checked your files and found nothing to review. \(NotCheckedText.some)")
+        } && !written().contains { $0.contains("3 places") },
+               "after a full pass that could not read everything, an empty review list says so, with no count")
         SampleEngine.monitoring = false
         SampleEngine.completedPass = false
         SampleEngine.unread = 0
@@ -721,16 +740,16 @@ enum Checks {
                && written().contains("Checks whenever your files change.") && written().contains("Checks once, right now."),
                "the first page has no scan reference section or folder list, and says what each choice does")
         await press(button("Show Sidebar") ?? button("Toggle Sidebar"), "opening the sidebar from the first page")
-        expect(await eventually { sidebarRows().count == 5 } && model.pane == .overview && model.showsWelcome,
+        expect(await eventually { sidebarRows().count == 4 } && model.pane == .overview && model.showsWelcome,
                "the sidebar can be opened from the first page, and stays open there")
         model.sidebarAsked = false
         expect(await eventually { sidebarRows().isEmpty }, "the first page hides the sidebar again in a window just opened")
         await press(button("Scan Automatically"), "enabling background checks from the first page")
-        expect(await eventually { SampleEngine.monitoring && sidebarRows().count == 5 && !model.showsWelcome },
+        expect(await eventually { SampleEngine.monitoring && sidebarRows().count == 4 && !model.showsWelcome },
                "enabling background checks from the first page starts them and brings the sidebar back")
         SampleEngine.monitoring = false
         await model.refreshMonitor()
-        expect(await eventually { model.showsWelcome } && sidebarRows().count == 5,
+        expect(await eventually { model.showsWelcome } && sidebarRows().count == 4,
                "turning background checks off again brings the question back but keeps the sidebar")
         SampleEngine.helperError = true
         await model.refreshMonitor()
@@ -752,8 +771,8 @@ enum Checks {
                && button("Show Every Rule") == nil && button("Add Folder or Drive…") == nil,
                "before a scan, Overview has neither folder controls nor the scan reference section")
         // With every finding set aside and no scan in this window, Worth
-        // Reviewing says where they went. It does not point to Not Checked,
-        // which lists what a scan could not read and so, before one, nothing.
+        // Reviewing says where they went. It does not say places went
+        // unchecked: before a scan, nothing says so.
         SampleEngine.allSetAside = true
         await model.refreshReview()
         await open(.review)
@@ -761,18 +780,10 @@ enum Checks {
             (written() + everything().flatMap(names)).contains { $0.contains("You set aside everything the scan found") }
         }
         expect(model.results == nil && emptied
-               && !(written() + everything().flatMap(names)).contains { $0.contains("are in Not Checked") },
-               "before a scan, an empty Worth Reviewing with set-aside findings does not point to Not Checked")
+               && !(written() + everything().flatMap(names)).contains { $0.contains(NotCheckedText.some) },
+               "before a scan, an empty Worth Reviewing with set-aside findings does not say places went unchecked")
         SampleEngine.allSetAside = false
         await model.refreshReview()
-        // Before any scan, Not Checked is still where a folder left out is included again.
-        await open(.gaps)
-        let unscannedGaps = written()
-        expect(model.results == nil && button("Include Again") != nil && unscannedGaps.contains { $0.hasPrefix("Scans skip these folders") }
-               && !unscannedGaps.contains("No Scan Yet"),
-               "before any scan, Not Checked lists the folders left out with Include Again")
-        expect(unscannedGaps.contains(FolderScopeText.exceptions),
-               "folders left out still explain known-file checks and finding rechecks")
         await open(.overview)
         // The Overview's switch is the one Settings has, under the same name.
         func switchedOn(_ name: String) -> Bool? {
@@ -841,10 +852,42 @@ enum Checks {
         expect(await eventually { written().contains(scanned) }, "after a scan, the Overview's answer says when the scan ran")
         expect(written().contains("Save the report to keep these details after you quit."),
                "after a manual scan, Overview advises saving the session-only report before quitting")
+        // Where the link is not found, say what assistive software was told it is.
+        let linkRoles = everything().filter { element in
+            names(element).contains("Show Places Not Checked") || value(element, kAXValueAttribute) as? String == "Show Places Not Checked"
+        }.map(role)
         expect(button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
-               && button("Stored Sign-ins") != nil && button("Not Checked") != nil
+               && button("Stored Sign-ins") != nil && button("Not Checked") == nil
+               && (linkButton("Show Places Not Checked") != nil) == model.somePlacesNotChecked
                && button("Add Folder or Drive…") == nil,
-               "after a scan, Overview shows the scan's counts, with folder controls left to Settings")
+               "after a scan, Overview shows stored sign-ins and no count of places not checked, with folder controls left to Settings (the link's roles: \(linkRoles))")
+
+        #if PREVIEW
+        // The one way to what the scan could not read, without a count.
+        await press(linkButton("Show Places Not Checked"), "opening the places not checked",
+                    until: { model.showingPlaces && written().contains("~/Library/Mail") })
+        // A section's heading may reach assistive software as a name, not a value.
+        let listed = written() + everything().flatMap(names)
+        let missing = ["Permission Denied", "and 118 more"].filter { !listed.contains($0) }
+        expect(missing.isEmpty && !listed.contains { $0.contains("(123)") },
+               "the places not checked are listed under a title-case heading, with no count beside it (missing: \(missing))")
+        model.showingPlaces = false
+        await settle(after: "closing the places not checked")
+        // A folder macOS kept from the scan is named, with the place to allow it.
+        SampleEngine.documentsBlocked = true
+        await press(toolbarButton("Scan Now"), "pressing Scan Now with Documents blocked")
+        for _ in 0..<100 where model.phase == .scanning || model.blockedFolders.isEmpty { await settle() }
+        expect(await eventually {
+            written().contains("Documents Wasn't Checked") && written().contains("Allow access in System Settings, then scan again.")
+        }, "a folder macOS kept from the scan is named on the Overview, with what to do")
+        await press(button("Open System Settings"), "pressing Open System Settings for Documents",
+                    until: { opened.last?.absoluteString.hasSuffix("Privacy_FilesAndFolders") == true })
+        SampleEngine.documentsBlocked = false
+        await press(toolbarButton("Scan Now"), "pressing Scan Now with Documents readable")
+        for _ in 0..<100 where model.phase == .scanning || !model.blockedFolders.isEmpty { await settle() }
+        expect(await eventually { !written().contains("Documents Wasn't Checked") },
+               "once a scan reads Documents, the Overview no longer asks for access to it")
+        #endif
 
         #if PREVIEW
         await open(.review)
@@ -874,7 +917,7 @@ enum Checks {
         #endif
 
         // Both lists share one Filter field; a second one in the toolbar stops the app.
-        for pane in [Pane.review, .stored, .review, .stored, .gaps, .overview, .stored] {
+        for pane in [Pane.review, .stored, .review, .stored, .setAside, .overview, .stored] {
             await open(pane)
         }
         expect(model.pane == .stored, "moving between the lists and the other pages leaves the app running")
@@ -890,7 +933,7 @@ enum Checks {
         var kept = true
         for _ in 0..<5 {
             for _ in 0..<6 {
-                model.pane = .gaps
+                model.pane = .overview
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 model.pane = .stored
                 try? await Task.sleep(nanoseconds: 150_000_000)
@@ -1183,7 +1226,7 @@ enum Checks {
         }
 
         // The Filter field is on every page. Used on one it does not filter, it opens the first list.
-        await open(.gaps)
+        await open(.overview)
         expect(everything().contains { role($0) == kAXTextFieldRole },
                "the Filter field is in the toolbar on a page without a list")
         model.search = "token"
@@ -1256,19 +1299,6 @@ enum Checks {
         } else {
             expect(false, "the review list has a finding to decide")
         }
-
-        // A folder's button names it by its place in a list, and the list can
-        // have moved up by the time a second press lands. So the request also
-        // says which folder the button was drawn for. Remove is in Settings,
-        // checked with it below.
-        await open(.gaps)
-        SampleEngine.folderRequest = [:]
-        await press(button("Include Again"), "pressing Include Again beside a folder left out")
-        for _ in 0..<10 where SampleEngine.folderRequest.isEmpty { await settle() }
-        let including = SampleEngine.folderRequest
-        expect(including["index"] as? Int == 0 && including["shown"] as? String == "~/Movies/Raw",
-               "Include Again says which folder it was shown for (it sent \(including["shown"] ?? "nothing"))")
-        await open(.review)
 
         // A report the person chose to replace is not lost when the new one
         // cannot be written.
@@ -1387,8 +1417,9 @@ enum Checks {
         let consent = settingsWindow.flatMap { toggle("Scan Automatically", in: $0) }
         expect(consent != nil && written(in: settingsWindow).contains("Active"),
                "Settings shows the state of automatic scanning under its switch")
-        expect(written(in: settingsWindow).contains { $0.contains("3 places could not be read") },
-               "Settings says how many places the helper's last full pass did not read")
+        expect(!written(in: settingsWindow).contains { $0.contains("3 places") }
+               && linkButton("Show Places Not Checked", in: settingsWindow) == nil,
+               "Settings neither counts the places the helper's last full pass did not read nor links to them")
         expect(await eventually { written(in: settingsWindow).contains("Last Check") && written(in: settingsWindow).contains("Last Full Scan") },
                "Settings shows check timing while automatic scanning is on")
         expect(written(in: settingsWindow).contains("Always included") && button("Add Folder or Drive…", in: settingsWindow) != nil,
@@ -1399,10 +1430,32 @@ enum Checks {
         let removing = SampleEngine.folderRequest
         expect(removing["index"] as? Int == 0 && removing["shown"] as? String == "/Volumes/Backup",
                "Remove in Settings says which folder it was shown for (it sent \(removing["shown"] ?? "nothing"))")
+        // A folder left out with Stop Checking is listed with the places to
+        // check, and named by its place and by what is shown, as Remove is.
+        let placesText = written(in: settingsWindow)
+        expect(placesText.contains("~/Movies/Raw") && placesText.contains("Skipped")
+               && placesText.contains(FolderScopeText.exceptions),
+               "Settings lists a skipped folder with the places to check, and what full scans still read in it")
+        SampleEngine.folderRequest = [:]
+        await press(button("Include Again", in: settingsWindow), "pressing Include Again beside a skipped folder in Settings")
+        for _ in 0..<10 where SampleEngine.folderRequest.isEmpty { await settle() }
+        let including = SampleEngine.folderRequest
+        expect(including["index"] as? Int == 0 && including["shown"] as? String == "~/Movies/Raw",
+               "Include Again says which folder it was shown for (it sent \(including["shown"] ?? "nothing"))")
+        // A review list that cannot be read says nothing about what is skipped.
+        SampleEngine.storeFailed = true
+        await model.refreshReview()
+        expect(await eventually { written(in: settingsWindow).contains("Couldn't read the list of folders you skipped.") }
+               && button("Include Again", in: settingsWindow) == nil,
+               "with the review list unreadable, Settings says the skipped folders could not be listed")
+        SampleEngine.storeFailed = false
+        await model.refreshReview()
+        // The helper's unread places open from the Overview, the one way to them.
         let scansBeforeDetails = SampleEngine.scanRequests
-        await press(button("Show Places Not Checked", in: settingsWindow), "opening unread places from Settings")
-        expect(await eventually { model.pane == .gaps && written().contains("~/Library/SyntheticUnread") },
-               "Settings opens the saved automatic-scan paths in Not Checked")
+        await press(linkButton("Show Places Not Checked"), "opening unread places from the Overview",
+                    until: { model.showingPlaces && written().contains("~/Library/SyntheticUnread") })
+        expect(written().contains("Couldn't Be Read") && !written().contains { $0.contains("(3)") },
+               "the automatic scan's places are listed under a title-case heading, with no count beside it")
         expect(SampleEngine.scanRequests == scansBeforeDetails,
                "opening unread places does not run a scan")
         SampleEngine.coverageFails = true
@@ -1418,6 +1471,8 @@ enum Checks {
                "older automatic results explain their missing details instead of claiming nothing was missed")
         SampleEngine.coverageMissing = false
         await model.refreshAutomaticCoverage()
+        model.showingPlaces = false
+        await settle(after: "closing the places not checked")
         // Return focus to Settings for its remaining controls.
         await press(button("Settings…"), "returning to Settings")
         // Once they are off, macOS answers a request without asking: the
@@ -1600,8 +1655,15 @@ enum Checks {
         await open(.review)
         let bare = written()
         expect(model.results?.status == "partial" && model.results?.review == 0 && model.review?.items.isEmpty == true
-               && !bare.contains("Nothing to Review") && bare.contains("Nothing Found"),
+               && !bare.contains("Nothing to Review") && bare.contains("Nothing Found")
+               && bare.contains("The last scan found nothing to review, but some places couldn't be checked."),
                "a scan that could not check everything and found nothing says so, and does not say there is nothing to review")
+        // The Overview's answer says it too, beside the link to the places.
+        await open(.overview)
+        let answer = "Last scanned \(localTime(model.results?.generatedAt)). \(NotCheckedText.some)"
+        expect(await eventually { written().contains("Nothing Worth Reviewing") && written().contains(answer) }
+               && linkButton("Show Places Not Checked") != nil,
+               "an empty Overview after a scan that could not read everything says some places couldn't be checked")
         SampleEngine.nothingFound = false
         await press(toolbarButton("Scan Now"), "pressing Scan Now to bring the sample findings back")
         for _ in 0..<50 where model.results?.review == 0 || model.phase == .scanning { await settle() }

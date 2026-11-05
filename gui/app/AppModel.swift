@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum Pane: String, Hashable {
-    case overview, review, stored, gaps, setAside
+    case overview, review, stored, setAside
 }
 
 enum Phase {
@@ -250,6 +250,8 @@ final class AppModel: ObservableObject {
     private let coverageReads = ReadTurns()
     @Published var automaticCoverage: AutomaticCoverage?
     @Published var automaticCoverageError: String?
+    /// The Overview's list of places not checked, in a popover.
+    @Published var showingPlaces = false
     private var backgroundUpdates: Task<Void, Never>?
     /// How often `backgroundUpdates` reads, if it runs.
     private var pollInterval: UInt64?
@@ -776,7 +778,7 @@ final class AppModel: ObservableObject {
                 menuBarOn = answer.menuBar
                 followUpdateSetting(answer.updateCheck == true)
             }
-            if pane == .gaps, let answer,
+            if showingPlaces, let answer,
                automaticCoverage == nil || automaticCoverageError != nil
                 || automaticCoverage?.fullPass != answer.health.fullPass {
                 await refreshAutomaticCoverage()
@@ -851,12 +853,6 @@ final class AppModel: ObservableObject {
         if review { pane = .review }
     }
 
-    /// Open the recorded coverage, without preparing access or running a scan.
-    func showUnreadPlaces() {
-        showWindow(review: false)
-        pane = .gaps
-    }
-
     var hasAutomaticCoverage: Bool {
         if let coverage = automaticCoverage,
            coverage.fullPass != nil || coverage.unread > 0 { return true }
@@ -864,13 +860,16 @@ final class AppModel: ObservableObject {
         return health.fullPass != nil || (health.unread ?? 0) > 0
     }
 
-    // Two different scopes may overlap, so their counts must not be added.
-    var gapsCount: Int? {
-        if hasAutomaticCoverage {
-            guard monitor?.health.unreadTruncated != true else { return nil }
-            return results == nil ? monitor?.health.unread : nil
-        }
-        return results?.notChecked
+    /// Some place the last manual scan or automatic full pass could not read.
+    /// No count is shown for it: nearly every Mac has places macOS keeps private.
+    var somePlacesNotChecked: Bool {
+        (results?.notChecked ?? 0) > 0 || (monitor?.health.unread ?? 0) > 0
+    }
+
+    /// Folders macOS did not let the last scan read, which the person can allow.
+    var blockedFolders: [String] {
+        guard !preparingAccess, phase != .scanning else { return [] }
+        return results?.blocked ?? []
     }
 
     /// Show a short confirmation under the window title, then give the subtitle back.
@@ -910,12 +909,13 @@ final class AppModel: ObservableObject {
     /// not the change was made. The engine sends no event when a save fails,
     /// and after one the list is one it can no longer read or save. The page
     /// is brought up to date before the failure is reported over it.
-    private func change(_ work: @escaping () async throws -> Void, after saved: (() -> Void)? = nil) {
+    private func change(from origin: ActionOrigin = .window, _ work: @escaping () async throws -> Void,
+                        after saved: (() -> Void)? = nil) {
         Task {
             var problem: String?
             do { try await work() } catch { problem = error.localizedDescription }
             await refreshReview()
-            if let problem { failure = problem }
+            if let problem { report(problem, from: origin) }
             else if reviewProblem == nil { saved?() }
         }
     }
@@ -1037,8 +1037,8 @@ final class AppModel: ObservableObject {
         return answer
     }
 
-    func checkFolderAgain(_ index: Int, shown: String) {
-        change { try await self.engine.send("unskip_folder", ["index": index, "shown": shown]) }
+    func checkFolderAgain(_ index: Int, shown: String, from origin: ActionOrigin = .window) {
+        change(from: origin) { try await self.engine.send("unskip_folder", ["index": index, "shown": shown]) }
     }
 
     // MARK: One finding
@@ -1093,6 +1093,14 @@ final class AppModel: ObservableObject {
         var link = "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
         if let id = Bundle.main.bundleIdentifier { link += "?id=\(id)" }
         if let url = URL(string: link) { openURL(url) }
+    }
+
+    /// System Settings at Privacy & Security, Files & Folders, where a folder
+    /// denied at the prompt can be allowed again (unverified on macOS 26 and later).
+    func openFilesAndFoldersSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") {
+            openURL(url)
+        }
     }
 
     /// The engine accepts only pages listed in its rules, and hands back the one to open.

@@ -519,8 +519,8 @@ file access. It returns all retained paths escaped through `report::escape`;
 there are no file actions on these display paths. Frequent status polls keep
 only the count, truncation flag and completion time. The model orders detail
 reads with `ReadTurns`, retains a usable snapshot after failures, and refreshes
-it when a newly completed pass is observed while Not Checked is open. Automatic
-and manual details are labeled separately because their scopes differ; their
+it when a newly completed pass is observed while the places not checked are
+open. Automatic and manual details are labeled separately because their scopes differ; their
 counts are not added. Exports still contain only the manual report.
 
 Older state has no snapshot and is shown as count-only until the next automatic
@@ -1220,14 +1220,40 @@ is replaced (macOS behaviour).
   drawing anything. The one drawing is the menu bar's key with a dot for
   open items or a full list (`MenuBarIcon`), because SF Symbols has no key
   with a badge.
+- Layout and wording follow Apple's Human Interface Guidelines, and the
+  Nielsen Norman Group's research where Apple says nothing [17–25]. How
+  prominent something is matches how much it matters [17, 22]: the Overview
+  leads with what needs a decision, and what a person rarely needs is one
+  labeled step away, in Settings or the saved report [23]. A problem the
+  person can fix is shown where it has its effect, says in plain words what
+  to do, and offers the control that does it, as Restart Helper does in
+  Settings [18, 24]. A count or badge appears only where a person acts on
+  it or would miss it [21, 25], so places not checked have none: nearly
+  every Mac has places macOS keeps private. A sheet is for a short task,
+  with Cancel or Close beside any Done; a little information goes in a
+  popover [19, 20].
 - Overview answers first: a heading with what needs a decision and at most
-  one button, then the scan's counts, then the Scan Automatically switch.
-  The heading never says "nothing" for a list that was not read, nor before
-  anything was checked, and Not Checked stays beside any "Nothing Worth
-  Reviewing". Folder controls, check timing and Pause are in Settings. The
+  one button, then Stored Sign-ins, then the Scan Automatically switch. A
+  folder macOS kept from the last scan comes between the heading and Stored
+  Sign-ins, with Open System Settings. The heading never says "nothing" for
+  a list that was not read, nor before anything was checked. "Nothing Worth
+  Reviewing" adds that some places couldn't be checked when any were, and
+  Worth Reviewing's empty states say the same [22]. Folder controls, skipped
+  folders, check timing and Pause are in Settings. The
   Overview does not show what a scan covers. That is in
   [usage](../usage.md), in `loose-keys --list-rules` and in every saved
   report, which keeps the scan's exclusions and detection limits.
+- What the last manual scan and the helper's last full pass could not read
+  is in one popover, opened only by Show Places Not Checked under the
+  Overview's counts [23]. The link shows only when something went unread.
+  The engine's `blocked` names which of Desktop, Documents and Downloads
+  the scan was denied, as those fixed words matched against its
+  `permission-denied` gaps, never a path; the window shows Finder's name
+  for each. Open System Settings opens Privacy & Security, Files & Folders
+  (`openFilesAndFoldersSettings`). Checked by the engine test
+  `access_preparation_is_bounded_and_does_not_claim_coverage` and the window
+  check, which records the link instead of opening it. Unverified: that
+  macOS 26 and later still open that pane from the link.
 - The Filter field is in the toolbar on every page, on purpose. Taken out and
   put back as the page changed, it stopped the app about one run in five in
   the window check: AppKit refuses a second search field in a toolbar, and
@@ -1249,8 +1275,8 @@ is replaced (macOS behaviour).
   not changed. Screens smaller than the 760 by 480 content minimum plus
   window chrome remain unsupported by this sizing rule.
 - Full manual reports, inventory and manual gaps live only in this app
-  session. Stored Sign-ins and Not Checked say so, distinguish that from
-  saved review findings and decisions, and advise saving a report before
+  session. Stored Sign-ins says so, distinguishes that from
+  saved review findings and decisions, and advises saving a report before
   quitting. The Overview counts from saved findings until a scan, says its
   other counts come with one, and after a scan advises saving the report.
   An empty, never-scanned review list keeps its onboarding rather than
@@ -1399,3 +1425,35 @@ Recheck a source before leaning on a detail: these change.
 16. `serde_json::Deserializer::disable_recursion_limit` and the
     `unbounded_depth` feature.
     https://docs.rs/serde_json/latest/serde_json/struct.Deserializer.html
+17. Apple, Human Interface Guidelines, "Feedback": deliver information in a
+    way that matches its significance; show status passively; keep alerts
+    for critical, ideally actionable information.
+    https://developer.apple.com/design/human-interface-guidelines/feedback
+18. Apple, Human Interface Guidelines, "Writing": an error close to the
+    problem, without blame, saying what fixes it; plain words.
+    https://developer.apple.com/design/human-interface-guidelines/writing
+19. Apple, Human Interface Guidelines, "Sheets": a scoped task or a request
+    for information; Done always paired with Cancel or Back.
+    https://developer.apple.com/design/human-interface-guidelines/sheets
+20. Apple, Human Interface Guidelines, "Popovers": a small amount of
+    information or functionality; not for warnings.
+    https://developer.apple.com/design/human-interface-guidelines/popovers
+21. SwiftUI `badge(_:)`: optional, supplementary information, as short as
+    possible. Apple's rule that a badge counts only unread notifications is
+    for the app icon (Human Interface Guidelines, "Notifications").
+    https://developer.apple.com/documentation/swiftui/view/badge(_:) and
+    https://developer.apple.com/design/human-interface-guidelines/notifications
+22. Jakob Nielsen, "10 Usability Heuristics for User Interface Design",
+    Nielsen Norman Group, reviewed 2024: 1, visibility of system status; 8,
+    aesthetic and minimalist design; 9, help users recognize, diagnose and
+    recover from errors. https://www.nngroup.com/articles/ten-usability-heuristics/
+23. Jakob Nielsen, "Progressive Disclosure", Nielsen Norman Group, 2006:
+    rarely needed options on a secondary screen, reached by an obvious,
+    clearly labeled control. https://www.nngroup.com/articles/progressive-disclosure/
+24. Tim Neusesser and Evan Sunwall, "Error-Message Guidelines", Nielsen
+    Norman Group, 2023: plain words, near the source, with a remedy.
+    https://www.nngroup.com/articles/error-message-guidelines/
+25. Kim Flaherty, "Indicators, Validations, and Notifications", Nielsen
+    Norman Group, 2024: indicators add clutter, so show one only if it would
+    be missed; a passive notice is easily missed.
+    https://www.nngroup.com/articles/indicators-validations-notifications/

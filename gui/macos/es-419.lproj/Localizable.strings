@@ -29,3 +29,7 @@
 
 /* In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave. */
 "Loose Keys could not move the old report to the Trash, so it saved the new one next to it as %@. %@" = "Loose Keys no pudo mover el informe anterior al basurero, así que guardó el nuevo a su lado como %@. %@";
+
+/* Latin American macOS calls System Settings Configuración del Sistema, and an app's Settings Configuración. */
+"Allow access in System Settings, then scan again." = "Permite el acceso en Configuración del Sistema y vuelve a analizar.";
+"Scans will skip %@. You can include it again in Settings." = "Los análisis omitirán %@. Puedes volver a incluir esta carpeta en Configuración.";

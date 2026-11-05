@@ -10,18 +10,19 @@ If macOS requires approval, Overview tells you where to give it. Allow
 notifications separately if you want alerts while the app is closed.
 
 For a detailed point-in-time report, click **Scan Now**. The sidebar lists
-what is worth reviewing, the sign-ins that are stored, and the places that
-could not be checked. Select a finding to see what it is, why it matters and
+what is worth reviewing and the sign-ins that are stored. When a scan could
+not read some places, **Show Places Not Checked** on the Overview lists them
+with the reasons. Select a finding to see what it is, why it matters and
 what to do. **Export** saves the full report or a counts-only file, and copies
 the text summary. Opening the app does not turn on automatic scanning or
 notifications.
 
-Manual scan details, including Stored Sign-ins and manual Not Checked details,
-last only until you quit the app. Saved review findings and decisions remain
-available. Use **Scan Now** for current details, and **Export** to save the
-report before quitting. After a new launch, Stored Sign-ins and Not Checked say
-**No Manual Scan This Session**, not that this Mac has never been scanned, and
-the Overview counts Worth Reviewing from saved findings.
+Manual scan details, including Stored Sign-ins and the places a manual scan
+could not read, last only until you quit the app. Saved review findings and
+decisions remain available. Use **Scan Now** for current details, and
+**Export** to save the report before quitting. After a new launch, Stored
+Sign-ins says **No Manual Scan This Session**, not that this Mac has never
+been scanned, and the Overview counts Worth Reviewing from saved findings.
 
 The app follows the language macOS uses for it: English or Spanish, with
 the words Latin American macOS uses, such as Configuración del Sistema, in
@@ -29,8 +30,10 @@ Latin American Spanish. Saved reports, the copied summary and the
 `loose-keys` command are always in English.
 
 Before a scan or turning on automatic scanning, the app asks macOS for
-Desktop, Documents and Downloads, one at a time. A folder you deny is listed
-under **Not Checked**; the rest are still checked. **Cancel Preparation**
+Desktop, Documents and Downloads, one at a time. The rest are still checked
+when you deny one. After the scan, the Overview names the folder it could not
+read, with **Open System Settings** to allow it under Privacy & Security, Files
+& Folders; scan again after allowing it. **Cancel Preparation**
 stops once the open prompt is answered. Other protected folders may still
 prompt later. Full Disk Access is not needed.
 
@@ -134,7 +137,8 @@ Setting an item aside never stops it being found or counted in scan results,
 saved reports or copied summaries. The counts under the window's title still
 include it ("3 to review, 5 set aside"). To leave a folder out, choose **Stop
 Checking** followed by the folder's name. It then appears in every summary as
-not checked, and **Include Again** in Not Checked brings it back. Known sign-in
+not checked, and in Settings under Places to Check as Skipped, where
+**Include Again** brings it back. Known sign-in
 files in it, and
 the files directly in an AI tool's own folder, are still read by a scan and by
 the weekly pass, though not when they change. Nothing inside a scanned folder
@@ -195,8 +199,8 @@ drives are included in one-time scans, not watched by the helper.
 Folders added with **Add Folder or Drive…** in Settings, or dropped on the
 Settings window, are kept for later launches and manual scans until you remove
 them. Up to eight are saved. Disconnected drives
-stay listed; their unavailable paths are reported under **Not Checked** rather
-than silently removed. An older app or helper can forget these saved folders
+stay listed; their unavailable paths are listed under **Show Places Not
+Checked** rather than silently removed. An older app or helper can forget these saved folders
 when it writes its state, so check the folder list after downgrading.
 
 Automatic scanning is done by a separate helper with no window or Dock icon.
@@ -210,9 +214,9 @@ stops its checks; turning **Scan Automatically** off, on the Overview or in
 Settings, also removes the launchd job. Settings shows when the helper last
 checked a file and last finished a full pass.
 
-If automatic scanning could not read some places, **Show Places Not Checked** in
-Settings or Overview opens the saved paths and reasons in **Not Checked**.
-Opening this list does not run another scan. It is dated to the last completed
+If automatic scanning could not read some places, **Show Places Not Checked** on
+the Overview lists the saved paths and reasons. Opening this list does not run
+another scan. It is dated to the last completed
 automatic full pass; later file or permission changes do not rewrite that
 result. Manual-scan details are listed separately, and saved reports still
 contain only the manual scan. The automatic list keeps up to 4096 paths with

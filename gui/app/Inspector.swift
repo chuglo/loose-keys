@@ -148,8 +148,8 @@ private struct ReviewInspector: View {
                     Section {
                         if folderSkipped(folder) {
                             // A folder's name is whatever its maker chose, so it is shown as plain text.
-                            Text(verbatim: String(localized: "Scans will skip \(folder). You can include it again from Not Checked.",
-                                                  comment: "Inspector, Folder section. %@ is a folder's path, shown as it is. Not Checked is the page's name."))
+                            Text(verbatim: String(localized: "Scans will skip \(folder). You can include it again in Settings.",
+                                                  comment: "Inspector, Folder section. %@ is a folder's path, shown as it is. Settings is the app's Settings window, where Places to Check lists the folder."))
                                 .foregroundStyle(.secondary)
                         } else {
                             Button {

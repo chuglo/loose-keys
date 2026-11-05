@@ -11,6 +11,8 @@ struct ScanResults: Decodable {
     let notChecked: Int
     let groups: [FindingGroup]
     let gaps: [Gap]
+    /// Desktop, Documents or Downloads, where macOS denied the scan access.
+    let blocked: [String]?
     let roots: [String]
     let excluded: [String]
     let limitations: String
@@ -440,11 +442,20 @@ extension ReviewItem {
 enum ManualReportText {
     static var noScanTitle: String {
         String(localized: "No Manual Scan This Session",
-               comment: "Stored Sign-ins, Not Checked and Overview when this launch has no manual report. Saved review findings may exist.")
+               comment: "Stored Sign-ins and Overview when this launch has no manual report. Saved review findings may exist.")
     }
     static var lifetime: String {
         String(localized: "Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting.",
                comment: "Explains that full manual reports are session-only, unlike saved review history. Scan Now is a button name.")
+    }
+}
+
+/// Said where an empty list or answer could read as complete. No count:
+/// nearly every Mac has places macOS keeps private.
+enum NotCheckedText {
+    static var some: String {
+        String(localized: "Some places couldn't be checked.",
+               comment: "Overview and Worth Reviewing, after a sentence saying nothing was found: the last scan could not read some places.")
     }
 }
 

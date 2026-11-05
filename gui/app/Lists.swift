@@ -139,19 +139,13 @@ extension ReviewTable {
         if model.setAsideCount > 0 {
             // Without a manual scan, describe the automatic pass's coverage.
             let rest: String
-            if model.results != nil {
-                rest = String(localized: "Places the scan could not read are in Not Checked.",
-                              comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Not Checked is the page's name.")
-            } else if let monitor = model.monitor, monitor.enabled, monitor.health.fullPass == nil {
+            if let results = model.results, results.notChecked > 0 {
+                rest = NotCheckedText.some
+            } else if model.results == nil, let monitor = model.monitor, monitor.enabled, monitor.health.fullPass == nil {
                 rest = String(localized: "New findings show up here as Loose Keys checks your files.",
                               comment: "Worth Reviewing, empty because every finding is set aside, while automatic scanning has not yet read every file once.")
-            } else if let monitor = model.monitor, monitor.enabled, let unread = monitor.health.unread, unread > 0 {
-                rest = monitor.health.unreadTruncated == true
-                    ? String(localized: "At least \(unread) places could not be read.",
-                             comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
-                        + " " + String(localized: "See Not Checked for details.")
-                    : String(localized: "\(unread) places could not be read. See Not Checked for details.",
-                              comment: "Worth Reviewing, empty because every finding is set aside, after automatic scanning could not read some places.")
+            } else if model.results == nil, let monitor = model.monitor, monitor.enabled, (monitor.health.unread ?? 0) > 0 {
+                rest = NotCheckedText.some
             } else {
                 rest = String(localized: "Use Scan Now to look again.",
                               comment: "Worth Reviewing, empty because every finding is set aside: the sentence after the one saying so. Scan Now is a button's name.")
@@ -170,17 +164,11 @@ extension ReviewTable {
                             String(localized: "Findings show up here as Loose Keys checks your files.",
                                    comment: "Worth Reviewing, empty while automatic scanning has not yet read every file once."))
                 }
-                if let unread = monitor.health.unread, unread > 0 {
-                    return (String(localized: "No Findings", comment: "Worth Reviewing, empty after automatic scanning read the files: it found nothing to review."), "tray",
-                            monitor.health.unreadTruncated == true
-                            ? String(localized: "At least \(unread) places could not be read.",
-                                     comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
-                            : String(localized: "Nothing to review, but \(unread) places could not be read.",
-                                   comment: "Worth Reviewing, empty after automatic scanning could not read some places."))
-                }
+                let checked = String(localized: "Loose Keys checked your files and found nothing to review.",
+                                     comment: "Worth Reviewing, empty after automatic scanning read the files. A sentence saying some places could not be checked may follow.")
+                let unread = (monitor.health.unread ?? 0) > 0
                 return (String(localized: "No Findings", comment: "Worth Reviewing, empty after automatic scanning read the files: it found nothing to review."), "tray",
-                        String(localized: "Loose Keys checked your files and found nothing to review.",
-                               comment: "Worth Reviewing, empty after automatic scanning read every file."))
+                        unread ? checked + " " + NotCheckedText.some : checked)
             }
             return model.monitor?.health.lastScan == nil
                 ? (String(localized: "No Scan Yet", comment: "A list's heading when it is empty because nothing has been scanned yet."), "exclamationmark.triangle",
@@ -202,8 +190,8 @@ extension ReviewTable {
                String(localized: "The last scan found nothing to review. That does not mean this Mac is safe.",
                       comment: "Worth Reviewing, empty after a scan that read every place it was asked to."))
             : (String(localized: "Nothing Found", comment: "Worth Reviewing, empty after a scan that could not read some places."), "eye.slash",
-               String(localized: "The last scan found nothing to review, but some places could not be checked. See Not Checked.",
-                      comment: "Worth Reviewing, empty after a scan that could not read some places. Not Checked is the page's name."))
+               String(localized: "The last scan found nothing to review, but some places couldn't be checked.",
+                      comment: "Worth Reviewing, empty after a scan that could not read some places."))
     }
 }
 
@@ -241,124 +229,83 @@ struct StoredTable: View {
     }
 }
 
-struct GapsView: View {
+/// What the last scans could not read, in a popover from the Overview. It
+/// opens only when there is something to list, so it never says nothing was
+/// skipped for a scan that has not run.
+struct PlacesNotChecked: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         let gaps = model.results?.gaps ?? []
-        // A folder left out at the person's request is not a gap in the
-        // scan, and it was not checked either.
-        let skipped = model.review?.skipped ?? []
-        // A list that could not be read says nothing about what was left out.
-        let unread = model.reviewProblem != nil
-        Group {
-            if gaps.isEmpty && skipped.isEmpty && !unread && !model.hasAutomaticCoverage && model.automaticCoverageError == nil {
-                ContentUnavailableView {
-                    Label(model.results == nil ? ManualReportText.noScanTitle : String(localized: "Nothing Skipped"), systemImage: "eye.slash")
-                } description: {
-                    Text(model.results == nil
-                         ? "After a scan, places Loose Keys could not read appear here."
-                         : "Loose Keys read every place in the last scan.")
-                    if model.results == nil { Text(ManualReportText.lifetime) }
+        Form {
+            if let error = model.automaticCoverageError {
+                Section("Last Automatic Scan") {
+                    Text("Could not update these details, so they may be out of date.")
+                    Text(EngineText.shown(error)).foregroundStyle(.secondary)
+                    Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
                 }
-            } else {
-                Form {
-                    if let error = model.automaticCoverageError {
-                        Section("Last Automatic Scan") {
-                            Text("Could not update these details, so they may be out of date.")
-                            Text(EngineText.shown(error)).foregroundStyle(.secondary)
-                            Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
-                        }
+            }
+            if model.hasAutomaticCoverage, let health = model.automaticCoverage {
+                Section("Last Automatic Scan") {
+                    if let date = health.fullPass {
+                        Text(localTime(date)).foregroundStyle(.secondary)
                     }
-                    if model.hasAutomaticCoverage, let health = model.automaticCoverage {
-                        Section("Last Automatic Scan") {
-                            if let date = health.fullPass {
-                                Text(localTime(date)).foregroundStyle(.secondary)
-                            }
-                            Text("Automatic scans do not include added folders and drives.")
-                            if let automatic = health.unreadGaps {
-                                if automatic.isEmpty && health.unreadTruncated != true {
-                                    Text("Nothing was skipped in this automatic scan.")
+                    Text("Automatic scans do not include added folders and drives.")
+                    if let automatic = health.unreadGaps {
+                        if automatic.isEmpty && health.unreadTruncated != true {
+                            Text("Nothing was skipped in this automatic scan.")
+                        }
+                        if health.unreadTruncated == true {
+                            Text("This list is full, so it does not show every place Loose Keys could not check.")
+                        }
+                        ForEach(automatic) { gap in
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                Text(EngineText.shown(gap.label)).font(.headline)
+                                if !gap.help.isEmpty { Text(EngineText.shown(gap.help)) }
+                                ForEach(gap.paths, id: \.self) { path in
+                                    Text(path).font(.callout.monospaced()).textSelection(.enabled)
                                 }
-                                if health.unreadTruncated == true {
-                                    Text("This list is full, so it does not show every place Loose Keys could not check.")
-                                }
-                                ForEach(automatic) { gap in
-                                    LazyVStack(alignment: .leading, spacing: 8) {
-                                        Text(verbatim: "\(EngineText.shown(gap.label)) (\(gap.count))").font(.headline)
-                                        if !gap.help.isEmpty { Text(EngineText.shown(gap.help)) }
-                                        ForEach(gap.paths, id: \.self) { path in
-                                            Text(path).font(.callout.monospaced()).textSelection(.enabled)
-                                        }
-                                    }
-                                }
-                            } else {
-                                Text("Details will appear after the next full automatic scan.")
                             }
                         }
+                    } else {
+                        Text("Details will appear after the next full automatic scan.")
                     }
-                    if model.hasAutomaticCoverage && model.automaticCoverage == nil && model.automaticCoverageError == nil {
-                        Section("Last Automatic Scan") { ProgressView("Loading Details…") }
+                }
+            }
+            if model.hasAutomaticCoverage && model.automaticCoverage == nil && model.automaticCoverageError == nil {
+                Section("Last Automatic Scan") { ProgressView("Loading Details…") }
+            }
+            if let results = model.results, !gaps.isEmpty {
+                Section {
+                    if model.hasAutomaticCoverage {
+                        Text("Last Manual Scan").font(.headline)
+                        Text(localTime(results.generatedAt)).foregroundStyle(.secondary)
                     }
+                    Text("These places couldn't be read, so the scan may have missed something in them.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(gaps) { gap in
                     Section {
-                        if model.results == nil {
-                            Text(ManualReportText.noScanTitle).font(.headline)
-                            Text(ManualReportText.lifetime).foregroundStyle(.secondary)
+                        ForEach(gap.paths, id: \.self) { path in
+                            Text(path).font(.callout.monospaced()).textSelection(.enabled)
                         }
-                        if let results = model.results, model.hasAutomaticCoverage {
-                            Text("Last Manual Scan").font(.headline)
-                            Text(localTime(results.generatedAt)).foregroundStyle(.secondary)
+                        if gap.more > 0 {
+                            Text(String(localized: "and \(gap.more) more",
+                                        comment: "Places Not Checked, below the places listed under one heading: how many more there are. Export has them all."))
+                                .foregroundStyle(.secondary)
                         }
-                        if model.results != nil || !model.hasAutomaticCoverage {
-                            Text(!gaps.isEmpty
-                             ? "These places could not be read, so the scan may have missed something in them."
-                             : model.results == nil
-                             ? "After a scan, places Loose Keys could not read appear here."
-                             : "Loose Keys read every place in the last scan, apart from the folders you left out.")
-                            .foregroundStyle(.secondary)
-                        }
-                        if unread {
-                            Text("The list of folders you left out could not be read.")
-                        }
-                    }
-                    ForEach(gaps) { gap in
-                        Section {
-                            ForEach(gap.paths, id: \.self) { path in
-                                Text(path).font(.callout.monospaced()).textSelection(.enabled)
-                            }
-                            if gap.more > 0 {
-                                Text(String(localized: "and \(gap.more) more. Save the report for the full list.",
-                                            comment: "Not Checked, below the places listed under one heading: how many more there are."))
-                                    .foregroundStyle(.secondary)
-                            }
-                        } header: {
-                            Text(verbatim: "\(EngineText.shown(gap.label)) (\(gap.count))")
-                        } footer: {
-                            if !gap.help.isEmpty {
-                                Text(EngineText.shown(gap.help))
-                            }
-                        }
-                    }
-                    if !skipped.isEmpty {
-                        Section {
-                            ForEach(Array(skipped.enumerated()), id: \.offset) { index, folder in
-                                LabeledContent {
-                                    Button("Include Again") { model.checkFolderAgain(index, shown: folder) }
-                                } label: {
-                                    Label(folder, systemImage: "folder.badge.minus")
-                                }
-                            }
-                        } header: {
-                            Text("Folders You Left Out")
-                        } footer: {
-                            Text("Scans skip these folders.")
-                            Text(FolderScopeText.exceptions)
+                    } header: {
+                        Text(EngineText.shown(gap.label))
+                    } footer: {
+                        if !gap.help.isEmpty {
+                            Text(EngineText.shown(gap.help))
                         }
                     }
                 }
-                .formStyle(.grouped)
             }
         }
+        .formStyle(.grouped)
+        .frame(width: 440, height: 380)
         .task { await model.refreshAutomaticCoverage() }
     }
 }

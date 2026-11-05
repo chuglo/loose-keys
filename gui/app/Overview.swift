@@ -22,13 +22,27 @@ struct OverviewView: View {
                         }
                     }
                 }
-                // The answer heads the page, above the counts it comes from.
-                Section {
-                    results
-                } header: {
-                    header
-                } footer: {
-                    resultsFooter
+                // The answer heads the page, above the counts it comes from. A
+                // folder the person can allow again comes between them.
+                if model.blockedFolders.isEmpty {
+                    Section {
+                        results
+                    } header: {
+                        header
+                    } footer: {
+                        resultsFooter
+                    }
+                } else {
+                    Section {
+                        blocked
+                    } header: {
+                        header
+                    }
+                    Section {
+                        results
+                    } footer: {
+                        resultsFooter
+                    }
                 }
                 if !model.preparingAccess && model.phase != .scanning {
                     automatic
@@ -150,7 +164,10 @@ struct OverviewView: View {
                     reviewButton
                 }
             } else {
-                headerRow(.quiet, emptyTitle, scanned) {}
+                // An empty list never reads as clean when a place went unread.
+                let unread = model.nothingChecked || !model.somePlacesNotChecked ? nil : NotCheckedText.some
+                let line = [scanned, unread].compactMap { $0 }.joined(separator: " ")
+                headerRow(.quiet, emptyTitle, line.isEmpty ? nil : line) {}
             }
         } else {
             // The list has not come yet: no title says what it holds.
@@ -240,24 +257,61 @@ struct OverviewView: View {
             }
             if let results = model.results {
                 countRow("Stored Sign-ins", results.stored, "key", .stored)
-                countRow("Not Checked", results.notChecked, "eye.slash", .gaps)
             } else {
                 LabeledContent {
                     Button("Scan Now") { model.startScan() }
                         .disabled(model.places?.home == nil)
                 } label: {
-                    Text("Stored sign-ins and places not checked appear after a scan.")
+                    Text("Stored sign-ins appear after a scan.")
                 }
             }
         }
     }
 
+    /// Each folder macOS kept from the last scan, with the place to allow it.
+    @ViewBuilder private var blocked: some View {
+        ForEach(model.blockedFolders, id: \.self) { folder in
+            LabeledContent {
+                Button("Open System Settings") { model.openFilesAndFoldersSettings() }
+            } label: {
+                Text(String(localized: "\(Self.folderName(folder)) Wasn't Checked",
+                            comment: "Overview: macOS didn't let the last scan read this folder. %@ is the folder's name: Desktop, Documents or Downloads, as Finder shows it."))
+                Text("Allow access in System Settings, then scan again.")
+            }
+        }
+    }
+
+    /// The name Finder shows for one of the folders macOS asks about.
+    static func folderName(_ folder: String) -> String {
+        switch folder {
+        case "Desktop":
+            return String(localized: "Desktop", comment: "The Desktop folder's name, as Finder shows it.")
+        case "Documents":
+            return String(localized: "Documents", comment: "The Documents folder's name, as Finder shows it.")
+        case "Downloads":
+            return String(localized: "Downloads", comment: "The Downloads folder's name, as Finder shows it.")
+        default:
+            return folder
+        }
+    }
+
     @ViewBuilder private var resultsFooter: some View {
-        if model.results != nil && !model.preparingAccess && model.phase != .scanning {
+        if !model.preparingAccess && model.phase != .scanning && (model.results != nil || model.somePlacesNotChecked) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Save the report to keep these details after you quit.")
+                if model.results != nil {
+                    Text("Save the report to keep these details after you quit.")
+                }
                 if let note = model.findingsNote {
                     Text(note)
+                }
+                // The one way to the list. It has no count: nearly every Mac
+                // has places macOS keeps private.
+                if model.somePlacesNotChecked {
+                    Button("Show Places Not Checked") { model.showingPlaces = true }
+                        .buttonStyle(.link)
+                        .popover(isPresented: $model.showingPlaces, arrowEdge: .bottom) {
+                            PlacesNotChecked().environmentObject(model)
+                        }
                 }
             }
         }
@@ -304,18 +358,8 @@ struct OverviewView: View {
                             Text("Open Settings to restart the helper.")
                         }
                     }
-                    if let unread = monitor.health.unread, unread > 0 {
-                        Text(monitor.health.unreadTruncated == true
-                             ? String(localized: "At least \(unread) places could not be read.",
-                                      comment: "The automatic scan saved only a bounded list of unread places; this is a lower bound.")
-                             : String(localized: "\(unread) places could not be read.",
-                                      comment: "Overview and Settings, under the state of automatic scanning: how many places the helper's last full pass could not read."))
-                    }
                 }
                 .disabled(model.monitorFailure != nil || (!monitor.enabled && model.places?.home == nil))
-                if let unread = monitor.health.unread, unread > 0 {
-                    Button("Show Places Not Checked") { model.showUnreadPlaces() }
-                }
                 // Asked once. After an answer, the switch is in System Settings.
                 if monitor.enabled, model.canAskForNotifications {
                     LabeledContent {

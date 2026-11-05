@@ -595,23 +595,23 @@
 "%@ The file's permissions let other users on this Mac read it, unless a folder above it or an access list blocks them." = "%@ Los permisos del archivo dejan que otros usuarios de tu Mac lo lean, salvo que se lo impida una carpeta superior o una lista de acceso.";
 
 /* not_checked reason permission-denied: label, then help */
-"Permission denied" = "Permiso denegado";
+"Permission Denied" = "Permiso denegado";
 "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again." = "Los permisos del archivo o los ajustes de privacidad de macOS bloquearon el acceso. Revisa los permisos del archivo o de la carpeta y vuelve a analizar.";
 
 /* not_checked reason cloud-only-file: label, then help */
-"Stored only in the cloud" = "Guardado solo en la nube";
+"Stored Only in the Cloud" = "Guardado solo en la nube";
 "These files are not on this Mac, and Loose Keys does not download them." = "Estos archivos no están en tu Mac, y Loose Keys no los descarga.";
 
 /* not_checked reason too-large: label, then help */
-"Too large to check" = "Demasiado grande para comprobar";
+"Too Large to Check" = "Demasiado grande para comprobar";
 "Loose Keys skips config and JSON files over 1 MiB." = "Loose Keys omite los archivos de configuración y JSON de más de 1 MiB.";
 
 /* not_checked reason unreadable: label, then help */
-"Could not be read" = "No se pudo leer";
+"Couldn't Be Read" = "No se pudo leer";
 "macOS returned an error when Loose Keys tried to read these." = "macOS devolvió un error cuando Loose Keys intentó leerlos.";
 
 /* not_checked reason symlink: label, then help */
-"Link not followed" = "Enlace no seguido";
+"Link Not Followed" = "Enlace no seguido";
 "These sign-in files are links to places outside your home folder. Loose Keys does not follow such links." = "Estos archivos de inicio de sesión son enlaces a lugares fuera de tu carpeta de inicio. Loose Keys no sigue esos enlaces.";
 "These sign-in files are links. Loose Keys follows no links when running as root." = "Estos archivos de inicio de sesión son enlaces. Loose Keys no sigue ningún enlace cuando se ejecuta como root.";
 
@@ -825,7 +825,7 @@
 "no folder" = "no hay carpeta";
 
 /* not_checked reason scan-limit: label, then any help */
-"Only partly checked" = "Comprobado solo en parte";
+"Only Partly Checked" = "Comprobado solo en parte";
 
 /* gui/src/lib.rs:1206 */
 "The review list is unavailable." = "La lista de revisión no está disponible.";
