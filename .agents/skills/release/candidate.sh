@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build the release candidate for one commit on this Mac: the ad-hoc bundle
-# that ships, zipped, plus the source and security harness the guest checks
-# use. Every guest check and the GitHub release use this one zip.
+# that ships, zipped and in a disk image checked to hold the same app, plus
+# the source and security harness the guest checks use. Every guest check and
+# the GitHub release use these packages.
 # Usage, from the repository root: sh .agents/skills/release/candidate.sh <git ref>
 set -eu
 umask 077
@@ -59,6 +60,24 @@ cp "$(tail -n 1 "$OUT/harness-build.log")" "$OUT/share/security-harness"
 logged disk-image sh gui/package-dmg.sh
 cp "target/release/bundle/macos/$DMG" "$OUT/share/$DMG"
 ditto -c -k --keepParent "target/release/bundle/macos/$APP" "$OUT/share/$ZIP"
+
+# Both packages must hold the same signed app, with the Applications shortcut
+# in the disk image. It is mounted read-only at a folder of this candidate's
+# own, so a volume of the same name elsewhere is never read or ejected.
+MOUNT="$OUT/dmg-mount"
+mkdir "$MOUNT" "$OUT/unzipped"
+logged dmg-attach hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" "$OUT/share/$DMG"
+problem=
+[ "$(readlink "$MOUNT/Applications")" = /Applications ] || problem='its Applications shortcut is wrong'
+[ -n "$problem" ] || codesign --verify --deep --strict "$MOUNT/$APP" > "$OUT/dmg-codesign.log" 2>&1 \
+    || problem="its app's signature does not verify; see $OUT/dmg-codesign.log"
+[ -n "$problem" ] || ditto -x -k "$OUT/share/$ZIP" "$OUT/unzipped" || problem='the zip could not be unpacked'
+[ -n "$problem" ] || diff -qr "$OUT/unzipped/$APP" "$MOUNT/$APP" > "$OUT/dmg-diff.log" 2>&1 \
+    || problem="its app differs from the zipped app; see $OUT/dmg-diff.log"
+hdiutil detach "$MOUNT" > "$OUT/dmg-detach.log" 2>&1 || problem="${problem:-it could not be ejected}; see $OUT/dmg-detach.log"
+[ -z "$problem" ] || fail "the disk image: $problem"
+rm -rf "$MOUNT" "$OUT/unzipped"
+
 (cd "$OUT/share" && shasum -a 256 "$ZIP") > "$OUT/$ZIP.sha256"
 (cd "$OUT/share" && shasum -a 256 "$DMG") > "$OUT/$DMG.sha256"
 cd "$OUT"

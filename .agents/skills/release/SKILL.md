@@ -17,19 +17,20 @@ interactive desktop agent or VNC.
    or exit codes, `gui/app/Bridge.h`), a patch for fixes only. Releases are 0.x.
    In a clean worktree, run `sh .agents/skills/release/bump.sh 0.y.z`.
    It changes five version files. Stage those files by name.
-3. Commit after the required checks. Before a push or tag, run
-   `sh tests/check-all.sh` on the exact commit. Announce the sample-data
-   window check first; the script skips it when its files match
-   `origin/main`. Record the commit, each exit status, and any failed runs.
-   Check that the tree stayed clean. Keep the configured commit signing.
-4. Run `sh .agents/skills/release/candidate.sh <commit>`. It builds an ad-hoc
-   bundle and harness from that commit, checks the bundle and versions, and
-   prints the candidate directory and ZIP and DMG checksums. Both packages
-   contain the same app. Keep the directory: the guest checks use this ZIP,
-   and publication uses both tested packages. Run the disk image checks in
-   `docs/testing/local-verification.md`: mount read-only, verify the signature
-   and Applications shortcut, and compare its app with the unzipped ZIP.
-   A new build needs new checks.
+3. Commit the bump, keeping the configured commit signing. Announce the
+   sample-data window check, then run `sh .agents/skills/release/prepare.sh`
+   with Tart on `PATH`. It runs `tests/check-all.sh` on the exact commit,
+   then `candidate.sh` from it, prints every exit status and the candidate,
+   and stops at a failed check or a changed tree. They do not run side by
+   side: the release build's load made a timed check fail. Record the
+   commit, each exit status, and any failed runs. `check-all.sh` skips the
+   window check when its files match `origin/main`.
+4. `candidate.sh` builds an ad-hoc bundle and harness from the commit, checks
+   the bundle and versions, mounts the disk image read-only at a folder of
+   its own, checks its signature and Applications shortcut, and compares its
+   app with the unzipped ZIP. Keep the candidate directory: the guest checks
+   use this ZIP, and publication uses both tested packages. A new build needs
+   new checks.
 
 ## Guest checks
 
@@ -82,47 +83,39 @@ requires publication approval after the candidate and release notes are ready.
 A failed or blocked required check still prevents release; run guest checks
 only when requested.
 
-Fetch the remote and check that the tested commit can fast-forward main or
-is already on main. A changed release commit needs new checks and a new
-candidate. Recheck the candidate's `SHA256SUMS` against its files.
+Releases are published immutable. Once published, the release's tag and
+packages cannot be changed or deleted, and the tag name cannot be reused even
+after the release is deleted, so a wrong package needs a new patch version.
+A changed release commit needs new checks and a new candidate.
 
-Releases are published immutable.
-`gh api 'repos/{owner}/{repo}/immutable-releases' --jq .enabled` must print
-`true`; otherwise stop and ask the person directing the session, and leave
-repository settings to them. Once published, the release's tag and packages
-cannot be changed or deleted, and the tag name cannot be reused even after
-the release is deleted, so a wrong package needs a new patch version.
-
-Merge the tested commit, push main, create and push its signed `v0.y.z` tag,
-then publish both tested packages:
+Write the notes to a file, with both packages' checksums as
+`Loose-Keys-0.y.z.zip: <SHA-256>` lines, then run:
 
 ```sh
-gh release create v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.zip" \
-  "<candidate directory>/share/Loose-Keys-0.y.z.dmg" \
-  --verify-tag --title "Loose Keys 0.y.z (beta)" --notes-file "<notes file>"
+sh .agents/skills/release/publish.sh "<candidate directory>" "<notes file>"
 ```
 
-With packages, `gh release create` uploads them to a draft and publishes only
-after every upload succeeds; a failed upload deletes that draft. If it fails,
-check `gh release view v0.y.z` before retrying: a draft is not locked yet.
+In this order, stopping at the first failure, it rechecks the candidate's
+`SHA256SUMS` and the notes' checksums; requires immutable releases (if they
+are off, stop and ask the person directing the session, and leave repository
+settings to them); requires that the tested commit fast-forwards main and
+that no `v0.y.z` tag names another commit; pushes main; creates and pushes
+the signed tag; publishes both tested packages; checks that the release is
+immutable, that its attestation covers both packages, and that GitHub
+verifies the commit and tag signatures; and downloads both packages to
+compare them with the tested copies. A step already done for the same commit
+is checked and skipped, so a stopped run can be repeated. `gh release create`
+publishes only after every upload succeeds; a failed upload deletes its
+draft.
 
-Verify the remote commit and tag signatures. Check that the release is
-immutable and that its attestation covers both tested packages. The first
-command must print `true`, and each must exit 0:
-
-```sh
-gh release view v0.y.z --json isImmutable --jq .isImmutable
-gh release verify v0.y.z
-gh release verify-asset v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.zip"
-gh release verify-asset v0.y.z "<candidate directory>/share/Loose-Keys-0.y.z.dmg"
-```
-
-Download both published packages into a fresh directory and compare their
-SHA-256 values with the tested copies.
+It pushes from the worktree, so the main checkout's `main` stays behind until
+`git pull --ff-only` runs there.
 
 ## Checking these scripts
 
 Run `python3 -I .agents/skills/release/check-scripts.py` for the offline
 regressions and `sh -n` on each shell script. Check that this skill has valid
 `name` and `description` frontmatter and that its referenced files exist.
-The regressions start no VM; candidate and guest runs check the real tools.
+The regressions start no VM and reach no remote: `publish.sh` runs against
+stand-ins for `git` and `gh`. Candidate, guest and publish runs check the real
+tools.

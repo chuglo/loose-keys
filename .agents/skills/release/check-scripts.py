@@ -90,6 +90,96 @@ class ReleaseScripts(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((work / "README.md").read_text(), "Version 0.2.1 · MIT licensed\n")
 
+    # publish.sh against stand-ins for git and gh that record each call.
+    # Nothing here reaches GitHub or changes a repository.
+    COMMIT = "c" * 40
+
+    def publish_fixture(self, root, notes_checksums=True):
+        cand = root / "candidate"
+        (cand / "share").mkdir(parents=True)
+        (cand / "commit").write_text(self.COMMIT + " 0.3.0\n")
+        names = ["commit", "share/repo.tar", "share/security-harness",
+                 "share/Loose-Keys-0.3.0.zip", "share/Loose-Keys-0.3.0.dmg"]
+        for name in names[1:]:
+            (cand / name).write_bytes(name.encode())
+        digest = {name: hashlib.sha256((cand / name).read_bytes()).hexdigest() for name in names}
+        (cand / "SHA256SUMS").write_text("".join(f"{digest[n]}  {n}\n" for n in names))
+        notes = root / "notes.md"
+        lines = ["What's changed\n"]
+        for package in ("Loose-Keys-0.3.0.zip", "Loose-Keys-0.3.0.dmg"):
+            (cand / f"{package}.sha256").write_text(f"{digest['share/' + package]}  {package}\n")
+            if notes_checksums:
+                lines.append(f"{package}: {digest['share/' + package]}\n")
+        notes.write_text("".join(lines))
+        repo = root / "repo"
+        (repo / "gui/macos").mkdir(parents=True)
+        (repo / "gui/macos/Info.plist").write_text("")
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "git").write_text(
+            '#!/bin/sh\nprintf "git %s\\n" "$*" >> "$RECORD"\n'
+            'case "$1" in\n'
+            '  merge-base) exit "${FF_STATUS:-0}";;\n'
+            '  rev-parse) case "$*" in *refs/tags/*) exit 1;; esac; echo base;;\n'
+            'esac\nexit 0\n')
+        (bin_dir / "gh").write_text(
+            '#!/bin/sh\nprintf "gh %s\\n" "$*" >> "$RECORD"\n'
+            'case "$1 $2" in\n'
+            '  "api repos/{owner}/{repo}/immutable-releases") echo true;;\n'
+            '  "api repos/{owner}/{repo}/commits/"*) echo true;;\n'
+            '  "api repos/{owner}/{repo}/git/refs/tags/"*) echo tag-object;;\n'
+            '  "api repos/{owner}/{repo}/git/tags/"*) echo "$COMMIT true";;\n'
+            '  "release view") [ -f "$RELEASED" ] || exit 1\n'
+            '    case "$*" in *isImmutable*) echo true;; *url*) echo https://example.invalid;; esac;;\n'
+            '  "release create") : > "$RELEASED";;\n'
+            '  "release download") while [ $# -gt 0 ]; do [ "$1" = --dir ] && dir=$2; shift; done\n'
+            '    cp "$CAND/share/"Loose-Keys-0.3.0.* "$dir/";;\n'
+            'esac\nexit 0\n')
+        for tool in ("git", "gh"):
+            (bin_dir / tool).chmod(0o700)
+        record = root / "calls"
+        env = dict(os.environ, PATH=f"{bin_dir}:/usr/bin:/bin", RECORD=str(record),
+                   RELEASED=str(root / "released"), CAND=str(cand), COMMIT=self.COMMIT,
+                   TMPDIR=str(root))
+        return cand, notes, repo, record, env
+
+    def publish(self, cand, notes, repo, env):
+        return subprocess.run(["sh", str(HERE / "publish.sh"), str(cand), str(notes)],
+                              cwd=repo, env=env, capture_output=True, text=True)
+
+    def test_publish_runs_each_step_in_order(self):
+        with tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
+            cand, notes, repo, record, env = self.publish_fixture(Path(folder))
+            result = self.publish(cand, notes, repo, env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = record.read_text().splitlines()
+            order = [f"git push origin {self.COMMIT}:refs/heads/main",
+                     f"git tag -s v0.3.0 {self.COMMIT} -m Loose Keys 0.3.0",
+                     "git push origin refs/tags/v0.3.0"]
+            self.assertEqual([c for c in calls if c in order], order)
+            create = next(i for i, c in enumerate(calls) if c.startswith("gh release create v0.3.0"))
+            self.assertGreater(create, calls.index(order[-1]))
+            for later in ("gh release verify v0.3.0", "gh release verify-asset v0.3.0", "gh release download v0.3.0"):
+                self.assertTrue(any(c.startswith(later) for c in calls[create:]), later)
+
+    def test_publish_stops_before_pushing_when_main_moved(self):
+        with tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
+            cand, notes, repo, record, env = self.publish_fixture(Path(folder))
+            result = self.publish(cand, notes, repo, dict(env, FF_STATUS="1"))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("does not fast-forward main", result.stderr)
+            calls = record.read_text()
+            self.assertNotIn("git push", calls)
+            self.assertNotIn("gh release create", calls)
+
+    def test_publish_refuses_notes_without_checksums(self):
+        with tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
+            cand, notes, repo, record, env = self.publish_fixture(Path(folder), notes_checksums=False)
+            result = self.publish(cand, notes, repo, env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("checksum", result.stderr)
+            self.assertFalse(record.exists(), "no git or gh call before the notes are checked")
+
     def test_failed_guest_setup_stops_owned_guest(self):
         with tempfile.TemporaryDirectory(prefix=f"release-cleanup-{os.getpid()}-") as folder:
             root = Path(folder)
