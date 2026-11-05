@@ -1220,10 +1220,14 @@ is replaced (macOS behaviour).
   drawing anything. The one drawing is the menu bar's key with a dot for
   open items or a full list (`MenuBarIcon`), because SF Symbols has no key
   with a badge.
-- Overview shows scan results, background status and folder controls, not
-  what a scan covers. That is in [usage](../usage.md), in
-  `loose-keys --list-rules` and in every saved report, which keeps the
-  scan's exclusions and detection limits.
+- Overview answers first: a heading with what needs a decision and at most
+  one button, then the scan's counts, then the Scan Automatically switch.
+  The heading never says "nothing" for a list that was not read, nor before
+  anything was checked, and Not Checked stays beside any "Nothing Worth
+  Reviewing". Folder controls, check timing and Pause are in Settings. The
+  Overview does not show what a scan covers. That is in
+  [usage](../usage.md), in `loose-keys --list-rules` and in every saved
+  report, which keeps the scan's exclusions and detection limits.
 - The Filter field is in the toolbar on every page, on purpose. Taken out and
   put back as the page changed, it stopped the app about one run in five in
   the window check: AppKit refuses a second search field in a toolbar, and
@@ -1245,10 +1249,12 @@ is replaced (macOS behaviour).
   not changed. Screens smaller than the 760 by 480 content minimum plus
   window chrome remain unsupported by this sizing rule.
 - Full manual reports, inventory and manual gaps live only in this app
-  session. Overview, Stored Sign-ins and Not Checked say so, distinguish
-  that from saved review findings and decisions, and advise saving a report
-  before quitting. An empty, never-scanned review list keeps its onboarding
-  rather than claiming that saved findings exist.
+  session. Stored Sign-ins and Not Checked say so, distinguish that from
+  saved review findings and decisions, and advise saving a report before
+  quitting. The Overview counts from saved findings until a scan, says its
+  other counts come with one, and after a scan advises saving the report.
+  An empty, never-scanned review list keeps its onboarding rather than
+  claiming that saved findings exist.
 - A row's selection is cleared in the model when the filter hides the row
   (`dropHiddenSelection`), and a stored sign-in's when new results arrive,
   because its id is its place in the results.

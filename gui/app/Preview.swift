@@ -587,8 +587,8 @@ enum Checks {
     #endif
 
     /// A switch, known by the text beside it.
-    private static func toggle(_ name: String) -> AXUIElement? {
-        everything().first { element in
+    private static func toggle(_ name: String, in root: AXUIElement? = nil) -> AXUIElement? {
+        everything(in: root).first { element in
             guard role(element) == kAXCheckBoxRole, let title = value(element, kAXTitleUIElementAttribute),
                   CFGetTypeID(title) == AXUIElementGetTypeID() else { return false }
             return value(title as! AXUIElement, kAXValueAttribute) as? String == name
@@ -646,12 +646,20 @@ enum Checks {
         }
 
         #if PREVIEW
-        for pane in [Pane.stored, .gaps, .overview] {
+        for pane in [Pane.stored, .gaps] {
             await open(pane)
             expect(await eventually {
                 written().contains("No Manual Scan This Session") && written().contains(ManualReportText.lifetime)
             }, "\(pane.rawValue) distinguishes session-only manual details from saved review history")
         }
+        // The Overview's answer comes from the saved list, and its counts wait for a scan.
+        await open(.overview)
+        expect(await eventually {
+            let text = written()
+            return text.contains("6 Items Worth Reviewing") && text.contains("From earlier scans.")
+                && text.contains("Stored sign-ins and places not checked appear after a scan.")
+                && button("Review Items") != nil && button("Not Checked") == nil
+        }, "before a scan, the Overview answers from saved findings and says the counts come with a scan")
         // Before any scan this window has no report to save, so a list that
         // cannot be read must not send the person to save one.
         SampleEngine.storeFailed = true
@@ -708,9 +716,10 @@ enum Checks {
         }
         expect(welcomed && enabled("Scan Automatically") && enabled("Scan Now") && sidebarRows().isEmpty,
                "with nothing to list, the first page asks one question and hides the sidebar")
-        // Only the folder already added is listed below it, so that it can be removed.
-        expect(button("Show What a Scan Checks") == nil && button("Remove") != nil,
-               "the first page has no scan reference section, and still lists an added folder")
+        // Folders are listed in Settings, not under the question.
+        expect(button("Show What a Scan Checks") == nil && button("Remove") == nil
+               && written().contains("Checks whenever your files change.") && written().contains("Checks once, right now."),
+               "the first page has no scan reference section or folder list, and says what each choice does")
         await press(button("Show Sidebar") ?? button("Toggle Sidebar"), "opening the sidebar from the first page")
         expect(await eventually { sidebarRows().count == 5 } && model.pane == .overview && model.showsWelcome,
                "the sidebar can be opened from the first page, and stays open there")
@@ -740,8 +749,8 @@ enum Checks {
         await model.refreshReview()
         await open(.overview)
         expect(model.results == nil && button("Show What a Scan Checks") == nil
-               && button("Show Every Rule") == nil && button("Add Folder or Drive…") != nil,
-               "before a scan, Overview has folder controls without the scan reference section")
+               && button("Show Every Rule") == nil && button("Add Folder or Drive…") == nil,
+               "before a scan, Overview has neither folder controls nor the scan reference section")
         // With every finding set aside and no scan in this window, Worth
         // Reviewing says where they went. It does not point to Not Checked,
         // which lists what a scan could not read and so, before one, nothing.
@@ -765,13 +774,18 @@ enum Checks {
         expect(unscannedGaps.contains(FolderScopeText.exceptions),
                "folders left out still explain known-file checks and finding rechecks")
         await open(.overview)
-        expect(!SampleEngine.monitoring && button("Turn On") != nil,
-               "Overview offers background setup without enabling it before consent")
+        // The Overview's switch is the one Settings has, under the same name.
+        func switchedOn(_ name: String) -> Bool? {
+            toggle(name).flatMap { value($0, kAXValueAttribute) as? Int }.map { $0 == 1 }
+        }
+        expect(!SampleEngine.monitoring && switchedOn("Scan Automatically") == false
+               && written().contains("Checks your files whenever they change, even when the app is closed."),
+               "Overview offers automatic scanning, off and explained, without enabling it before consent")
         let accessGate = DispatchSemaphore(value: 0)
         SampleEngine.accessGate = accessGate
-        await press(button("Turn On"), "preparing folder access", until: { button("Cancel Preparation") != nil && written().contains("Preparing folder access…") })
-        // A Form section heading is not exposed as AXValue. Check the
-        // accessible status and explanation, as well as the usable control.
+        await press(toggle("Scan Automatically"), "preparing folder access", until: { button("Cancel Preparation") != nil && written().contains("Preparing folder access…") })
+        // The heading is checked through the window's subtitle; the page's
+        // own line and control must be there too.
         expect(await eventually {
             let text = written()
             return text.contains("Preparing folder access…")
@@ -781,22 +795,19 @@ enum Checks {
         await press(button("Cancel Preparation"), "cancelling folder access preparation")
         SampleEngine.accessGate = nil
         accessGate.signal()
-        expect(await eventually { !model.preparingAccess && button("Turn On") != nil },
-               "cancelling preparation returns to the start choices")
+        expect(await eventually { !model.preparingAccess && switchedOn("Scan Automatically") == false },
+               "cancelling preparation returns to the switch, still off")
         expect(!SampleEngine.monitoring && model.results == nil,
                "cancelled preparation neither enables the helper nor scans")
-        await press(button("Turn On"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains(BackgroundState.active.text) })
-        expect(await eventually { SampleEngine.monitoring && written().contains(BackgroundState.active.text) },
+        await press(toggle("Scan Automatically"), "enabling background checks from Overview", until: { SampleEngine.monitoring && written().contains(BackgroundState.active.text) })
+        expect(await eventually { SampleEngine.monitoring && written().contains(BackgroundState.active.text) && switchedOn("Scan Automatically") == true },
                "background setup starts the helper without a one-time scan")
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
                "background consent neither runs a manual scan nor asks for notification permission")
-        expect(written().contains("Checking existing files…") && !written().contains("Last Check"),
-               "initial checking is visible while diagnostic timestamps start collapsed")
-        await press(button("Show Details"), "expanding Overview check details", until: { written().contains("Last Check") && written().contains("Last Full Scan") })
-        expect(await eventually { written().contains("Last Check") && written().contains("Last Full Scan") && written().contains { $0.contains("4 folders left") } },
-               "Overview check details reveal both diagnostic timestamps")
-        await press(button("Hide Details"), "collapsing Overview check details", until: { !written().contains("Last Check") })
-        expect(await eventually { !written().contains("Last Check") }, "Overview check details collapse")
+        // Check timing, Pause and notifications that are off are in Settings.
+        expect(written().contains("Checking existing files…") && !written().contains("Last Check")
+               && button("Show Details") == nil && button("Pause") == nil,
+               "the Overview shows initial checking, and leaves check timing and Pause to Settings")
         SampleEngine.completedPass = true
         await model.refreshMonitor()
         expect(await eventually { written().contains(BackgroundState.active.text) && !written().contains("Checking existing files…") },
@@ -811,15 +822,10 @@ enum Checks {
         await model.refreshReview()
         await settle()
         model.openURL = { Checks.opened.append($0) }
-        await press(button("Open System Settings"), "opening notification settings from Overview")
-        expect(opened.last?.absoluteString.hasPrefix("x-apple.systempreferences:com.apple.Notifications-Settings.extension") == true
-                   && button("Allow Notifications…") == nil,
-               "with notifications off, Overview offers System Settings, not a request macOS would ignore")
-        await press(button("Pause"), "pausing background checks from Overview")
-        expect(await eventually { SampleEngine.paused && written().contains(BackgroundState.paused.text) }, "Overview pauses background checks")
-        await press(button("Resume"), "resuming background checks from Overview")
-        expect(await eventually { !SampleEngine.paused && written().contains(BackgroundState.active.text) }, "Overview resumes background checks")
-        await press(button("Worth Reviewing"), "opening background findings before a manual scan")
+        expect(await eventually { button("Allow Notifications…") == nil && button("Open System Settings") == nil
+                   && !written().contains("Notifications") },
+               "once macOS has an answer, the Overview stops asking about notifications")
+        await press(button("Review Items"), "opening background findings before a manual scan")
         expect(model.pane == .review && model.results == nil, "background findings can be reviewed without a manual scan")
         SampleEngine.monitoring = false
         SampleEngine.completedPass = false
@@ -831,14 +837,14 @@ enum Checks {
         for _ in 0..<100 where model.phase != .done { await settle() }
         expect(model.phase == .done && model.results != nil, "pressing Scan Now runs a scan and shows its results")
         await open(.overview)
-        let roots = model.results?.roots.joined(separator: ", ") ?? ""
-        expect(!roots.isEmpty && written().contains("Included: \(roots)."), "the Overview says which places the last scan included")
-        expect(written().contains(ManualReportText.lifetime),
+        let scanned = "Last scanned \(localTime(model.results?.generatedAt))."
+        expect(await eventually { written().contains(scanned) }, "after a scan, the Overview's answer says when the scan ran")
+        expect(written().contains("Save the report to keep these details after you quit."),
                "after a manual scan, Overview advises saving the session-only report before quitting")
         expect(button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
-               && button("Worth Reviewing") != nil && button("Not Checked") != nil
-               && button("Add Folder or Drive…") != nil,
-               "after a scan, Overview keeps results and folder controls without the scan reference section")
+               && button("Stored Sign-ins") != nil && button("Not Checked") != nil
+               && button("Add Folder or Drive…") == nil,
+               "after a scan, Overview shows the scan's counts, with folder controls left to Settings")
 
         #if PREVIEW
         await open(.review)
@@ -1253,20 +1259,15 @@ enum Checks {
 
         // A folder's button names it by its place in a list, and the list can
         // have moved up by the time a second press lands. So the request also
-        // says which folder the button was drawn for.
-        await open(.overview)
-        SampleEngine.folderRequest = [:]
-        await press(button("Remove"), "pressing Remove beside an added folder")
-        for _ in 0..<10 where SampleEngine.folderRequest.isEmpty { await settle() }
-        let removing = SampleEngine.folderRequest
+        // says which folder the button was drawn for. Remove is in Settings,
+        // checked with it below.
         await open(.gaps)
         SampleEngine.folderRequest = [:]
         await press(button("Include Again"), "pressing Include Again beside a folder left out")
         for _ in 0..<10 where SampleEngine.folderRequest.isEmpty { await settle() }
         let including = SampleEngine.folderRequest
-        expect(removing["index"] as? Int == 0 && removing["shown"] as? String == "/Volumes/Backup"
-               && including["index"] as? Int == 0 && including["shown"] as? String == "~/Movies/Raw",
-               "Remove and Include Again say which folder they were shown for (they sent \(removing["shown"] ?? "nothing") and \(including["shown"] ?? "nothing"))")
+        expect(including["index"] as? Int == 0 && including["shown"] as? String == "~/Movies/Raw",
+               "Include Again says which folder it was shown for (it sent \(including["shown"] ?? "nothing"))")
         await open(.review)
 
         // A report the person chose to replace is not lost when the new one
@@ -1295,6 +1296,16 @@ enum Checks {
         expect(refused.contains("Cannot Open Worth Reviewing") && !refused.contains("Nothing to Review")
                && list() == nil && model.reviewSummary.isEmpty,
                "a review list the window could not get says so, and shows no older list or count in its place")
+        // The Overview's answer is then the scan's own count, never "nothing".
+        await open(.overview)
+        let fromScan = model.results?.review ?? 0
+        expect(await eventually {
+            let text = written()
+            return fromScan > 1 && text.contains("\(fromScan) Items Worth Reviewing")
+                && text.contains("Loose Keys could not open its saved list, so the Worth Reviewing count is from the last scan.")
+                && !text.contains("Nothing Worth Reviewing")
+        }, "with the review list unreadable, the Overview answers with the scan's own count and says why")
+        await open(.review)
         // The same from the start: a window that never got the list, then a scan.
         let fresh = AppModel(engine: model.engine)
         await fresh.refresh()
@@ -1370,15 +1381,24 @@ enum Checks {
                "with the review list full, the Overview says background checks are on, not unavailable")
         let before = windows()
         await press(button("Settings…"), "pressing Settings…")
-        for _ in 0..<10 where toggle("Scan Automatically") == nil { await settle() }
-        let consent = toggle("Scan Automatically")
+        // The Overview has a switch of the same name, so wait for the window.
+        for _ in 0..<10 where windows().count <= before.count { await settle() }
         let settingsWindow = windows().first { window in !before.contains { CFEqual($0, window) } }
+        let consent = settingsWindow.flatMap { toggle("Scan Automatically", in: $0) }
         expect(consent != nil && written(in: settingsWindow).contains("Active"),
                "Settings shows the state of automatic scanning under its switch")
         expect(written(in: settingsWindow).contains { $0.contains("3 places could not be read") },
                "Settings says how many places the helper's last full pass did not read")
-        expect(!written(in: settingsWindow).contains("Last Check") && button("Show Check Details", in: settingsWindow) == nil,
-               "Settings leaves check timing to the Overview")
+        expect(await eventually { written(in: settingsWindow).contains("Last Check") && written(in: settingsWindow).contains("Last Full Scan") },
+               "Settings shows check timing while automatic scanning is on")
+        expect(written(in: settingsWindow).contains("Always included") && button("Add Folder or Drive…", in: settingsWindow) != nil,
+               "Settings lists the places to check, with Add Folder or Drive…")
+        SampleEngine.folderRequest = [:]
+        await press(button("Remove", in: settingsWindow), "pressing Remove beside an added folder in Settings")
+        for _ in 0..<10 where SampleEngine.folderRequest.isEmpty { await settle() }
+        let removing = SampleEngine.folderRequest
+        expect(removing["index"] as? Int == 0 && removing["shown"] as? String == "/Volumes/Backup",
+               "Remove in Settings says which folder it was shown for (it sent \(removing["shown"] ?? "nothing"))")
         let scansBeforeDetails = SampleEngine.scanRequests
         await press(button("Show Places Not Checked", in: settingsWindow), "opening unread places from Settings")
         expect(await eventually { model.pane == .gaps && written().contains("~/Library/SyntheticUnread") },
@@ -1554,18 +1574,19 @@ enum Checks {
         expect(await eventually { !model.menuBarOn && menuBarItems().isEmpty }, "the menu bar icon is taken away again")
         await settle(after: "the review list read again")
 
-        // The Overview explains a list shorter than the scan's count: one
-        // credential is one item. A full list is shorter for a worse reason,
-        // findings left out for lack of room, and must not be explained away.
+        // A list shorter than the scan's count because one credential is one
+        // item needs nothing done, so the Overview says nothing of it. A full
+        // list is shorter for a worse reason, findings left out for lack of
+        // room, and the Overview says so.
         await open(.overview)
-        let grouped = model.findingsNote ?? ""
+        let grouped = model.findingsNote
         SampleEngine.listFull = true
         await model.refreshReview()
         await model.refreshMonitor()
         await settle(after: "the review list becoming full")
         let crowded = model.findingsNote ?? ""
-        expect(!grouped.isEmpty && !grouped.contains("full") && crowded.contains("full") && written().contains(crowded),
-               "the Overview says that the review list is full where it explains why the list is shorter than the scan's count")
+        expect(grouped == nil && crowded.contains("full") && written().contains(crowded),
+               "the Overview says nothing of grouped findings, and says that the review list is full when it is")
         SampleEngine.listFull = false
         await model.refreshReview()
         await model.refreshMonitor()

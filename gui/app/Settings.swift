@@ -1,5 +1,5 @@
-// Settings: automatic scanning, its helper, notifications, the menu bar and
-// update checks.
+// Settings: automatic scanning, its helper, notifications, places to check,
+// the menu bar and update checks.
 import SwiftUI
 
 struct SettingsView: View {
@@ -23,17 +23,24 @@ struct SettingsView: View {
         Form {
             if let monitor = model.monitor {
                 scanning(monitor)
-                menuBar(monitor)
-                updates(monitor)
             } else {
                 Section {
                     Text("Automatic scanning is not available.").foregroundStyle(.secondary)
                 }
             }
+            places
+            if let monitor = model.monitor {
+                menuBar(monitor)
+                updates(monitor)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
+        .dropDestination(for: URL.self) { folders, _ in
+            model.addFolders(folders, from: .settings)
+            return !folders.isEmpty
+        }
         .confirmationDialog("Allow Automatic Scanning?", isPresented: $model.askingConsent) {
             Button("Allow") { model.setMonitoring(enabled: true, paused: false, from: .settings) }
             Button("Cancel", role: .cancel) {}
@@ -47,9 +54,8 @@ struct SettingsView: View {
     }
 
     /// The switch with its state beneath it. The rest shows only while the
-    /// switch is on: the helper when it needs something done, Pause, and
-    /// notifications, which only the helper sends. Check timing is on the
-    /// Overview.
+    /// switch is on: the helper when it needs something done, check timing,
+    /// Pause, and notifications, which only the helper sends.
     @ViewBuilder private func scanning(_ monitor: MonitorStatus) -> some View {
         Section {
             Toggle(isOn: Binding(
@@ -88,6 +94,7 @@ struct SettingsView: View {
                 Label(EngineText.shown(error), systemImage: "exclamationmark.triangle").foregroundStyle(.red)
             }
             if monitor.enabled {
+                BackgroundCheckDetails(health: monitor.health)
                 // Neither switch can be used during a scan, so that a setting
                 // is never changed under one that is running.
                 Toggle("Pause Scanning", isOn: Binding(
@@ -100,6 +107,36 @@ struct SettingsView: View {
             if monitor.enabled {
                 Text("Notifications never show file names or credentials.")
             }
+        }
+    }
+
+    /// The folders every scan includes. Added folders are kept until removed;
+    /// the helper watches only the home folder.
+    @ViewBuilder private var places: some View {
+        Section {
+            if let places = model.places {
+                if let home = places.home {
+                    LabeledContent {
+                        Text("Always included").foregroundStyle(.secondary)
+                    } label: {
+                        Label(home, systemImage: "house")
+                    }
+                } else {
+                    Label(OverviewView.cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
+                }
+                ForEach(Array(places.extra.enumerated()), id: \.offset) { index, folder in
+                    LabeledContent {
+                        Button("Remove") { model.removeFolder(index, shown: folder, from: .settings) }
+                    } label: {
+                        Label(folder, systemImage: "folder")
+                    }
+                }
+            }
+            Button("Add Folder or Drive…") { model.addFolder(from: .settings) }
+        } header: {
+            Text("Places to Check")
+        } footer: {
+            Text("Automatic scanning does not include added folders and drives. Use Scan Now to check them.")
         }
     }
 

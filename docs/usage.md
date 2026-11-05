@@ -19,8 +19,9 @@ notifications.
 Manual scan details, including Stored Sign-ins and manual Not Checked details,
 last only until you quit the app. Saved review findings and decisions remain
 available. Use **Scan Now** for current details, and **Export** to save the
-report before quitting. A new launch with no manual report says **No Manual
-Scan This Session**, not that this Mac has never been scanned.
+report before quitting. After a new launch, Stored Sign-ins and Not Checked say
+**No Manual Scan This Session**, not that this Mac has never been scanned, and
+the Overview counts Worth Reviewing from saved findings.
 
 The app follows the language macOS uses for it: English or Spanish, with
 the words Latin American macOS uses, such as Configuración del Sistema, in
@@ -44,7 +45,8 @@ clipboard.
 
 Worth Reviewing has one item for a credential, however many rules or files
 found it. The saved report and the copied summary list each finding, so their
-count can be higher; the Overview says so when it is.
+count can be higher. When the list is full, the Overview says so; save the
+report to see every finding.
 
 **Filter** searches every listed copy's path, including fixed and set-aside
 copies. Matching secondary paths appear under the row's representative path;
@@ -190,8 +192,9 @@ Checks react to filesystem events. Busy files, work limits, sleep, Low Power
 Mode and macOS permission prompts can delay detection. Added folders and
 drives are included in one-time scans, not watched by the helper.
 
-Folders added with **Add Folder or Drive…** are kept for later launches and
-manual scans until you remove them. Up to eight are saved. Disconnected drives
+Folders added with **Add Folder or Drive…** in Settings, or dropped on the
+Settings window, are kept for later launches and manual scans until you remove
+them. Up to eight are saved. Disconnected drives
 stay listed; their unavailable paths are reported under **Not Checked** rather
 than silently removed. An older app or helper can forget these saved folders
 when it writes its state, so check the folder list after downgrading.
@@ -202,8 +205,10 @@ login and restarts it if it stops unexpectedly. It checks a file when it
 changes, works through the whole home folder in short slices at low priority,
 repeats that pass weekly, and marks an item fixed when its file no longer
 matches. Closing the window quits the app, unless it is in the menu bar, and
-quitting the app does not stop the helper. **Pause Scanning** stops its
-checks; turning **Scan Automatically** off also removes the launchd job.
+quitting the app does not stop the helper. **Pause Scanning** in Settings
+stops its checks; turning **Scan Automatically** off, on the Overview or in
+Settings, also removes the launchd job. Settings shows when the helper last
+checked a file and last finished a full pass.
 
 If automatic scanning could not read some places, **Show Places Not Checked** in
 Settings or Overview opens the saved paths and reasons in **Not Checked**.

@@ -181,7 +181,6 @@ final class AppModel: ObservableObject {
     /// is then an older list, or none.
     @Published var reviewUnread: String?
     @Published var monitor: MonitorStatus?
-    @Published var overviewCheckDetails = false
     @Published var inspectorWhy = false
     @Published var inspectorDetails = false
     @Published var inspectorCopies = false
@@ -519,22 +518,17 @@ final class AppModel: ObservableObject {
         reviewProblem == nil ? openCount : (results?.review ?? 0)
     }
 
-    /// Says why the list is shorter than the count in the saved report and the
-    /// copied summary, when it is. Both numbers are right: those count each
-    /// finding, and the list has one item for a credential however many rules
-    /// or files found it. A full list is shorter for a worse reason as well:
-    /// findings it had no room for. The window cannot tell how much of the
-    /// difference is which, so it gives both, the worse one first.
+    /// Says that the list is full, when that is why it is shorter than the
+    /// scan's count. A list is also shorter because it has one item for a
+    /// credential however many rules or files found it; that needs nothing
+    /// done, so the Overview leaves it out. A full list left findings out for
+    /// lack of room, and only the saved report has them all.
     var findingsNote: String? {
-        guard let found = results?.review, let review, reviewProblem == nil else { return nil }
+        guard let found = results?.review, let review, reviewProblem == nil, review.full == true else { return nil }
         let listed = review.items.filter { $0.status != "fixed" }.count
         guard found > listed else { return nil }
-        if review.full == true {
-            return String(localized: "The scan found \(found) findings, but the list is full at \(listed) items. Save the report to see them all.",
-                          comment: "Overview, under the last scan's counts, when the Worth Reviewing list is full. The first number counts findings, the second the list's items.")
-        }
-        return String(localized: "The scan found \(found) findings, shown as \(listed) items because a credential in several places is listed once.",
-                      comment: "Overview, under the last scan's counts. The first number counts findings, the second the Worth Reviewing list's items.")
+        return String(localized: "The scan found \(found) findings, but the list is full at \(listed) items. Save the report to see them all.",
+                      comment: "Overview, under the last scan's counts, when the Worth Reviewing list is full. The first number counts findings, the second the list's items.")
     }
 
     var currentReviews: [ReviewItem] {
@@ -988,7 +982,7 @@ final class AppModel: ObservableObject {
 
     // MARK: Folders
 
-    func addFolder() {
+    func addFolder(from origin: ActionOrigin = .window) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -996,26 +990,27 @@ final class AppModel: ObservableObject {
         panel.message = String(localized: "Choose a folder or drive to include in scans.",
                                comment: "At the top of the panel that chooses a folder or drive to include in scans.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        attempt {
+        attempt(from: origin) {
             let places = try await self.changePlaces("type_place", ["text": url.path])
-            self.failure = places.error.map(EngineText.shown)
+            if let error = places.error { self.report(EngineText.shown(error), from: origin) }
         }
     }
 
-    /// Folders dropped on the window. The first one refused ends the batch, and says why.
-    func addFolders(_ folders: [URL]) {
-        attempt {
+    /// Folders dropped on Settings. The first one refused ends the batch, and says why.
+    func addFolders(_ folders: [URL], from origin: ActionOrigin = .window) {
+        attempt(from: origin) {
             for folder in folders {
                 // The panel offers only folders. A drop can carry a file or a web link.
                 guard folder.isFileURL,
                       (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
-                    self.failure = String(localized: "Only folders and drives can be added.",
-                                          comment: "In an alert: something other than a folder or drive was dropped on the window.")
+                    self.report(String(localized: "Only folders and drives can be added.",
+                                       comment: "In an alert: something other than a folder or drive was dropped on the window."),
+                                from: origin)
                     break
                 }
                 let places = try await self.changePlaces("type_place", ["text": folder.path])
                 if let error = places.error {
-                    self.failure = EngineText.shown(error)
+                    self.report(EngineText.shown(error), from: origin)
                     break
                 }
             }
@@ -1025,10 +1020,10 @@ final class AppModel: ObservableObject {
     /// A folder is named by its place in the list and by what is shown there.
     /// The engine acts only while the two agree, so a second press that lands
     /// after the list has moved up does nothing to the folder now in that place.
-    func removeFolder(_ index: Int, shown: String) {
-        attempt {
+    func removeFolder(_ index: Int, shown: String, from origin: ActionOrigin = .window) {
+        attempt(from: origin) {
             let places = try await self.changePlaces("remove_place", ["index": index, "shown": shown])
-            if let error = places.error { self.failure = EngineText.shown(error) }
+            if let error = places.error { self.report(EngineText.shown(error), from: origin) }
         }
     }
 

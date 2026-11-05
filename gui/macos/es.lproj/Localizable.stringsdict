@@ -2,6 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>%lld Items Worth Reviewing</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@items@</string>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld elemento para revisar</string>
+			<key>other</key>
+			<string>%lld elementos para revisar</string>
+		</dict>
+	</dict>
 	<key>%lld copies</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
@@ -77,22 +93,6 @@
 			<string>%lld corregido</string>
 			<key>other</key>
 			<string>%lld corregidos</string>
-		</dict>
-	</dict>
-	<key>You left out %lld folders.</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>Dejaste fuera %#@folders@.</string>
-		<key>folders</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%lld carpeta</string>
-			<key>other</key>
-			<string>%lld carpetas</string>
 		</dict>
 	</dict>
 	<key>%lld folders left out</key>
@@ -366,33 +366,6 @@
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>El análisis encontró %1$#@findings@, pero la lista está llena con %2$#@items@. Guarda el informe para verlos todos.</string>
-		<key>findings</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%1$lld hallazgo</string>
-			<key>other</key>
-			<string>%1$lld hallazgos</string>
-		</dict>
-		<key>items</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%2$lld elemento</string>
-			<key>other</key>
-			<string>%2$lld elementos</string>
-		</dict>
-	</dict>
-	<key>The scan found %lld findings, shown as %lld items because a credential in several places is listed once.</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>El análisis encontró %1$#@findings@, que aparecen como %2$#@items@ porque una credencial que está en varios lugares se muestra una sola vez.</string>
 		<key>findings</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>

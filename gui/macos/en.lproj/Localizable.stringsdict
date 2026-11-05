@@ -2,6 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>%lld Items Worth Reviewing</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@items@</string>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Item Worth Reviewing</string>
+			<key>other</key>
+			<string>%lld Items Worth Reviewing</string>
+		</dict>
+	</dict>
+
 	<key>%lld copies</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
@@ -77,22 +94,6 @@
 			<string>%lld fixed</string>
 			<key>other</key>
 			<string>%lld fixed</string>
-		</dict>
-	</dict>
-	<key>You left out %lld folders.</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>You left out %#@folders@.</string>
-		<key>folders</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%lld folder</string>
-			<key>other</key>
-			<string>%lld folders</string>
 		</dict>
 	</dict>
 	<key>%lld folders left out</key>
@@ -366,33 +367,6 @@
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>The scan found %1$#@findings@, but the list is full at %2$#@items@. Save the report to see them all.</string>
-		<key>findings</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%1$lld finding</string>
-			<key>other</key>
-			<string>%1$lld findings</string>
-		</dict>
-		<key>items</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%2$lld item</string>
-			<key>other</key>
-			<string>%2$lld items</string>
-		</dict>
-	</dict>
-	<key>The scan found %lld findings, shown as %lld items because a credential in several places is listed once.</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>The scan found %1$#@findings@, shown as %2$#@items@ because a credential in several places is listed once.</string>
 		<key>findings</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>

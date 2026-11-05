@@ -480,26 +480,14 @@
 /* [Overview.swift:59] */
 "Find Passwords and Keys Left in Files" = "Encuentra contraseñas y claves que quedaron en archivos";
 
-/* [Overview.swift:63] */
-"Loose Keys looks for passwords, keys and tokens left in your files, and tells you how to clean them up." = "Loose Keys busca contraseñas, claves y tokens que hayan quedado en tus archivos, y te dice qué hacer con ellos.";
-
 /* [Overview.swift:73, Settings.swift:40] */
 "Scan Automatically" = "Analizar automáticamente";
 
 /* [Overview.swift:84] */
 "macOS may ask for access to some folders. You can say no and still scan." = "Puede que macOS pida acceso a algunas carpetas. Puedes rechazarlo y analizar igualmente.";
 
-/* [Overview.swift:96] */
-"Automatic scans run whenever your files change, even when the app is closed." = "Los análisis automáticos se ejecutan cada vez que cambian tus archivos, incluso con la app cerrada.";
-
 /* [Overview.swift:121] */
 "Stop Scan" = "Detener análisis";
-
-/* [Overview.swift:123] */
-"Scanning" = "Analizando";
-
-/* [Overview.swift:125] */
-"Scans stop after 30 seconds. Anything they did not get to appears in Not Checked." = "Los análisis se detienen a los 30 segundos. Lo que no lleguen a comprobar aparece en Sin comprobar.";
 
 /* Overview, when there is no home folder to scan. [Overview.swift:133] */
 "Cannot scan: Loose Keys could not find the home folder." = "No se puede analizar: Loose Keys no encontró la carpeta de inicio.";
@@ -509,30 +497,6 @@
 
 /* Overview, while a scan starts and before it says how far it has got. [Overview.swift:142] */
 "Starting…" = "Iniciando…";
-
-/* Overview, while a scan reads the places where apps are known to keep sign-ins. A sentence of progress follows. [Overview.swift:145] */
-"Checking places where apps keep sign-ins." = "Comprobando los lugares donde las apps guardan inicios de sesión.";
-
-/* Overview, while a scan that has read everything prepares its results. A sentence of progress follows. [Overview.swift:147] */
-"Preparing results." = "Preparando los resultados.";
-
-/* Overview, while a scan looks through folders. A sentence of progress follows. [Overview.swift:148] */
-"Looking through folders." = "Recorriendo las carpetas.";
-
-/* [Overview.swift:161] */
-"Last Scan: Complete" = "Último análisis: completo";
-
-/* [Overview.swift:161] */
-"Last Scan: Incomplete" = "Último análisis: incompleto";
-
-/* [Overview.swift:165] */
-"Scanned %@." = "Fecha del análisis: %@";
-
-/* [Overview.swift:166] */
-"Scanned %@. Some places could not be checked." = "Fecha del análisis: %@. No se pudieron comprobar algunos lugares.";
-
-/* Overview, under the last scan's counts. %@ is the list of folders the scan covered, separated by commas, shown as they are. [Overview.swift:168] */
-"Included: %@." = "Lugares incluidos: %@.";
 
 /* [Overview.swift:176] */
 "Loose Keys could not open its saved list, so the Worth Reviewing count is from the last scan." = "Loose Keys no pudo abrir su lista guardada, así que la cifra de Para revisar es la del último análisis.";
@@ -552,20 +516,8 @@
 /* [Overview.swift:226] */
 "Automatic scanning does not include added folders and drives. Use Scan Now to check them." = "El análisis automático no incluye las carpetas ni los discos añadidos. Usa Analizar ahora para comprobarlos.";
 
-/* [Overview.swift:236] */
-"Turn On" = "Activar";
-
-/* [Overview.swift:240, Overview.swift:257] */
-"Automatic Scanning" = "Análisis automático";
-
 /* Under the Scan Automatically switch while it is off, and under Automatic Scanning in Overview: what turning it on does. [Overview.swift:241, Settings.swift:42] */
 "Checks your files whenever they change, even when the app is closed." = "Comprueba tus archivos cada vez que cambian, incluso con la app cerrada.";
-
-/* [Overview.swift:250] */
-"Resume" = "Reanudar";
-
-/* [Overview.swift:250] */
-"Pause" = "Pausar";
 
 /* [Overview.swift:261] */
 "Checking existing files…" = "Comprobando los archivos existentes…";
@@ -585,20 +537,11 @@
 /* [Overview.swift:287, Settings.swift:112] */
 "Notifications" = "Notificaciones";
 
-/* [Overview.swift:290] */
-"They are off. Turn them on in System Settings to hear about new findings while the app is closed." = "Están desactivadas. Actívalas en Ajustes del Sistema para enterarte de nuevos hallazgos mientras la app está cerrada.";
-
 /* The state of notifications: macOS could not ask the person whether to allow them. [Overview.swift:292, Settings.swift:158] */
 "macOS could not show the request. Try again." = "macOS no pudo mostrar la solicitud. Inténtalo de nuevo.";
 
 /* [Overview.swift:294] */
 "Get notified about new findings while the app is closed. Notifications never name a file or credential." = "Recibe avisos de nuevos hallazgos mientras la app está cerrada. Las notificaciones nunca nombran un archivo ni una credencial.";
-
-/* Overview, when the list of findings could not be read or saved. %@ is the reason, one or more sentences from the engine or macOS. [Overview.swift:304] */
-"Cannot Open Worth Reviewing: %@" = "No se puede abrir Para revisar: %@";
-
-/* [Overview.swift:313] */
-"Loose Keys only reads files. It never changes them." = "Loose Keys solo lee archivos. Nunca los cambia.";
 
 /* [Settings.swift:14] */
 "Automatic scanning is not available." = "El análisis automático no está disponible.";
@@ -763,3 +706,17 @@
 
 /* The title of the alert after Check for Updates… when the check failed. [MainView.swift] */
 "Could Not Check for Updates" = "No se pudieron buscar actualizaciones";
+
+/* Overview, the first page: the line under its title, and what each choice does. */
+"Loose Keys shows you where they are and how to clean them up." = "Loose Keys te muestra dónde están y qué hacer con ellos.";
+"Checks whenever your files change." = "Analiza cada vez que cambian tus archivos.";
+"Checks once, right now." = "Analiza una vez, ahora mismo.";
+
+/* Overview: the answer at the top of the page, and the counts under it. The
+   Spanish date ends in "p.m." or "a.m.", so no period follows it. */
+"Nothing Worth Reviewing" = "Nada para revisar";
+"Review Items" = "Revisar elementos";
+"Last scanned %@." = "Último análisis: %@";
+"From earlier scans." = "De análisis anteriores.";
+"Stored sign-ins and places not checked appear after a scan." = "Las credenciales guardadas y los lugares sin comprobar aparecen después de un análisis.";
+"Save the report to keep these details after you quit." = "Guarda el informe para conservar estos detalles después de salir.";
