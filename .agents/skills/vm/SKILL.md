@@ -32,11 +32,12 @@ specified, use local `main`.
    one yourself. A `lk-window-*` VM is a window check that ends on its own
    within minutes, so offering to wait for it is reasonable.
 
-   Only when the person asks for the build in a VM that is already open,
-   add `--into <VM>` before the ref or `.`: it replaces the app in that VM,
-   keeps the app's saved state and the decoys, and restarts the helper if it
-   was loaded. It works only for a running VM this script opened with the same
-   `TMPDIR`. Never choose it yourself instead of a new VM.
+   When the person already has a VM open from this script, add
+   `--into <VM>` before the ref or `.`, without asking (AGENTS.md): it
+   replaces the app in that VM, keeps the app's saved state and the decoys,
+   and restarts the helper if it was loaded. It works only for a running VM
+   this script opened with the same `TMPDIR`. Open a new VM when the person
+   asks for one or none of theirs is running.
 
    To open it as a Mac whose organization manages the app, add
    `LOOSE_KEYS_PROFILE=<file.mobileconfig>`: the profile is installed
