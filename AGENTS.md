@@ -273,6 +273,21 @@ run from the repository or worktree root as their instructions specify.
   expected form", "a newer version is out"), and no bare fact left for the
   person to interpret ("You have 0.6.0."). When reporting a change, list
   each new or changed English string so a person reviews the wording.
+- Keep it short: a heading, and a line only when the person needs it to
+  act. If the text gives the person nothing to act on, cut it, and when
+  rewording, consider removing first. Numbers, limits, timing and caveats go
+  in `docs/usage.md`, not the window. No reassurance lines ("Nothing leaves
+  this Mac"), no button that repeats a command the window already has, no
+  "we", no idioms (the Spanish is keyed on the exact English), and no "home
+  folder" in new text, because the places to check will become
+  customizable. Buttons and links are verbs. A setting's line says what it
+  does when on. Send the person to a setting with a button that opens it.
+- Lead each page with the answer to what needs attention. A state has at
+  most one prominent button. An explanation sits directly under the control
+  it explains, and a control keeps one name wherever it appears.
+- Finding text in `src/rules/` is window text too: the same rules apply,
+  plus those in "Finding text and remediation" in
+  `docs/development/standards.md`.
 - View state lives in `AppModel` as `@Published`, not in `@State`: the app
   must build with Apple's command-line tools alone, where `@State` does not
   compile.

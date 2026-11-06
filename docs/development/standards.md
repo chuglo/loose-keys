@@ -1232,7 +1232,26 @@ is replaced (macOS behaviour).
   it or would miss it [21, 25], so places not checked have none: nearly
   every Mac has places macOS keeps private. A sheet is for a short task,
   with Cancel or Close beside any Done; a little information goes in a
-  popover [19, 20].
+  popover [19, 20]. Each state has at most one prominent button, so the next
+  step is plain. An explanation sits directly under the control it explains,
+  not in a footer the person has to match back to it. The Scan Automatically
+  switch has the same name and line on the Overview and in Settings [22].
+- Window text is as short as it can be. Apple's writing guidance says to
+  check that each word needs to be there [18], and every passage over about
+  140 characters was cut on 2026-10-22: a 700-character note on scan limits
+  was removed, not reworded, because the heading above it said enough. A
+  test that pins long text is suspect. Limits, ordering, timing and caveats
+  are in [usage](../usage.md). Reassurance ("Nothing leaves this Mac") was
+  removed everywhere, and Save Report… was left out of the popover because
+  Export already does it. The same guidance gives the rest: verbs on buttons
+  and links, no "we", which leaves unclear who is meant, a setting described
+  by what it does when on, a button that opens a setting rather than only
+  its location, and an empty page that offers the next step [18]. Apple's style
+  guide recommends contractions and rules out idioms, which translate badly
+  [26]; here the Spanish is keyed on the exact English, so a reworded
+  sentence needs its Spanish again. New text says "your files" or names what
+  is left out, not "your home folder", because the places to check will not
+  stay fixed.
 - Overview answers first: a heading with what needs a decision and at most
   one button, then the Scan Automatically switch. Under the heading is only
   what the person can act on: a folder macOS kept from the last scan, with
@@ -1457,7 +1476,8 @@ Recheck a source before leaning on a detail: these change.
     https://developer.apple.com/documentation/swiftui/view/badge(_:) and
     https://developer.apple.com/design/human-interface-guidelines/notifications
 22. Jakob Nielsen, "10 Usability Heuristics for User Interface Design",
-    Nielsen Norman Group, reviewed 2024: 1, visibility of system status; 8,
+    Nielsen Norman Group, reviewed 2024: 1, visibility of system status; 4,
+    consistency and standards; 8,
     aesthetic and minimalist design; 9, help users recognize, diagnose and
     recover from errors. https://www.nngroup.com/articles/ten-usability-heuristics/
 23. Jakob Nielsen, "Progressive Disclosure", Nielsen Norman Group, 2006:
@@ -1470,3 +1490,6 @@ Recheck a source before leaning on a detail: these change.
     Norman Group, 2024: indicators add clutter, so show one only if it would
     be missed; a passive notice is easily missed.
     https://www.nngroup.com/articles/indicators-validations-notifications/
+26. Apple Style Guide, "contractions" and "Intro to international style":
+    use common contractions; don't use idiomatic or colloquial expressions.
+    https://support.apple.com/guide/applestyleguide/welcome/web
