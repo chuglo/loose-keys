@@ -6,14 +6,12 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        // What went wrong with an action taken here, on a view of its own
-        // around the form, which has the consent dialog: a view drops one of
-        // two alerts.
-        VStack(spacing: 0) { form }
-            .alert(Text(verbatim: "Loose Keys"), isPresented: failureShown, presenting: model.settingsFailure) { _ in
+        // What went wrong with an action taken here: what failed, then why.
+        form
+            .alert(Text(model.settingsFailure?.title ?? ""), isPresented: failureShown, presenting: model.settingsFailure) { _ in
                 Button("OK") { model.settingsFailure = nil }
-            } message: { text in
-                Text(text)
+            } message: { failure in
+                Text(failure.reason)
             }
             .onAppear { model.settingsOpen = true }
             .onDisappear { model.settingsOpen = false }
@@ -41,12 +39,6 @@ struct SettingsView: View {
             model.addFolders(folders, from: .settings)
             return !folders.isEmpty
         }
-        .confirmationDialog("Allow Automatic Scanning?", isPresented: $model.askingConsent) {
-            Button("Allow") { model.setMonitoring(enabled: true, paused: false, from: .settings) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Loose Keys will check your files whenever they change, even when the app is closed.")
-        }
     }
 
     private var failureShown: Binding<Bool> {
@@ -58,11 +50,11 @@ struct SettingsView: View {
     /// Pause, and notifications, which only the helper sends.
     @ViewBuilder private func scanning(_ monitor: MonitorStatus) -> some View {
         Section {
+            // As on the Overview: the line under the switch says what turning
+            // it on does, so there is no question to answer as well.
             Toggle(isOn: Binding(
                 get: { monitor.enabled },
-                set: { on in
-                    if on { model.askingConsent = true } else { model.setMonitoring(enabled: false, paused: false, from: .settings) }
-                })) {
+                set: { model.setMonitoring(enabled: $0, paused: false, from: .settings) })) {
                 Text("Scan Automatically")
                 Text(monitor.enabled ? model.backgroundState.text
                      : String(localized: "Checks your files whenever they change, even when the app is closed.",
@@ -71,8 +63,13 @@ struct SettingsView: View {
             .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
             if monitor.enabled, let helper = helperProblem(monitor) {
                 LabeledContent {
-                    if helper.restarts {
+                    switch helper.fix {
+                    case .restart:
                         Button("Restart Helper") { model.restartHelper() }
+                    case .approve:
+                        Button("Open System Settings") { model.openLoginItems() }
+                    case .none:
+                        EmptyView()
                     }
                 } label: {
                     Text("Helper")
@@ -150,25 +147,27 @@ struct SettingsView: View {
         }
     }
 
+    /// What the button beside the helper's state does.
+    private enum HelperFix { case none, restart, approve }
+
     /// What the helper needs, if it is not simply running. macOS reports a
     /// registered helper as enabled even when it will not start.
-    private func helperProblem(_ monitor: MonitorStatus) -> (text: String, restarts: Bool)? {
+    private func helperProblem(_ monitor: MonitorStatus) -> (text: String, fix: HelperFix)? {
         // Just turned on, the helper is starting: not yet registered or running.
         if model.helperStarting, monitor.login == 1 || monitor.login == 2 { return nil }
         switch monitor.login {
         case 0:
-            return (String(localized: "Needs macOS 13 or later", comment: "Settings, beside Helper: the state of the helper (a singular noun)."), false)
+            return (String(localized: "Needs macOS 13 or later", comment: "Settings, beside Helper: the state of the helper (a singular noun)."), .none)
         case 2:
             return monitor.health.running == false
-                ? (String(localized: "Not running", comment: "Settings, beside Helper: the state of the helper (a singular noun). It is registered with macOS, but not running."), true)
+                ? (String(localized: "Not running", comment: "Settings, beside Helper: the state of the helper (a singular noun). It is registered with macOS, but not running."), .restart)
                 : nil
         case 3:
-            return (String(localized: "Needs approval in System Settings > General > Login Items",
-                           comment: "Settings, beside Helper: the state of the helper (a singular noun). Use the names macOS gives System Settings and its Login Items pane."), false)
+            return (LoginItemsText.approveHelper, .approve)
         case 4:
-            return (String(localized: "macOS could not start it", comment: "Settings, beside Helper: macOS refused to start the helper (a singular noun)."), true)
+            return (String(localized: "macOS could not start it", comment: "Settings, beside Helper: macOS refused to start the helper (a singular noun)."), .restart)
         default:
-            return (String(localized: "Not started", comment: "Settings, beside Helper: the state of the helper (a singular noun). It is not registered with macOS."), true)
+            return (String(localized: "Not started", comment: "Settings, beside Helper: the state of the helper (a singular noun). It is not registered with macOS."), .restart)
         }
     }
 
@@ -210,7 +209,11 @@ struct SettingsView: View {
                 .disabled(model.monitorFailure != nil)
             if monitor.enabled, monitor.menuBar {
                 if monitor.appLogin == 3 {
-                    Text("Turn on Loose Keys in Login Items to show the icon at login.").foregroundStyle(.secondary)
+                    LabeledContent {
+                        Button("Open System Settings") { model.openLoginItems() }
+                    } label: {
+                        Text("Turn on Loose Keys in Login Items to show the icon at login.").foregroundStyle(.secondary)
+                    }
                 } else if monitor.appLogin == 1 || monitor.appLogin == 4 {
                     Text("Shown only while the app is open, because Loose Keys is not in Login Items.").foregroundStyle(.secondary)
                 }

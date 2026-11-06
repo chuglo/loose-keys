@@ -1102,16 +1102,25 @@ build scripts are not read, and a remote URL passed to a reader such as
 `Data(contentsOf:)` would not be caught), the model check's `updates:`
 cases, and the window check's update steps.
 
-Update questions and results use a native `NSAlert` sheet with
+The question whether to check automatically is a row at the bottom of the
+Overview, with Don't Check and Check Automatically, not an alert: it is not
+urgent, and as an alert it came over what the first scan had just found
+[27, 28]. It stays until answered there or in Settings. The model keeps
+what the last status read that worked said, so a read that fails for a
+moment neither asks nor takes the row away (the model check's `updates:`
+cases). Quit leaves consent unanswered. The guest-only
+`check-update-quit.sh` checks native, menu and keyboard Quit, relaunches
+against the same synthetic home, and checks that the question is one line;
+what GitHub sees is in [usage](../usage.md), not the question. It was
+written for the alert and has not been run against the row.
+
+What Check for Updates… found uses a native `NSAlert` sheet with
 `preventsApplicationTerminationWhenModal` disabled on that alert alone.
 SwiftUI's multi-button alert otherwise blocks termination before the app
-delegate. Only explicit button responses save consent or open the fixed
-download page; system dismissal and Quit leave consent unanswered. The
-guest-only `check-update-quit.sh` checks native, menu and keyboard Quit,
-relaunches against the same synthetic home, and checks that the question is
-one line; what GitHub sees is in [usage](../usage.md), not the question.
-No other modal or global termination policy is changed. Runtime behavior on
-macOS 14 and simultaneous unrelated sheets remains unverified.
+delegate. Only explicit button responses open the fixed download page;
+system dismissal and Quit do not. No other modal or global termination
+policy is changed. Runtime behavior on macOS 14 and simultaneous unrelated
+sheets remains unverified.
 
 Remaining risks: a compromised GitHub account or API can announce a fake
 newer version, though Download still opens the real release page; TLS trust
@@ -1166,6 +1175,9 @@ is replaced (macOS behaviour).
   `openWindow` taken from the icon, which outlives it, and a Dock reopen also
   runs the system's own. All of this is unverified on a real login.
 - A failed action is shown in the window it was taken in, and in no other.
+  The alert's title says what failed ("Couldn't Save the Report", from
+  `FailureTitle`) and its message why; the app's name is no title, since
+  macOS already shows its icon [27].
   Settings has its own alert (`settingsFailure`) for its switches and
   buttons; the main window's is `failure`. Settings reports whether it is
   open (`onAppear`, `onDisappear`). A failure that comes after it has closed,
@@ -1229,6 +1241,10 @@ is replaced (macOS behaviour).
   depth, the order of languages, and the Filter and sort. The host window
   and model checks copy only `en.lproj` beside their executables, so they
   run in English whatever the Mac's language.
+- Every toolbar button, and what the inspector and a row's context menu do
+  to the chosen item, is also a command in the menu bar (`Commands.swift`),
+  since the toolbar can be hidden. The Item menu acts on one chosen row as the
+  inspector does, never on an arbitrary one of several.
 - The controls are the system's: `NavigationSplitView`, `Table`, `List`, the
   toolbar, `.inspector`, `Form` in a `Settings` scene, `MenuBarExtra`,
   `NSOpenPanel` and `NSSavePanel`. Add a feature with one of these before
@@ -1242,14 +1258,21 @@ is replaced (macOS behaviour).
   labeled step away, in Settings or the saved report [23]. A problem the
   person can fix is shown where it has its effect, says in plain words what
   to do, and offers the control that does it, as Restart Helper does in
-  Settings [18, 24]. A count or badge appears only where a person acts on
+  Settings [18, 24]. Where macOS waits for the person to let the helper or
+  the app start, Open System Settings beside the line calls
+  `SMAppService.openSystemSettingsLoginItems()`; the window check records
+  the press instead. Unverified: that it opens Login Items on macOS 26 and
+  later, and that the list there is still named Allow in the Background.
+  A count or badge appears only where a person acts on
   it or would miss it [21, 25], so places not checked have none: nearly
   every Mac has places macOS keeps private. A sheet is for a short task,
   with Cancel or Close beside any Done; a little information goes in a
   popover [19, 20]. Each state has at most one prominent button, so the next
   step is plain. An explanation sits directly under the control it explains,
   not in a footer the person has to match back to it. The Scan Automatically
-  switch has the same name and line on the Overview and in Settings [22].
+  switch has the same name and line on the Overview and in Settings, and
+  turns on the same way in both, with no confirmation: the line says what it
+  does, and an alert is not for an action that can be undone [22, 27].
 - Window text is as short as it can be. Apple's writing guidance says to
   check that each word needs to be there [18], and every passage over about
   140 characters was cut on 2026-10-22: a 700-character note on scan limits
@@ -1267,11 +1290,17 @@ is replaced (macOS behaviour).
   is left out, not "your home folder", because the places to check will not
   stay fixed.
 - Overview answers first: a heading with what needs a decision and at most
-  one button, then the Scan Automatically switch. Under the heading is only
-  what the person can act on: a folder macOS kept from the last scan, with
-  Open System Settings. The sidebar's names and counts are not repeated on
-  the page [22]. The first page offers Scan Now alone; Scan Automatically is
-  offered on the Overview after an answer [17]. The heading never says "nothing" for
+  one button, then the Scan Automatically switch. A newer version comes last,
+  with a plain Download, so the page keeps one prominent button. A scan or
+  its preparation is said once, in the heading: the window's subtitle stays
+  empty on the Overview. Under the heading is only what the person can act
+  on: a folder macOS kept from the last scan, with Open System Settings. The sidebar's names and counts are
+  not repeated on the page [22]. The first page offers Scan Now alone, with
+  the toolbar hidden as the sidebar is, so the page's own button is the one
+  control. View > Show Sidebar opens the sidebar there; it sets the model
+  directly, because the system's `SidebarCommands` did not open it against
+  the first page's hiding in the window check.
+  Scan Automatically is offered on the Overview after an answer [17]. The heading never says "nothing" for
   a list that was not read, nor before anything was checked. "Nothing Worth
   Reviewing" adds that some places couldn't be checked when any were, and
   Worth Reviewing's empty states say the same [22]. While the helper makes
@@ -1281,9 +1310,9 @@ is replaced (macOS behaviour).
   is only for a list nothing has checked in this launch. For 15 seconds
   after the person turns automatic scanning on, a helper that is not yet
   running is Starting…, not Helper Not Running (`helperStarting`, timed by
-  the model's clock). The update question waits until a scan or the
-  helper's first full pass has an answer, and none is running, because an
-  alert at launch interrupts before the app has shown anything [17].
+  the model's clock). The update question, a row at the bottom, waits
+  until a scan or the helper's first full pass has an answer, and none is
+  running, so the first page and a scan's progress come without it [17].
   Folder controls, skipped
   folders, check timing and Pause are in Settings. The
   Overview does not show what a scan covers. That is in
@@ -1304,7 +1333,8 @@ is replaced (macOS behaviour).
   put back as the page changed, it stopped the app about one run in five in
   the window check: AppKit refuses a second search field in a toolbar, and
   the first was not always gone by then. Do not make a toolbar's search field
-  depend on the page.
+  depend on the page. The first page hides the whole toolbar instead
+  (`.toolbar(.hidden, for: .windowToolbar)`), which leaves the field in it.
 - Filtering a review group checks every listed path, including fixed and
   set-aside copies. Matching secondary paths are display-only context below
   the representative path; the row's id, revision, sort key and file-action
@@ -1507,3 +1537,10 @@ Recheck a source before leaning on a detail: these change.
 26. Apple Style Guide, "contractions" and "Intro to international style":
     use common contractions; don't use idiomatic or colloquial expressions.
     https://support.apple.com/guide/applestyleguide/welcome/web
+27. Apple, Human Interface Guidelines, "Alerts": a title that describes the
+    situation; no alert for common actions that can be undone, nor merely to
+    inform. https://developer.apple.com/design/human-interface-guidelines/alerts
+28. Therese Fessenden, "Modal & Nonmodal Dialogs: When (& When Not) to Use
+    Them", Nielsen Norman Group, 2017: no modal dialog for nonessential
+    information unrelated to the current task; a nonmodal one lets people
+    continue. https://www.nngroup.com/articles/modal-nonmodal-dialog/

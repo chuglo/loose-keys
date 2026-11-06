@@ -2,12 +2,6 @@
 import AppKit
 import SwiftUI
 
-/// What the update alert asks or says.
-enum UpdateAlert: Equatable {
-    case question
-    case result(UpdateResult)
-}
-
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -32,6 +26,10 @@ struct MainView: View {
                 }
                 .background(UpdateAlertPresenter(value: updateAlert, makeAlert: makeUpdateAlert,
                                                  respond: answerUpdateAlert))
+                // The first page's one step is its own Scan Now, so the toolbar
+                // is hidden there with all it holds. Hidden, not taken apart:
+                // the Filter field stays in it.
+                .toolbar(welcomeShown ? .hidden : .visible, for: .windowToolbar)
         }
         // A sidebar the person has used is not hidden from them again: not on
         // coming back to Overview, nor when the first page's question returns.
@@ -44,86 +42,63 @@ struct MainView: View {
         #if (PREVIEW || SNAPSHOTS) && compiler(>=6.0)
         .modifier(SettingsOpener())
         #endif
-        .alert(Text(verbatim: "Loose Keys"), isPresented: failureShown, presenting: model.failure) { _ in
+        // The title says what failed, the message why.
+        .alert(Text(model.failure?.title ?? ""), isPresented: failureShown, presenting: model.failure) { _ in
             Button("OK") { model.failure = nil }
-        } message: { text in
-            Text(text)
+        } message: { failure in
+            Text(failure.reason)
         }
         // For a notification click or the Dock once this window has closed.
         .onAppear { model.openMainWindow = { openWindow(id: "main") } }
     }
 
-    /// What the update alert is showing: a result first, then the question.
-    private var updateAlert: UpdateAlert? {
-        if let result = model.updateResult { return .result(result) }
-        return model.shouldAskAboutUpdates ? .question : nil
-    }
+    /// What Check for Updates… found, until its alert is closed. The question
+    /// whether to check automatically is a row on the Overview, not an alert.
+    private var updateAlert: UpdateResult? { model.updateResult }
 
-    private func updateTitle(_ alert: UpdateAlert) -> String {
-        switch alert {
-        case .question:
-            return String(localized: "Check for Updates Automatically?",
-                          comment: "The title of the alert the first time the window opens, asking whether the app may check GitHub for a newer version.")
-        case .result(.newer(let release)):
+    private func updateTitle(_ result: UpdateResult) -> String {
+        switch result {
+        case .newer(let release):
             return String(localized: "Loose Keys \(release.newer ?? "") Is Available",
                           comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0.")
-        case .result(.upToDate):
+        case .upToDate:
             return String(localized: "You’re up to date.",
                           comment: "The title of the alert after Check for Updates… when no newer version is out.")
-        case .result(.failed):
+        case .failed:
             return String(localized: "Could Not Check for Updates",
                           comment: "The title of the alert after Check for Updates… when the check failed.")
         }
     }
 
-    private func updateMessage(_ alert: UpdateAlert) -> String {
-        switch alert {
-        case .question:
-            return String(localized: "Loose Keys can check GitHub for a new version once a day.",
-                          comment: "Under the title of the alert asking whether the app may check for updates.")
-        case .result(.newer(let release)):
+    private func updateMessage(_ result: UpdateResult) -> String {
+        switch result {
+        case .newer(let release):
             return String(localized: "You're using version \(release.current).",
                           comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0.")
-        case .result(.upToDate):
+        case .upToDate:
             return ""
-        case .result(.failed(let reason)):
+        case .failed(let reason):
             return reason
         }
     }
 
-    private func makeUpdateAlert(_ value: UpdateAlert) -> NSAlert {
+    private func makeUpdateAlert(_ result: UpdateResult) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = updateTitle(value)
-        alert.informativeText = updateMessage(value)
-        switch value {
-        case .question:
-            alert.addButton(withTitle: String(localized: "Check Automatically"))
-            alert.addButton(withTitle: String(localized: "Don’t Check")).keyEquivalent = "\u{1b}"
-        case .result(.newer):
+        alert.messageText = updateTitle(result)
+        alert.informativeText = updateMessage(result)
+        if case .newer = result {
             alert.addButton(withTitle: String(localized: "Download"))
             alert.addButton(withTitle: String(localized: "Not Now")).keyEquivalent = "\u{1b}"
-        case .result:
+        } else {
             alert.addButton(withTitle: String(localized: "OK"))
         }
         return alert
     }
 
-    private func answerUpdateAlert(_ alert: UpdateAlert, _ response: NSApplication.ModalResponse) {
-        switch alert {
-        case .question:
-            model.answerUpdateQuestion(response == .alertFirstButtonReturn)
-        case .result(.newer):
-            model.updateResult = nil
-            if response == .alertFirstButtonReturn { model.openURL(Releases.page) }
-        case .result:
-            model.updateResult = nil
-        }
-    }
-
-    /// Only lists have something to inspect.
-    private var hasInspector: Bool {
-        model.pane == .review || model.pane == .setAside || model.pane == .stored
+    private func answerUpdateAlert(_ result: UpdateResult, _ response: NSApplication.ModalResponse) {
+        model.updateResult = nil
+        if case .newer = result, response == .alertFirstButtonReturn { model.openURL(Releases.page) }
     }
 
     private var inspectorShown: Binding<Bool> {
@@ -133,20 +108,20 @@ struct MainView: View {
         // a choice, it left the inspector hidden on coming back to a list.
         // Nor one reported just after the toolbar button was pressed: that is
         // the end of what the press before it asked for.
-        Binding(get: { model.inspectorShown && hasInspector },
-                set: { if hasInspector, model.paneSettled, model.inspectorSettled { model.inspectorShown = $0 } })
+        Binding(get: { model.inspectorShown && model.hasInspector },
+                set: { if model.hasInspector, model.paneSettled, model.inspectorSettled { model.inspectorShown = $0 } })
     }
 
-    /// The first page's question needs no sidebar: every list is empty.
-    private var welcomeHides: Bool {
-        model.showsWelcome && model.pane == .overview && !model.sidebarAsked
+    /// The first page is showing.
+    private var welcomeShown: Bool {
+        model.showsWelcome && !model.preparingAccess && model.pane == .overview
     }
 
     private var columns: Binding<NavigationSplitViewVisibility> {
         // A sidebar the person opens on the first page stays theirs.
-        Binding(get: { welcomeHides ? .detailOnly : model.columns },
+        Binding(get: { model.welcomeHidesSidebar ? .detailOnly : model.columns },
                 set: { visibility in
-                    if !welcomeHides {
+                    if !model.welcomeHidesSidebar {
                         model.columns = visibility
                     } else if visibility != .detailOnly {
                         model.sidebarAsked = true
@@ -178,6 +153,10 @@ struct MainView: View {
     }
 
     private var subtitle: String {
+        // The Overview's heading says that a scan or its preparation runs,
+        // and when the last scan ran. "Scan incomplete" would show after
+        // nearly every scan, for places macOS keeps private.
+        if (model.pane ?? .overview) == .overview { return "" }
         if model.preparingAccess {
             return String(localized: "Preparing folder access…", comment: "Window subtitle while the app asks macOS for access to protected folders.")
         }
@@ -194,8 +173,6 @@ struct MainView: View {
             return model.results == nil ? ""
                 : String(localized: "\(model.storedShown.count) items", comment: "Subtitle of Stored Sign-ins: how many sign-ins the list shows.")
         case .overview:
-            // The answer on the page says when the scan ran. "Scan incomplete"
-            // would show after nearly every scan, for places macOS keeps private.
             return ""
         }
     }
@@ -206,7 +183,7 @@ struct MainView: View {
         // also the command's name in the File menu and on the Overview.
         ToolbarItem(placement: .primaryAction) {
             if model.phase == .scanning {
-                Button("Stop") { model.cancelScan() }
+                Button("Stop Scan") { model.cancelScan() }
                     .help("Stop the scan")
             } else {
                 Button("Scan Now") { model.startScan() }
@@ -233,7 +210,7 @@ struct MainView: View {
             .help("Save or copy the results")
             .disabled(model.results == nil || model.phase == .scanning)
         }
-        if hasInspector {
+        if model.hasInspector {
             ToolbarItem {
                 Button { model.toggleInspector() } label: {
                     Label("Inspector", systemImage: "sidebar.trailing")

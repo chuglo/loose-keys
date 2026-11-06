@@ -23,7 +23,9 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   `build.rs` compiles it with `clang` and archives it with `ar`. Subprocesses
   are confined to build scripts and tests.
 - `app/`: the window. `Engine.swift` is its side of `Bridge.h`, `AppModel.swift`
-  holds all view state, `Models.swift` decodes the engine's JSON, and
+  holds all view state, `Models.swift` decodes the engine's JSON,
+  `Failure.swift` has the titles of the alerts for failed actions,
+  `Commands.swift` the menu bar's commands, and
   `Preview.swift` holds the sample engine, its JSON and the window check's
   `Checks`.
 - `macos/Info.plist`: its `LSMinimumSystemVersion` (14.0) is the target every

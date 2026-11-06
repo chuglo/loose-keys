@@ -1,5 +1,6 @@
 // Everything the window shows, and every action it can take.
 import AppKit
+import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -237,16 +238,15 @@ final class AppModel: ObservableObject {
         inspectorPressed = Date()
     }
     /// A problem to show in an alert on the main window.
-    @Published var failure: String?
+    @Published var failure: Failure?
     /// What went wrong with an action taken in Settings, for an alert there.
-    @Published var settingsFailure: String?
+    @Published var settingsFailure: Failure?
     /// Whether Settings is open, as Settings itself says.
     var settingsOpen = false
     /// A short confirmation, shown under the window title.
     @Published var notice: String?
     private var decisionTurn = 0
     @Published var awaitingPermission = false
-    @Published var askingConsent = false
     private var placesOrder = RequestOrder()
     private let reviewReads = ReadTurns()
     private let monitorReads = ReadTurns()
@@ -315,15 +315,19 @@ final class AppModel: ObservableObject {
     private var updatesAnswered = false
     /// The automatic checks: one now, then one a day.
     private var updateChecks: Task<Void, Never>?
+    /// What the last status read that worked said: whether the question was
+    /// answered, and whether the helper has finished a full pass. A read that
+    /// fails for a moment then neither asks nor takes the question away.
+    @Published private var updateQuestionAnswered: Bool?
+    @Published private var helperPassDone = false
 
     /// Whether to ask if the app may check for updates: never asked, and the
     /// answer can be saved. Not while the app is only in the menu bar, and
     /// not at first start: only once a scan has an answer, this window's or
     /// the helper's first full pass, and none is running.
     var shouldAskAboutUpdates: Bool {
-        guard asksAboutUpdates, !updatesAnswered, !quietLaunch, let monitor, monitor.updateCheck == nil,
-              monitorFailure == nil, reviewProblem == nil,
-              results != nil || monitor.health.fullPass != nil,
+        guard asksAboutUpdates, !updatesAnswered, !quietLaunch, updateQuestionAnswered == false,
+              monitorFailure == nil, results != nil || helperPassDone,
               phase != .scanning, !preparingAccess else { return false }
         return true
     }
@@ -338,7 +342,7 @@ final class AppModel: ObservableObject {
             do {
                 try await engine.send("set_update_check", ["enabled": on])
             } catch {
-                report(error.localizedDescription, from: origin)
+                report(error.localizedDescription, title: FailureTitle.updateChecks, from: origin)
             }
             await refreshMonitor()
         }
@@ -562,7 +566,7 @@ final class AppModel: ObservableObject {
                 }
             } catch { problem = error.localizedDescription }
             await refreshReview()
-            if let problem { failure = problem }
+            if let problem { failure = Failure(title: FailureTitle.saveChoice, reason: problem) }
         }
     }
 
@@ -745,7 +749,7 @@ final class AppModel: ObservableObject {
         } catch {
             // The folders already shown stay, and so may a change still on its
             // way: a list that could not be got is not an empty one.
-            if placesOrder.isNewest(request) { failure = error.localizedDescription }
+            if placesOrder.isNewest(request) { failure = Failure(title: FailureTitle.readPlaces, reason: error.localizedDescription) }
         }
         await refreshReview()
         await refreshMonitor()
@@ -769,7 +773,7 @@ final class AppModel: ObservableObject {
                 reviewUnread = error.localizedDescription
                 // Automatic refresh failures stay visible in the list without
                 // reopening a modal alert every five seconds.
-                if reportFailure { failure = error.localizedDescription }
+                if reportFailure { failure = Failure(title: FailureTitle.openReview, reason: error.localizedDescription) }
             }
         }
     }
@@ -784,6 +788,8 @@ final class AppModel: ObservableObject {
             if let answer {
                 menuBarOn = answer.menuBar
                 followUpdateSetting(answer.updateCheck == true)
+                updateQuestionAnswered = answer.updateCheck != nil
+                if answer.health.fullPass != nil { helperPassDone = true }
             }
             if showingPlaces, let answer,
                automaticCoverage == nil || automaticCoverageError != nil
@@ -889,9 +895,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Run an action, and show what went wrong if it fails.
-    private func attempt(from origin: ActionOrigin = .window, _ work: @escaping () async throws -> Void) {
+    private func attempt(_ title: String, from origin: ActionOrigin = .window, _ work: @escaping () async throws -> Void) {
         Task {
-            do { try await work() } catch { report(error.localizedDescription, from: origin) }
+            do { try await work() } catch { report(error.localizedDescription, title: title, from: origin) }
         }
     }
 
@@ -900,7 +906,8 @@ final class AppModel: ObservableObject {
     /// window does, and comes up for it unless the action was taken there:
     /// Settings may have closed while the engine answered, and the menu bar
     /// has no window.
-    private func report(_ problem: String, from origin: ActionOrigin) {
+    private func report(_ reason: String, title: String, from origin: ActionOrigin) {
+        let problem = Failure(title: title, reason: reason)
         switch origin {
         case .window:
             failure = problem
@@ -916,13 +923,13 @@ final class AppModel: ObservableObject {
     /// not the change was made. The engine sends no event when a save fails,
     /// and after one the list is one it can no longer read or save. The page
     /// is brought up to date before the failure is reported over it.
-    private func change(from origin: ActionOrigin = .window, _ work: @escaping () async throws -> Void,
+    private func change(_ title: String, from origin: ActionOrigin = .window, _ work: @escaping () async throws -> Void,
                         after saved: (() -> Void)? = nil) {
         Task {
             var problem: String?
             do { try await work() } catch { problem = error.localizedDescription }
             await refreshReview()
-            if let problem { report(problem, from: origin) }
+            if let problem { report(problem, title: title, from: origin) }
             else if reviewProblem == nil { saved?() }
         }
     }
@@ -968,12 +975,13 @@ final class AppModel: ObservableObject {
                 await refreshReview()
                 phase = .done
                 if let error = reviewProblem {
-                    failure = String(localized: "The scan finished, but Loose Keys could not show its findings. \(error) Save the report to see them.",
-                                     comment: "In an alert after a scan. %@ is the reason, one or more sentences from the engine or macOS.")
+                    failure = Failure(title: FailureTitle.showFindings,
+                                      reason: String(localized: "The scan finished. \(error) Save the report to see what it found.",
+                                                     comment: "In an alert after a scan, under Couldn't Show the Findings. %@ is the reason, one or more sentences from the engine or macOS."))
                 }
             } catch {
                 phase = results == nil ? .ready : .done
-                failure = error.localizedDescription
+                failure = Failure(title: FailureTitle.scan, reason: error.localizedDescription)
             }
             started = nil
         }
@@ -984,7 +992,7 @@ final class AppModel: ObservableObject {
             cancelAccessPreparation()
             return
         }
-        attempt { try await self.engine.send("cancel_scan") }
+        attempt(FailureTitle.stopScan) { try await self.engine.send("cancel_scan") }
     }
 
     // MARK: Folders
@@ -997,27 +1005,27 @@ final class AppModel: ObservableObject {
         panel.message = String(localized: "Choose a folder or drive to include in scans.",
                                comment: "At the top of the panel that chooses a folder or drive to include in scans.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        attempt(from: origin) {
+        attempt(FailureTitle.addFolder, from: origin) {
             let places = try await self.changePlaces("type_place", ["text": url.path])
-            if let error = places.error { self.report(EngineText.shown(error), from: origin) }
+            if let error = places.error { self.report(EngineText.shown(error), title: FailureTitle.addFolder, from: origin) }
         }
     }
 
     /// Folders dropped on Settings. The first one refused ends the batch, and says why.
     func addFolders(_ folders: [URL], from origin: ActionOrigin = .window) {
-        attempt(from: origin) {
+        attempt(FailureTitle.addFolder, from: origin) {
             for folder in folders {
                 // The panel offers only folders. A drop can carry a file or a web link.
                 guard folder.isFileURL,
                       (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
                     self.report(String(localized: "Only folders and drives can be added.",
                                        comment: "In an alert: something other than a folder or drive was dropped on the window."),
-                                from: origin)
+                                title: FailureTitle.addFolder, from: origin)
                     break
                 }
                 let places = try await self.changePlaces("type_place", ["text": folder.path])
                 if let error = places.error {
-                    self.report(EngineText.shown(error), from: origin)
+                    self.report(EngineText.shown(error), title: FailureTitle.addFolder, from: origin)
                     break
                 }
             }
@@ -1028,9 +1036,9 @@ final class AppModel: ObservableObject {
     /// The engine acts only while the two agree, so a second press that lands
     /// after the list has moved up does nothing to the folder now in that place.
     func removeFolder(_ index: Int, shown: String, from origin: ActionOrigin = .window) {
-        attempt(from: origin) {
+        attempt(FailureTitle.removeFolder, from: origin) {
             let places = try await self.changePlaces("remove_place", ["index": index, "shown": shown])
-            if let error = places.error { self.report(EngineText.shown(error), from: origin) }
+            if let error = places.error { self.report(EngineText.shown(error), title: FailureTitle.removeFolder, from: origin) }
         }
     }
 
@@ -1045,7 +1053,7 @@ final class AppModel: ObservableObject {
     }
 
     func checkFolderAgain(_ index: Int, shown: String, from origin: ActionOrigin = .window) {
-        change(from: origin) { try await self.engine.send("unskip_folder", ["index": index, "shown": shown]) }
+        change(FailureTitle.includeFolder, from: origin) { try await self.engine.send("unskip_folder", ["index": index, "shown": shown]) }
     }
 
     // MARK: One finding
@@ -1076,14 +1084,14 @@ final class AppModel: ObservableObject {
     }
 
     func showInFinder(_ index: Int, review: Bool) {
-        attempt {
+        attempt(FailureTitle.showInFinder) {
             let path = try await self.path(index, review: review)
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
     }
 
     func copyPath(_ index: Int, review: Bool) {
-        attempt {
+        attempt(FailureTitle.copyPath) {
             let path = try await self.path(index, review: review)
             let text = self.quotedIfNeeded(path)
             self.copy(text)
@@ -1102,6 +1110,10 @@ final class AppModel: ObservableObject {
         if let url = URL(string: link) { openURL(url) }
     }
 
+    /// System Settings at Login Items, where the helper and the app are
+    /// allowed to start. The checks record a press instead.
+    var openLoginItems: () -> Void = { SMAppService.openSystemSettingsLoginItems() }
+
     /// System Settings at Privacy & Security, Files & Folders, where a folder
     /// denied at the prompt can be allowed again (unverified on macOS 26 and later).
     func openFilesAndFoldersSettings() {
@@ -1112,7 +1124,7 @@ final class AppModel: ObservableObject {
 
     /// The engine accepts only pages listed in its rules, and hands back the one to open.
     func openLink(_ link: String) {
-        attempt {
+        attempt(FailureTitle.openPage) {
             let checked: String = try await self.engine.request("open_link", ["url": link])
             if let url = URL(string: checked) { NSWorkspace.shared.open(url) }
         }
@@ -1133,7 +1145,7 @@ final class AppModel: ObservableObject {
         let turn = decisionTurn
         let from = pane
         let since = paneChanged
-        change({
+        change(FailureTitle.saveChoice, {
             try await self.engine.send("decide_review", self.drawn(item).merging(["reason": reason ?? NSNull()]) { $1 })
         }, after: { [self] in
             // Follow the finding only if the person chose nothing since: the
@@ -1148,7 +1160,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopCheckingFolder(_ item: ReviewItem) {
-        change { try await self.engine.send("skip_folder", ["id": item.id]) }
+        change(FailureTitle.skipFolder) { try await self.engine.send("skip_folder", ["id": item.id]) }
     }
 
     // MARK: Saving and copying results
@@ -1163,7 +1175,7 @@ final class AppModel: ObservableObject {
             : String(localized: "Every finding and file path. Review before sharing.",
                      comment: "At the top of the save panel for Save Report…: what the saved file holds.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        attempt {
+        attempt(FailureTitle.saveReport) {
             try await self.write(feedback: feedback, to: url)
             self.confirm(String(localized: "Saved \(url.lastPathComponent)",
                                 comment: "Shown for a moment under the window title after a save. %@ is the name of the file the person chose."))
@@ -1192,7 +1204,7 @@ final class AppModel: ObservableObject {
     }
 
     func copySummary() {
-        attempt {
+        attempt(FailureTitle.copySummary) {
             let text: String = try await self.engine.request("summary_text")
             self.copy(text)
             self.confirm(String(localized: "Summary copied", comment: "Shown for a moment under the window title after Copy Summary."))
@@ -1283,7 +1295,7 @@ final class AppModel: ObservableObject {
             accessCancelled = false
             pane = .overview
         }
-        attempt(from: origin) {
+        attempt(FailureTitle.automaticScanning, from: origin) {
             if needsAccess, try await !self.prepareAccess() { return }
             try await self.engine.send("set_monitoring", ["enabled": enabled, "paused": paused])
             if needsAccess { self.turnedOn = self.now() }
@@ -1305,7 +1317,7 @@ final class AppModel: ObservableObject {
     /// A button in Settings only.
     func restartHelper() {
         let registered = monitor?.login == 2
-        attempt(from: .settings) {
+        attempt(FailureTitle.restartHelper, from: .settings) {
             var result = 1
             if registered {
                 result = try await self.engine.request("set_login_startup", ["enabled": false])
@@ -1316,9 +1328,9 @@ final class AppModel: ObservableObject {
             await self.refreshMonitor()
             await self.refreshMonitorSoon()
             if result == 4 {
-                self.report(String(localized: "macOS could not restart the background helper. Check System Settings > General > Login Items.",
-                                   comment: "In an alert after Restart Helper. Use the names macOS gives System Settings and its Login Items pane."),
-                            from: .settings)
+                self.report(String(localized: "Check that Loose Keys is turned on under Allow in the Background in System Settings.",
+                                   comment: "In an alert after Restart Helper, under Couldn't Restart the Helper. Allow in the Background is the name of a list in System Settings' Login Items pane; use macOS's own names."),
+                            title: FailureTitle.restartHelper, from: .settings)
             }
         }
     }
@@ -1330,7 +1342,7 @@ final class AppModel: ObservableObject {
                 menuBarOn = on
                 updatePolling()
             } catch {
-                report(error.localizedDescription, from: origin)
+                report(error.localizedDescription, title: FailureTitle.menuBar, from: origin)
             }
             await refreshMonitor()
         }
@@ -1344,16 +1356,14 @@ final class AppModel: ObservableObject {
                 try await engine.send("enable_notifications")
             } catch {
                 awaitingPermission = false
-                report(String(localized: "Could not request notification permission: \(error.localizedDescription)",
-                              comment: "In an alert after Allow Notifications…. %@ is the reason the engine or macOS gave."),
-                       from: origin)
+                report(error.localizedDescription, title: FailureTitle.askNotifications, from: origin)
             }
         }
     }
 
     /// A button in Settings only.
     func retryNotifications() {
-        attempt(from: .settings) {
+        attempt(FailureTitle.sendNotification, from: .settings) {
             try await self.engine.send("retry_notifications")
             await self.refreshMonitor()
         }

@@ -1,13 +1,13 @@
-// An update question is optional: quitting must not require answering it.
+// What Check for Updates… found. Quitting must not require answering it.
 // SwiftUI's dialog termination override needs macOS 15.4. Use the native
 // alert's equivalent on every supported macOS, scoped to this alert alone.
 import AppKit
 import SwiftUI
 
 struct UpdateAlertPresenter: NSViewRepresentable {
-    let value: UpdateAlert?
-    let makeAlert: (UpdateAlert) -> NSAlert
-    let respond: (UpdateAlert, NSApplication.ModalResponse) -> Void
+    let value: UpdateResult?
+    let makeAlert: (UpdateResult) -> NSAlert
+    let respond: (UpdateResult, NSApplication.ModalResponse) -> Void
 
     func makeNSView(context: Context) -> Anchor { Anchor() }
 
@@ -22,7 +22,7 @@ struct UpdateAlertPresenter: NSViewRepresentable {
 
     final class Anchor: NSView {
         var refresh: (() -> Void)?
-        private var shown: (UpdateAlert, NSAlert)?
+        private var shown: (UpdateResult, NSAlert)?
         private var sheetEnded: NSObjectProtocol?
 
         override func viewDidMoveToWindow() {
@@ -42,8 +42,8 @@ struct UpdateAlertPresenter: NSViewRepresentable {
             if let sheetEnded { NotificationCenter.default.removeObserver(sheetEnded) }
         }
 
-        func present(_ value: UpdateAlert?, makeAlert: (UpdateAlert) -> NSAlert,
-                     respond: @escaping (UpdateAlert, NSApplication.ModalResponse) -> Void) {
+        func present(_ value: UpdateResult?, makeAlert: (UpdateResult) -> NSAlert,
+                     respond: @escaping (UpdateResult, NSApplication.ModalResponse) -> Void) {
             guard shown?.0 != value else { return }
             if let previous = shown {
                 shown = nil
@@ -57,7 +57,7 @@ struct UpdateAlertPresenter: NSViewRepresentable {
                 guard let self, let alert, self.shown?.1 === alert else { return }
                 self.shown = nil
                 // System dismissal, including Quit, is not an answer. Only
-                // one of the explicit buttons may save consent or open a URL.
+                // one of the explicit buttons may open a URL.
                 if response == .alertFirstButtonReturn || response == .alertSecondButtonReturn {
                     respond(value, response)
                 }

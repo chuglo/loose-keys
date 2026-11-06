@@ -9,19 +9,6 @@ struct OverviewView: View {
             welcome
         } else {
             Form {
-                if let update = model.availableUpdate, let newer = update.newer {
-                    Section {
-                        LabeledContent {
-                            Button("Download") { model.openURL(Releases.page) }
-                                .buttonStyle(.borderedProminent)
-                        } label: {
-                            Text(String(localized: "Loose Keys \(newer) Is Available",
-                                        comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0."))
-                            Text(String(localized: "You're using version \(update.current).",
-                                        comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0."))
-                        }
-                    }
-                }
                 // The answer heads the page. Under it, only what the person
                 // can act on: a folder to allow again, or why no scan can run.
                 // What a scan found is in the sidebar.
@@ -35,6 +22,38 @@ struct OverviewView: View {
                 }
                 if !model.preparingAccess && model.phase != .scanning {
                     automatic
+                }
+                // A row, not an alert: the question is not urgent, and an
+                // alert came over what the first scan had just found. It
+                // stays until answered, here or in Settings.
+                if model.shouldAskAboutUpdates {
+                    Section {
+                        LabeledContent {
+                            HStack {
+                                Button("Don’t Check") { model.answerUpdateQuestion(false) }
+                                Button("Check Automatically") { model.answerUpdateQuestion(true) }
+                            }
+                        } label: {
+                            Text("Check for Updates Automatically?",
+                                 comment: "At the bottom of the Overview after the first scan, asking whether the app may check GitHub for a newer version.")
+                            Text("Loose Keys can check GitHub for a new version once a day.",
+                                 comment: "Under Check for Updates Automatically? on the Overview.")
+                        }
+                    }
+                }
+                // Last and plain: the page's one prominent button belongs to
+                // what the scan found.
+                if let update = model.availableUpdate, let newer = update.newer {
+                    Section {
+                        LabeledContent {
+                            Button("Download") { model.openURL(Releases.page) }
+                        } label: {
+                            Text(String(localized: "Loose Keys \(newer) Is Available",
+                                        comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0."))
+                            Text(String(localized: "You're using version \(update.current).",
+                                        comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0."))
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -303,14 +322,19 @@ struct OverviewView: View {
                         if model.backgroundState == .active, monitor.health.fullPass == nil {
                             Text("Checking existing files…")
                         }
-                        if monitor.login == 3 {
-                            Text("Approve Loose Keys in System Settings > General > Login Items.")
-                        } else if model.backgroundState == .helperNotRunning {
+                        if model.backgroundState == .helperNotRunning {
                             Text("Open Settings to restart the helper.")
                         }
                     }
                 }
                 .disabled(model.monitorFailure != nil || (!monitor.enabled && model.places?.home == nil))
+                if monitor.enabled, monitor.login == 3 {
+                    LabeledContent {
+                        Button("Open System Settings") { model.openLoginItems() }
+                    } label: {
+                        Text(LoginItemsText.approveHelper)
+                    }
+                }
                 // Asked once. After an answer, the switch is in System Settings.
                 if monitor.enabled, model.canAskForNotifications {
                     LabeledContent {

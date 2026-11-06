@@ -64,9 +64,6 @@
 /* Last part of the Worth Reviewing subtitle, after the counts and a comma: the list had no room for some findings. [AppModel.swift:408] */
 "list full, so some findings are missing" = "lista llena, así que faltan algunos hallazgos";
 
-/* In an alert after a scan. %@ is the reason, one or more sentences from the engine or macOS. [AppModel.swift:643] */
-"The scan finished, but Loose Keys could not show its findings. %@ Save the report to see them." = "El análisis terminó, pero Loose Keys no pudo mostrar sus hallazgos. %@ Guarda el informe para verlos.";
-
 /* The button of the panel that chooses a folder or drive to include in scans. [AppModel.swift:668] */
 "Add" = "Añadir";
 
@@ -99,12 +96,6 @@
 
 /* Shown for a moment under the window title after Copy Summary. [AppModel.swift:857] */
 "Summary copied" = "Resumen copiado";
-
-/* In an alert after Restart Helper. Use the names macOS gives System Settings and its Login Items pane. [AppModel.swift:941] */
-"macOS could not restart the background helper. Check System Settings > General > Login Items." = "macOS no pudo reiniciar el proceso auxiliar. Comprueba Ajustes del Sistema > General > Ítems de inicio.";
-
-/* In an alert after Allow Notifications…. %@ is the reason the engine or macOS gave. [AppModel.swift:968] */
-"Could not request notification permission: %@" = "No se pudo solicitar el permiso de notificaciones: %@";
 
 /* In an alert: the engine linked into the app returned nothing for a request. [Engine.swift:59] */
 "Loose Keys stopped responding. Try again." = "Loose Keys dejó de responder. Inténtalo de nuevo.";
@@ -339,10 +330,6 @@
 /* Window subtitle while a scan runs. [MainView.swift:109] */
 "Scanning…" = "Analizando…";
 
-
-/* [MainView.swift:145] */
-"Stop" = "Detener";
-
 /* [MainView.swift:146] */
 "Stop the scan" = "Detener el análisis";
 
@@ -511,8 +498,8 @@
 /* [Overview.swift:261] */
 "Checking existing files…" = "Comprobando los archivos existentes…";
 
-/* [Overview.swift:268] */
-"Approve Loose Keys in System Settings > General > Login Items." = "Aprueba Loose Keys en Ajustes del Sistema > General > Ítems de inicio.";
+/* Beside Open System Settings while the helper needs approval. Allow in the Background is the name of a list in System Settings' Login Items pane; use macOS's own name for it. */
+"Turn on Loose Keys under Allow in the Background." = "Activa Loose Keys en la sección Permitir en segundo plano.";
 
 /* [Overview.swift:270] */
 "Open Settings to restart the helper." = "Abre Ajustes para reiniciar el proceso auxiliar.";
@@ -535,18 +522,6 @@
 /* [Settings.swift:14] */
 "Automatic scanning is not available." = "El análisis automático no está disponible.";
 
-/* [Settings.swift:21] */
-"Allow Automatic Scanning?" = "¿Permitir el análisis automático?";
-
-/* [Settings.swift:22] */
-"Allow" = "Permitir";
-
-/* [Settings.swift:23] */
-"Cancel" = "Cancelar";
-
-/* [Settings.swift:25] */
-"Loose Keys will check your files whenever they change, even when the app is closed." = "Loose Keys comprobará tus archivos cada vez que cambien, incluso con la app cerrada.";
-
 /* [Settings.swift:54] */
 "Restart Helper" = "Reiniciar proceso auxiliar";
 
@@ -564,9 +539,6 @@
 
 /* Settings, beside Helper: the state of the helper (a singular noun). It is registered with macOS, but not running. [Settings.swift:88] */
 "Not running" = "No está en ejecución";
-
-/* Settings, beside Helper: the state of the helper (a singular noun). Use the names macOS gives System Settings and its Login Items pane. [Settings.swift:91] */
-"Needs approval in System Settings > General > Login Items" = "Necesita aprobación en Ajustes del Sistema > General > Ítems de inicio";
 
 /* Settings, beside Helper: macOS refused to start the helper (a singular noun). [Settings.swift:94] */
 "macOS could not start it" = "macOS no pudo iniciarlo";
@@ -706,3 +678,42 @@
 "Checking Your Files…" = "Comprobando tus archivos…";
 "Findings appear here as they turn up." = "Los hallazgos aparecen aquí a medida que se encuentran.";
 "Still checking your files…" = "Todavía se están comprobando tus archivos…";
+
+/* Alert titles: the action that failed. The message under each says why. */
+"Couldn't Scan" = "No se pudo analizar";
+"Couldn't Stop the Scan" = "No se pudo detener el análisis";
+"Couldn't Show the Findings" = "No se pudieron mostrar los hallazgos";
+"Couldn't Open Worth Reviewing" = "No se pudo abrir Para revisar";
+"Couldn't Save Your Choice" = "No se pudo guardar tu elección";
+"Couldn't Read the Places to Check" = "No se pudieron leer los lugares que comprobar";
+"Couldn't Add the Folder" = "No se pudo añadir la carpeta";
+"Couldn't Remove the Folder" = "No se pudo quitar la carpeta";
+"Couldn't Stop Checking the Folder" = "No se pudo dejar de comprobar la carpeta";
+"Couldn't Include the Folder Again" = "No se pudo volver a incluir la carpeta";
+"Couldn't Show the File in Finder" = "No se pudo mostrar el archivo en el Finder";
+"Couldn't Copy the Path" = "No se pudo copiar la ruta";
+"Couldn't Open the Page" = "No se pudo abrir la página";
+"Couldn't Save the Report" = "No se pudo guardar el informe";
+"Couldn't Copy the Summary" = "No se pudo copiar el resumen";
+"Couldn't Change Automatic Scanning" = "No se pudo cambiar el análisis automático";
+"Couldn't Restart the Helper" = "No se pudo reiniciar el proceso auxiliar";
+"Couldn't Change Show in Menu Bar" = "No se pudo cambiar Mostrar en la barra de menús";
+"Couldn't Change Update Checks" = "No se pudo cambiar la búsqueda de actualizaciones";
+"Couldn't Ask About Notifications" = "No se pudo preguntar por las notificaciones";
+"Couldn't Send the Notification" = "No se pudo enviar la notificación";
+
+/* In an alert after a scan, under Couldn't Show the Findings. %@ is the reason, one or more sentences from the engine or macOS. */
+"The scan finished. %@ Save the report to see what it found." = "El análisis terminó. %@ Guarda el informe para ver lo que encontró.";
+
+/* In an alert after Restart Helper, under Couldn't Restart the Helper. */
+"Check that Loose Keys is turned on under Allow in the Background in System Settings." = "Comprueba que Loose Keys esté activado en la sección Permitir en segundo plano de Ajustes del Sistema.";
+
+/* The menu bar's commands. */
+"Show Inspector" = "Mostrar inspector";
+"Hide Inspector" = "Ocultar inspector";
+"Show Sidebar" = "Mostrar barra lateral";
+"Hide Sidebar" = "Ocultar barra lateral";
+/* A menu in the menu bar: what can be done to the finding or sign-in chosen in the list. */
+"Item" = "Elemento";
+/* A submenu of the Item menu: set the chosen findings aside, for a reason chosen from it. A verb. */
+"command.set-aside" = "Dejar a un lado";

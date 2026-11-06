@@ -149,23 +149,7 @@ struct LooseKeysApp: App {
                 .frame(minWidth: 760, minHeight: 480)
         }
         .defaultSize(initialWindowSize(in: NSScreen.main?.visibleFrame.size ?? CGSize(width: 1220, height: 800)))
-        .commands {
-            CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { model.checkForUpdates() }
-                    .disabled(model.checkingUpdates)
-            }
-            CommandGroup(replacing: .newItem) {
-                Button("Scan Now") { model.startScan() }
-                    .keyboardShortcut("r")
-                    .disabled(model.phase == .scanning)
-                Divider()
-                Button("Save Report…") { model.save(feedback: false) }
-                    .keyboardShortcut("s")
-                    .disabled(model.results == nil)
-                Button("Save Counts Only…") { model.save(feedback: true) }
-                    .disabled(model.results == nil)
-            }
-        }
+        .commands { AppCommands(model: model) }
 
         Settings {
             SettingsView()

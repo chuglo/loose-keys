@@ -459,6 +459,15 @@ enum NotCheckedText {
     }
 }
 
+/// Beside Open System Settings, on the Overview and in Settings, while macOS
+/// waits for the person to let the helper run.
+enum LoginItemsText {
+    static var approveHelper: String {
+        String(localized: "Turn on Loose Keys under Allow in the Background.",
+               comment: "Beside Open System Settings while the helper needs approval. Allow in the Background is the name of a list in System Settings' Login Items pane; use macOS's own name for it.")
+    }
+}
+
 enum FolderScopeText {
     static var exceptions: String {
         String(localized: "Known sign-in files and files directly in AI tools' folders are still read by full scans. Existing findings are rechecked.",

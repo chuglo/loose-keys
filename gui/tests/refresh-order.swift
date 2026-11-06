@@ -684,7 +684,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
         let removal = await bench.ask("remove_place") { $0.removeFolder(0, shown: "/Volumes/Fixture") }
         bench.answer(removal.call, .success(places(["/Volumes/Fixture"], error: problem)))
         await eventually("the refused removal's response is applied") { bench.model.places?.error == problem }
-        check(bench.model.failure == EngineText.shown(problem),
+        check(bench.model.failure?.reason == EngineText.shown(problem),
               "places: a refusal inside a successful removal response is reported")
         check(bench.model.places?.home == "~" && bench.model.places?.extra == ["/Volumes/Fixture"],
               "places: a refused removal keeps the usable folder list")
@@ -904,6 +904,8 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     await status(bench, .success(monitorStatus(enabled: true, running: true, fullPass: checked)))
     check(bench.model.shouldAskAboutUpdates,
           "updates: asked once the saved state says it never was and the helper's first full pass has an answer")
+    await status(bench, refused)
+    check(bench.model.shouldAskAboutUpdates, "updates: a status read that fails for a moment does not take the question away")
     await status(bench, .success(monitorStatus(enabled: false, updateCheck: true, fullPass: checked)))
     check(!bench.model.shouldAskAboutUpdates, "updates: not asked again once answered yes")
     await status(bench, .success(monitorStatus(enabled: false, fullPass: checked)))
@@ -912,7 +914,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     let saved = await bench.next("set_update_check")
     check(saved.args["enabled"] as? Bool == false, "updates: Don't Check saves no")
     bench.answer(saved, .success("null"))
-    bench.answer(await bench.next("monitor_status", after: 6), .success(monitorStatus(enabled: false, updateCheck: false)))
+    bench.answer(await bench.next("monitor_status", after: 7), .success(monitorStatus(enabled: false, updateCheck: false)))
     await eventually("the status after the answer is read") { bench.model.monitor?.updateCheck == false }
 
     let quiet = Bench()

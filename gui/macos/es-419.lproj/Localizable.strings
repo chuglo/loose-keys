@@ -7,17 +7,11 @@
 
 "Add Folder or Drive…" = "Agregar carpeta o disco…";
 
-"Approve Loose Keys in System Settings > General > Login Items." = "Aprueba Loose Keys en Configuración del Sistema > General > Elementos de inicio.";
-
 "Open System Settings" = "Abrir Configuración del Sistema";
 
 "Settings…" = "Configuración…";
 
-"Needs approval in System Settings > General > Login Items" = "Necesita aprobación en Configuración del Sistema > General > Elementos de inicio";
-
 "Off in System Settings" = "Desactivadas en Configuración del Sistema";
-
-"macOS could not restart the background helper. Check System Settings > General > Login Items." = "macOS no pudo reiniciar el proceso auxiliar. Comprueba Configuración del Sistema > General > Elementos de inicio.";
 
 "Automatic scanning does not include added folders and drives. Use Scan Now to check them." = "El análisis automático no incluye las carpetas ni los discos agregados. Usa Analizar ahora para comprobarlos.";
 
@@ -33,3 +27,7 @@
 /* Latin American macOS calls System Settings Configuración del Sistema, and an app's Settings Configuración. */
 "Allow access in System Settings, then scan again." = "Permite el acceso en Configuración del Sistema y vuelve a analizar.";
 "Scans will skip %@. You can include it again in Settings." = "Los análisis omitirán %@. Puedes volver a incluir esta carpeta en Configuración.";
+
+"Couldn't Add the Folder" = "No se pudo agregar la carpeta";
+
+"Check that Loose Keys is turned on under Allow in the Background in System Settings." = "Comprueba que Loose Keys esté activado en la sección Permitir en segundo plano de Configuración del Sistema.";

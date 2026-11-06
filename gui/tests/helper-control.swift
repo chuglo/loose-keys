@@ -123,14 +123,6 @@ func wait(_ message: String, _ condition: () -> Bool) {
 }
 func press(_ element: AXUIElement, _ name: String) {
     let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
-    // macOS 26 can dismiss the consent sheet and apply Allow, then return
-    // attributeUnsupported for its now-gone control. Do not press it twice.
-    // The unchanged wait below must prove the toggle became enabled, and the
-    // Rust runner separately requires real registration and a completed pass.
-    if name == "Allow" && result == .attributeUnsupported {
-        print("NOTE: Allow returned AX -25205; checking outcome")
-        return
-    }
     guard result == .success else {
         stop("FAIL: Settings action refused: \(name), AX \(result.rawValue), enabled \(attribute(element, kAXEnabledAttribute) as? Bool ?? false)")
     }
@@ -172,10 +164,6 @@ if action == "enable-overview" {
     }
     if current != desired {
         press(toggle, "background toggle")
-        if desired == 1 {
-            wait("background consent unavailable") { control("Allow") != nil }
-            press(control("Allow")!, "Allow")
-        }
     }
     wait("background setting did not change") {
         guard let toggle = consentSwitch() else { return false }
@@ -189,6 +177,6 @@ if action == "enable-overview" {
     wait("helper did not restart") { control("Restart Helper", roles: [kAXButtonRole]) == nil }
 }
 if windows().contains(where: { element in
-    (attribute(element, kAXValueAttribute) as? String ?? "").contains("Needs approval in System Settings")
+    (attribute(element, kAXValueAttribute) as? String ?? "").contains("Allow in the Background")
 }) { stop("BLOCKED: approve helper in guest Login Items before rerunning", 2) }
 print("PASS: helper Settings action " + action)

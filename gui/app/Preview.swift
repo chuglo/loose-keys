@@ -49,6 +49,11 @@ final class SampleEngine: Engine {
     /// macOS, only a start after a stop runs it again.
     static var helperStopped = false
     static var helperUnregistered = false
+    /// Set by the checks: macOS waits for the person to let the helper run.
+    static var helperNeedsApproval = false
+    /// How long a sample scan takes; the checks lengthen it to stop one.
+    static var scanSeconds = 0.3
+    static var cancelRequests = 0
     /// What the window asked of the helper's registration, in order.
     static var loginRequests: [Bool] = []
     /// Show in Menu Bar. set_menu_bar changes it, and the checks put it back.
@@ -159,7 +164,7 @@ final class SampleEngine: Engine {
             return Data(Self.automaticCoverage.utf8)
         case "start_scan":
             Self.scanRequests += 1
-            Thread.sleep(forTimeInterval: 0.3)
+            Thread.sleep(forTimeInterval: Self.scanSeconds)
             // The sample scan could not read everything: its status is "partial".
             var answer = Self.results
             if Self.nothingFound { answer = answer.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) }
@@ -170,6 +175,9 @@ final class SampleEngine: Engine {
             Self.pathRequest = args
             return Data(#""sample""#.utf8)
         case "summary_text", "open_link": return Data(#""sample""#.utf8)
+        case "cancel_scan":
+            Self.cancelRequests += 1
+            return Data("null".utf8)
         default: return Data("null".utf8)
         }
     }
@@ -266,10 +274,10 @@ final class SampleEngine: Engine {
         let helperFailed = helperError ? #""Could not watch the home folder for changes.""# : "null"
         let lastScan = lastCheck.map { "\"\($0)\"" } ?? "null"
         return """
-        {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(monitoring && !helperUnregistered ? 2 : 1),
+        {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(helperNeedsApproval ? 3 : monitoring && !helperUnregistered ? 2 : 1),
          "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
          "update_check":\(updateCheck.map { String($0) } ?? "null"),
-         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered),"last_scan":\(lastScan),"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
+         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered && !helperNeedsApproval),"last_scan":\(lastScan),"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
          "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
         """
     }
@@ -365,7 +373,7 @@ enum Snapshots {
                 lines.append("save failed: \(error.localizedDescription)")
             }
         }
-        if let failure = model.failure { lines.append("alert: \(failure)") }
+        if let failure = model.failure { lines.append("alert: \(failure.title): \(failure.reason)") }
         try? lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
     }
 
@@ -562,12 +570,29 @@ enum Checks {
 
     /// Links the window opened, recorded instead of opened.
     private static var opened: [URL] = []
+    /// Presses that would have opened Login Items in System Settings.
+    private static var loginItemsOpened = 0
+
+    /// The last button of this name, for a window that has more than one.
+    private static func lastButton(_ name: String, in root: AXUIElement? = nil) -> AXUIElement? {
+        everything(in: root).last { role($0) == kAXButtonRole && names($0).contains(name) }
+    }
+
+    /// Whether an item in one of the app's menus can be chosen.
+    private static func menuEnabled(_ title: String) -> Bool? {
+        appMenuItem(title).flatMap { value($0, kAXEnabledAttribute) as? Bool }
+    }
 
     /// An item in one of the app's menus, as assistive software is told about it.
     private static func appMenuItem(_ title: String) -> AXUIElement? {
+        appMenuItems(title).first
+    }
+
+    /// Every item of that name in the app's menus.
+    private static func appMenuItems(_ title: String) -> [AXUIElement] {
         guard let bar = value(AXUIElementCreateApplication(getpid()), kAXMenuBarAttribute),
-              CFGetTypeID(bar) == AXUIElementGetTypeID() else { return nil }
-        return everything(in: (bar as! AXUIElement)).first { role($0) == kAXMenuItemRole && names($0).contains(title) }
+              CFGetTypeID(bar) == AXUIElementGetTypeID() else { return [] }
+        return everything(in: (bar as! AXUIElement)).filter { role($0) == kAXMenuItemRole && names($0).contains(title) }
     }
 
     #if PREVIEW
@@ -582,6 +607,8 @@ enum Checks {
         await model.refreshMonitor()
         expect(await eventually { written().contains("Check for Updates Automatically?") },
                "the first time, the app asks whether it may check for updates")
+        expect(!everything().contains { role($0) == kAXSheetRole },
+               "the update question is a row on the Overview, not an alert")
         await press(button("Check Automatically"), "allowing update checks",
                     until: { SampleEngine.updateCheck == true && SampleReleases.requests == 1 })
         expect(await eventually { written().contains("Loose Keys 9.9.9 Is Available") && button("Download") != nil },
@@ -744,11 +771,15 @@ enum Checks {
         }
         expect(welcomed && enabled("Scan Now") && button("Scan Automatically") == nil && sidebarRows().isEmpty,
                "with nothing to list, the first page offers Scan Now alone and hides the sidebar")
+        expect(await eventually { !everything().contains { role($0) == kAXToolbarRole } },
+               "the first page hides the toolbar, with its Scan Now, Export and Filter")
         // Folders are listed in Settings; automatic scanning is offered after an answer.
         expect(button("Show What a Scan Checks") == nil && button("Remove") == nil
                && !written().contains("Checks whenever your files change."),
                "the first page has no scan reference section, folder list or second choice")
-        await press(button("Show Sidebar") ?? button("Toggle Sidebar"), "opening the sidebar from the first page")
+        // With the toolbar hidden, the View menu has the sidebar, once.
+        expect(appMenuItems("Show Sidebar").count == 1, "the View menu has one Show Sidebar (\(appMenuItems("Show Sidebar").count) found)")
+        await press(appMenuItem("Show Sidebar"), "opening the sidebar from the first page with View > Show Sidebar")
         expect(await eventually { sidebarRows().count == 4 } && model.pane == .overview && model.showsWelcome,
                "the sidebar can be opened from the first page, and stays open there")
         model.sidebarAsked = false
@@ -758,6 +789,8 @@ enum Checks {
         await model.refreshMonitor()
         expect(await eventually { sidebarRows().count == 4 && !model.showsWelcome },
                "background checks turned on leave the first page for the Overview and bring the sidebar back")
+        expect(await eventually { toolbarButton("Scan Now") != nil },
+               "leaving the first page brings the toolbar back")
         SampleEngine.monitoring = false
         await model.refreshMonitor()
         expect(await eventually { model.showsWelcome } && sidebarRows().count == 4,
@@ -805,15 +838,16 @@ enum Checks {
                "Overview offers automatic scanning, off and explained, without enabling it before consent")
         let accessGate = DispatchSemaphore(value: 0)
         SampleEngine.accessGate = accessGate
-        await press(toggle("Scan Automatically"), "preparing folder access", until: { button("Cancel Preparation") != nil && written().contains("Preparing folder access…") })
-        // The heading is checked through the window's subtitle; the page's
-        // own line and control must be there too.
+        await press(toggle("Scan Automatically"), "preparing folder access", until: { button("Cancel Preparation") != nil })
+        // A form heading can reach assistive software as a name, not a value.
         expect(await eventually {
             let text = written()
-            return text.contains("Preparing folder access…")
+            return (text + everything().flatMap(names)).contains("Preparing Folder Access")
                 && text.contains("Answer the macOS prompts for Desktop, Documents and Downloads.")
                 && button("Cancel Preparation") != nil
         }, "folder access explains the system prompts before starting checks")
+        expect(!written().contains("Preparing folder access…"),
+               "the Overview says it prepares folder access once, in its heading, not in the window's subtitle as well")
         await press(button("Cancel Preparation"), "cancelling folder access preparation")
         SampleEngine.accessGate = nil
         accessGate.signal()
@@ -873,6 +907,22 @@ enum Checks {
         await open(.overview)
         #endif
 
+        #if PREVIEW
+        SampleEngine.scanSeconds = 3
+        // Past folder access, where Stop Scan cancels the preparation instead.
+        await press(toolbarButton("Scan Now"), "pressing Scan Now to stop it",
+                    until: { model.phase == .scanning && !model.preparingAccess && toolbarButton("Stop Scan") != nil })
+        expect(await eventually { menuEnabled("Stop Scan") == true }, "while a scan runs, File > Stop Scan can be chosen")
+        let scanningTexts = everything().filter { role($0) == kAXStaticTextRole && value($0, kAXValueAttribute) as? String == "Scanning…" }.count
+        let scanningNamed = everything().filter { names($0).contains("Scanning…") }.count
+        expect(scanningTexts + scanningNamed == 1,
+               "the Overview says a scan runs once, not in the window's subtitle as well (\(scanningTexts) texts, \(scanningNamed) names)")
+        await press(appMenuItem("Stop Scan"), "choosing Stop Scan in the File menu",
+                    until: { SampleEngine.cancelRequests == 1 })
+        // The sample scan ends on its own whatever was asked.
+        for _ in 0..<100 where model.phase == .scanning { await settle() }
+        SampleEngine.scanSeconds = 0.3
+        #endif
         await press(toolbarButton("Scan Now"), "pressing Scan Now")
         for _ in 0..<100 where model.phase != .done { await settle() }
         expect(model.phase == .done && model.results != nil, "pressing Scan Now runs a scan and shows its results")
@@ -1020,6 +1070,14 @@ enum Checks {
             await choose(rows(list)[1], "choosing a finding")
             expect(model.selectedReview == chosen, "choosing a finding selects it")
             expect(button("Copy Path") != nil, "the inspector shows the chosen finding")
+            await press(appMenuItem("Hide Inspector"), "choosing Hide Inspector in the View menu",
+                        until: { !model.inspectorShown })
+            expect(await eventually { appMenuItem("Show Inspector") != nil },
+                   "with the inspector hidden, the View menu's item says Show Inspector")
+            await press(appMenuItem("Show Inspector"), "choosing Show Inspector in the View menu",
+                        until: { model.inspectorShown && button("Copy Path") != nil })
+            expect(await eventually { menuEnabled("Show in Finder") == true && menuEnabled("Copy Path") == true },
+                   "the Item menu offers Show in Finder and Copy Path for the chosen finding")
             // The control for the Set Aside check below: the heading is visible here.
             expect((written() + everything().flatMap(names)).contains { $0.contains("What to Do") },
                    "an open finding's inspector shows What to Do")
@@ -1046,6 +1104,8 @@ enum Checks {
                    "the table accepts multiple selected rows")
             expect(model.currentReview == nil && button("Copy Path") == nil,
                    "multiple selection does not offer an arbitrary file action")
+            expect(await eventually { menuEnabled("Show in Finder") == false && menuEnabled("Copy Path") == false },
+                   "with several findings chosen, the Item menu offers no file action")
             expect(await eventually { written().contains("2 items selected") },
                    "the inspector shows the selected count")
             model.search = "no finding has this text"
@@ -1146,10 +1206,10 @@ enum Checks {
             await press(button("Move to Worth Reviewing"), "returning a set-aside finding to review")
             expect(await eventually { model.pane == .review && model.currentReview?.id == 6 },
                    "Move to Worth Reviewing opens Worth Reviewing with the returned finding selected")
-            if let item = model.currentReview {
-                // As with the existing kept-copy check, choosing a menu reason
-                // is done in the model; Move to Worth Reviewing is pressed below.
-                model.decide(item, reason: "not-a-credential")
+            if model.currentReview != nil {
+                // The Item menu's Set Aside has the inspector's reasons.
+                let reason = SetAsideReason.all.first { $0.id == "not-a-credential" }?.label ?? ""
+                await press(appMenuItem(reason), "setting the finding aside with the Item menu")
                 expect(await eventually { model.setAsideCount == 1 && !model.reviewRows.contains { $0.id == 6 } },
                        "saving a decision moves the finding to Set Aside")
                 expect(model.pane == .review && !model.reviewRows.contains { $0.id == 6 }
@@ -1160,7 +1220,7 @@ enum Checks {
                 if let table = list(), let row = rows(table).first {
                     await choose(row, "selecting the newly set-aside finding")
                 }
-                await press(button("Move to Worth Reviewing"), "returning the finding from Set Aside")
+                await press(appMenuItem("Move to Worth Reviewing"), "returning the finding from Set Aside with the Item menu")
                 expect(await eventually { model.pane == .review && model.reviewRows.contains { $0.id == 6 } && model.setAsideCount == 0 },
                        "Move to Worth Reviewing restores the finding to Worth Reviewing")
             }
@@ -1531,6 +1591,21 @@ enum Checks {
         SampleEngine.loginRequests = []
         await press(button("Restart Helper", in: settingsWindow), "restarting the helper from Settings",
                     until: { SampleEngine.loginRequests == [false, true] && button("Restart Helper", in: settingsWindow) == nil })
+        // Approval is given in System Settings, which a button opens.
+        model.openLoginItems = { Checks.loginItemsOpened += 1 }
+        SampleEngine.helperNeedsApproval = true
+        await model.refreshMonitor()
+        let mainWindow = windows().first { window in settingsWindow.map { !CFEqual($0, window) } ?? true }
+        expect(await eventually { written(in: settingsWindow).contains(LoginItemsText.approveHelper)
+                   && written(in: mainWindow).contains(LoginItemsText.approveHelper) },
+               "Settings and the Overview say where to approve a helper macOS is waiting on")
+        let linksBefore = opened.count
+        await press(button("Open System Settings", in: settingsWindow), "opening Login Items from Settings",
+                    until: { Checks.loginItemsOpened == 1 && opened.count == linksBefore })
+        SampleEngine.helperNeedsApproval = false
+        await model.refreshMonitor()
+        expect(await eventually { !written(in: settingsWindow).contains(LoginItemsText.approveHelper) },
+               "Settings drops the approval line once the helper may run")
         await press(toggle("Pause Scanning"), "pausing from Settings",
                     until: { SampleEngine.paused && written(in: settingsWindow).contains("Paused") })
         await press(toggle("Pause Scanning"), "resuming from Settings",
@@ -1544,6 +1619,9 @@ enum Checks {
         await model.refreshMonitor()
         expect(await eventually { written().contains("Turn on Loose Keys in Login Items to show the icon at login.") },
                "Settings says when Login Items needs the person's approval for the app")
+        // Notifications, also off in this run, have a button of the same name above it.
+        await press(lastButton("Open System Settings", in: settingsWindow), "opening Login Items for the app's own entry",
+                    until: { Checks.loginItemsOpened == 2 })
         SampleEngine.appLogin = 1
         await model.refreshMonitor()
         expect(await eventually { written().contains("Shown only while the app is open, because Loose Keys is not in Login Items.") },
@@ -1578,6 +1656,8 @@ enum Checks {
                     until: { settingsWindow != nil && written(in: settingsWindow).contains(refusal) && button("OK", in: settingsWindow) != nil })
         expect(model.failure == nil && !before.contains { written(in: $0).contains(refusal) },
                "a switch refused in Settings is not shown in the main window as well")
+        expect(written(in: settingsWindow).contains(FailureTitle.menuBar) && !written(in: settingsWindow).contains("Loose Keys"),
+               "the refusal's title says what failed, not the app's name")
         SampleEngine.menuBarRefused = false
         await press(button("OK", in: settingsWindow), "closing the refusal in Settings",
                     until: { model.settingsFailure == nil && !written().contains(refusal) && model.menuBarOn && menuBarSwitch() == 1 })
