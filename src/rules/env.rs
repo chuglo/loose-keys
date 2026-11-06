@@ -9,7 +9,7 @@ pub const ENV_SECRET: Rule = Rule {
     severity: "medium",
     title: "Password or key in a plain-text settings file",
     explanation: "A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value.",
-    reason: Some("Malware often collects .env and shell files, because they hold working passwords and keys in plain text."),
+    reason: Some("Password-stealing malware collects .env and shell files, because they often hold working passwords and keys in plain text."),
     next_step: Some("Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file."),
     advice: Advice {
         steps: &[

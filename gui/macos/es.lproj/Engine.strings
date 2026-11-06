@@ -55,7 +55,7 @@
 /* rule secret.env-assignment */
 "Password or key in a plain-text settings file" = "Contraseña o clave en un archivo de configuración sin cifrar";
 "A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value." = "Una variable con nombre de contraseña, clave o token tiene un valor en este archivo. Loose Keys solo comprobó que el valor no es un marcador de posición. Puede ser un valor local o de prueba.";
-"Malware often collects .env and shell files, because they hold working passwords and keys in plain text." = "El malware suele recopilar archivos .env y de la shell, porque contienen contraseñas y claves válidas como texto sin cifrar.";
+"Password-stealing malware collects .env and shell files, because they often hold working passwords and keys in plain text." = "El malware que roba contraseñas recopila archivos .env y de la shell, porque suelen contener contraseñas y claves válidas como texto sin cifrar.";
 "Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file." = "Decide si es una credencial real. Si lo es, revócala en el servicio y carga la nueva desde un gestor de contraseñas, no desde este archivo.";
 "Check what the variable is for. A value for a local test database needs nothing more." = "Comprueba para qué sirve la variable. Un valor para una base de datos de prueba local no necesita nada más.";
 "For a real credential, revoke or change it at the service that issued it. Removing the line doesn't do that." = "Si es una credencial real, revócala o cámbiala en el servicio que la emitió. Quitar la línea no la revoca ni la cambia.";
@@ -119,12 +119,13 @@
 "See which users have credentials stored in the file. This command hides their values: kubectl config view" = "Mira qué usuarios tienen credenciales guardadas en el archivo. Este comando oculta sus valores: kubectl config view";
 "Recreate each entry with the provider's sign-in plugin, which stores no secret: 'aws eks update-kubeconfig', 'gcloud container clusters get-credentials' or 'az aks get-credentials' with kubelogin." = "Vuelve a crear cada entrada con el complemento de inicio de sesión del proveedor, que no guarda ningún secreto: 'aws eks update-kubeconfig', 'gcloud container clusters get-credentials' o 'az aks get-credentials' con kubelogin.";
 "Remove users you no longer need: kubectl config delete-user <name>" = "Elimina los usuarios que ya no necesites: kubectl config delete-user <nombre>";
-"On the cluster, delete the service account token or replace the client certificate that was stored here." = "En el clúster, elimina el token de la cuenta de servicio o sustituye el certificado de cliente que estaba guardado aquí.";
+"On the cluster, delete the service account token that was stored here." = "En el clúster, elimina el token de la cuenta de servicio que estaba guardado aquí.";
+"If a client certificate was stored here, ask the cluster's admin to remove what it can access. Kubernetes can't revoke a certificate before it expires." = "Si aquí había un certificado de cliente guardado, pide al administrador del clúster que retire los accesos que concede. Kubernetes no puede revocar un certificado antes de que caduque.";
 
 /* rule dev.terraform.state-secret */
 "Secret stored in a Terraform state file" = "Secreto guardado en un archivo de estado de Terraform";
 "Terraform keeps what it created in this state file as plain JSON, including passwords and keys that providers return. Loose Keys only checked that the values aren't empty or placeholders." = "Terraform guarda lo que creó en este archivo de estado como JSON sin cifrar, incluidas las contraseñas y claves que devuelven los proveedores. Loose Keys solo comprobó que los valores no están vacíos ni son marcadores de posición.";
-"State files hold working database passwords and cloud keys, and they stay in project folders long after the work is done." = "Los archivos de estado contienen contraseñas de bases de datos y claves de la nube que funcionan, y permanecen en las carpetas de los proyectos mucho después de terminar el trabajo.";
+"State files often hold working database passwords and cloud keys, and they stay in project folders long after the work is done." = "Los archivos de estado suelen contener contraseñas de bases de datos y claves de la nube que funcionan, y permanecen en las carpetas de los proyectos mucho después de terminar el trabajo.";
 "Change the passwords and keys in the state, and move the state to a remote backend. Deleting the file doesn't revoke anything." = "Cambia las contraseñas y claves que contiene el estado, y mueve el estado a un backend remoto. Eliminar el archivo no revoca nada.";
 "For each resource named here, change its password or key at the service." = "Para cada recurso que aparece aquí, cambia su contraseña o clave en el servicio correspondiente.";
 "Store state remotely, in HCP Terraform or an encrypted bucket with locking, so no copy stays on this Mac. Add a backend block, then run 'terraform init -migrate-state'." = "Guarda el estado de forma remota, en HCP Terraform o en un bucket cifrado con bloqueo, para que no quede ninguna copia en tu Mac. Añade un bloque backend y luego ejecuta 'terraform init -migrate-state'.";
@@ -142,6 +143,7 @@
 "On macOS the Azure CLI keeps its refresh tokens in this file as plain text. That's normal for the Azure CLI. Loose Keys didn't check whether the tokens still work or what they can access." = "En macOS, la CLI de Azure guarda sus tokens de actualización en este archivo como texto sin cifrar. Es lo normal en la CLI de Azure. Loose Keys no comprobó si los tokens siguen funcionando ni a qué dan acceso.";
 "Sign out when you stop using the Azure CLI." = "Cierra sesión cuando dejes de usar la CLI de Azure.";
 "When you no longer need it, sign out and clear the stored tokens: run 'az logout', then 'az account clear'." = "Cuando ya no lo necesites, cierra sesión y borra los tokens guardados: ejecuta 'az logout' y, después, 'az account clear'.";
+"If the file may have been copied, ask your Azure admin to revoke your sessions. 'az logout' clears only this Mac." = "Si el archivo puede haberse copiado, pide a tu administrador de Azure que revoque tus sesiones. 'az logout' solo borra lo que hay en tu Mac.";
 
 /* rule dev.terraform.inline-token */
 "Terraform token stored in a file" = "Token de Terraform guardado en un archivo";
@@ -313,7 +315,8 @@
 /* rule dev.ai.stored-login */
 "AI coding tool sign-in stored in a file" = "Inicio de sesión de una herramienta de programación con IA guardado en un archivo";
 "An AI coding tool keeps its sign-in token or API key in this file as plain text. That's how the tool works. Loose Keys didn't check whether it still works or what it can access." = "Una herramienta de programación con IA guarda en este archivo su token de inicio de sesión o su clave de API como texto sin cifrar. Así funciona la herramienta. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
-"For a tool you still use, leave this in place. Prefer signing in with your account over pasting an API key, so the stored token can be revoked by signing out." = "Si todavía usas la herramienta, deja esto como está. Es mejor iniciar sesión con tu cuenta que pegar una clave de API, porque así el token guardado se puede revocar cerrando sesión.";
+"For a tool you still use, leave this in place." = "Si todavía usas la herramienta, deja esto como está.";
+"If the file may have been copied, revoke the tool's access at the provider as well. Signing out removes this copy but doesn't always revoke the token." = "Si el archivo puede haberse copiado, revoca también el acceso de la herramienta en el proveedor. Cerrar sesión elimina esta copia, pero no siempre revoca el token.";
 "For a tool you no longer use, sign out in the tool (for example 'codex logout' or 'gh auth logout'), then delete this file." = "Si ya no usas la herramienta, cierra sesión en ella (por ejemplo, 'codex logout' o 'gh auth logout') y después elimina este archivo.";
 "If the file holds an API key, revoke that key at the provider when you stop using the tool." = "Si el archivo contiene una clave de API, revócala en el proveedor cuando dejes de usar la herramienta.";
 
@@ -345,6 +348,7 @@
 "In the browser, open the payment settings (chrome://settings/payments in Chrome, Brave, Edge and Arc) and remove each saved card." = "En el navegador, abre la configuración de pagos (chrome://settings/payments en Chrome, Brave, Edge y Arc) y elimina cada tarjeta guardada.";
 "Turn off 'Save and fill payment methods'." = "Desactiva “Guardar y autocompletar métodos de pago” (o “Guardar y completar formas de pago”).";
 "Pay with Apple Pay where you can, or keep cards in a password manager, which keeps them locked." = "Paga con Apple Pay siempre que puedas, o guarda las tarjetas en un gestor de contraseñas, que las mantiene bloqueadas.";
+"If this Mac may have had malware, ask your bank for new card numbers." = "Si tu Mac pudo haber tenido malware, pide a tu banco números de tarjeta nuevos.";
 
 /* rule browser.firefox.saved-logins */
 "This Firefox profile has saved passwords. Unless a primary password is set, the key that decrypts them is stored next to them in the same folder. Loose Keys only counted them." = "Este perfil de Firefox tiene contraseñas guardadas. Si no hay una contraseña principal, la clave que las descifra está junto a ellas en la misma carpeta. Loose Keys solo las contó.";
@@ -416,6 +420,7 @@
 "Cloud storage sign-in stored by rclone" = "Inicio de sesión guardado por rclone para un almacenamiento en la nube";
 "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. That's normal for rclone. Loose Keys didn't check whether it still works or what it can access." = "rclone guarda sin cifrar en este archivo el token de inicio de sesión de un remoto de almacenamiento en la nube. Es lo normal en rclone. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
 "Set a password on the rclone config to encrypt these tokens." = "Pon una contraseña a la configuración de rclone para cifrar estos tokens.";
+"If the file may have been copied, revoke rclone's access in each service's connected apps settings." = "Si el archivo puede haberse copiado, revoca el acceso de rclone en la configuración de apps conectadas de cada servicio.";
 
 /* rule app.openvpn.embedded-key */
 "VPN profile with its private key inside" = "Perfil de VPN con su clave privada dentro";

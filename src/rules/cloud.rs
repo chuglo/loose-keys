@@ -68,7 +68,8 @@ pub const KUBE_CREDENTIALS: Rule = Rule {
             "See which users have credentials stored in the file. This command hides their values: kubectl config view",
             "Recreate each entry with the provider's sign-in plugin, which stores no secret: 'aws eks update-kubeconfig', 'gcloud container clusters get-credentials' or 'az aks get-credentials' with kubelogin.",
             "Remove users you no longer need: kubectl config delete-user <name>",
-            "On the cluster, delete the service account token or replace the client certificate that was stored here.",
+            "On the cluster, delete the service account token that was stored here.",
+            "If a client certificate was stored here, ask the cluster's admin to remove what it can access. Kubernetes can't revoke a certificate before it expires.",
         ],
         link: None,
     },
@@ -204,6 +205,7 @@ pub const AZURE_LOGIN: Rule = Rule {
     advice: Advice {
         steps: &[
             "When you no longer need it, sign out and clear the stored tokens: run 'az logout', then 'az account clear'.",
+            "If the file may have been copied, ask your Azure admin to revoke your sessions. 'az logout' clears only this Mac.",
         ],
         link: None,
     },
@@ -320,7 +322,7 @@ pub const TERRAFORM_STATE: Rule = Rule {
     id: "dev.terraform.state-secret",
     title: "Secret stored in a Terraform state file",
     explanation: "Terraform keeps what it created in this state file as plain JSON, including passwords and keys that providers return. Loose Keys only checked that the values aren't empty or placeholders.",
-    reason: Some("State files hold working database passwords and cloud keys, and they stay in project folders long after the work is done."),
+    reason: Some("State files often hold working database passwords and cloud keys, and they stay in project folders long after the work is done."),
     next_step: Some("Change the passwords and keys in the state, and move the state to a remote backend. Deleting the file doesn't revoke anything."),
     advice: Advice {
         steps: &[

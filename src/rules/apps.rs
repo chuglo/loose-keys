@@ -324,6 +324,14 @@ pub const RCLONE_LOGIN: Rule = Rule {
     explanation: "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. That's normal for rclone. Loose Keys didn't check whether it still works or what it can access.",
     reason: None,
     next_step: Some("Set a password on the rclone config to encrypt these tokens."),
+    advice: Advice {
+        steps: &[
+            "Encrypt the config: run 'rclone config', choose 's' (Set configuration password).",
+            "If the file may have been copied, revoke rclone's access in each service's connected apps settings.",
+            "Remove remotes you no longer use: rclone config delete <name>",
+        ],
+        link: None,
+    },
     matcher: Matcher::Whole {
         candidate: any,
         test: |bytes| rclone_hits(bytes, true),

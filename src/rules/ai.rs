@@ -406,9 +406,10 @@ pub const AI_TOOL_LOGIN: Rule = Rule {
     next_step: Some("Sign out of tools you no longer use, which removes the stored token."),
     advice: Advice {
         steps: &[
-            "For a tool you still use, leave this in place. Prefer signing in with your account over pasting an API key, so the stored token can be revoked by signing out.",
+            "For a tool you still use, leave this in place.",
             "For a tool you no longer use, sign out in the tool (for example 'codex logout' or 'gh auth logout'), then delete this file.",
             "If the file holds an API key, revoke that key at the provider when you stop using the tool.",
+            "If the file may have been copied, revoke the tool's access at the provider as well. Signing out removes this copy but doesn't always revoke the token.",
         ],
         link: None,
     },
