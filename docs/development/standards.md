@@ -824,6 +824,20 @@ notes that credential-store failures can fall back to a plain-text file;
 allows an additional recovery passphrase, so words alone do not always grant
 access.
 
+Rule text is window text, so the rules under "The window and running the app"
+apply to it. Hedge once per finding. The reason says why the exposure matters,
+the next step names the first action, and each step is one action, or a few in
+one place, with its condition or place first ("If the key may have been
+copied, …", "In HCP Terraform, …"). Use one verb per act: revoke at the
+issuer, delete the local file, sign out of a session; name a vendor's control
+by its label. A command that ends a step follows a colon with nothing after
+it; one inside a sentence goes in single quotes. Rules that share an id are
+one entry in the command's report, and a rule that copies another's fields
+copies its text, so that text must fit every file each covers. The
+[Apple Style Guide](https://support.apple.com/guide/applestyleguide/welcome/web)
+and [Google's guide to procedures](https://developers.google.com/style/procedures)
+have the general rules.
+
 Rule samples, the detection corpus and the security harness check that finding
 text reaches the reports with no credential value in it. They do not check
 what third-party products show or how each version stores credentials, and

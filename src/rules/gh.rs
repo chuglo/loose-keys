@@ -7,13 +7,14 @@ pub const GH_TOKEN: Rule = Rule {
     id: "dev.gh.inline-token",
     title: "Possible GitHub CLI token stored as plain text",
     severity: "medium",
-    explanation: "GitHub CLI's sign-in token is stored as plain text in its hosts file instead of the Keychain. Loose Keys did not check whether it still works or what it can access.",
-    next_step: Some("Sign in again so GitHub CLI stores the token in the Keychain. Removing the line does not revoke the token."),
+    explanation: "GitHub CLI's sign-in token is stored as plain text in its hosts file instead of the Keychain. Loose Keys didn't check whether it still works or what it can access.",
+    reason: Some("Any program that can read this file can copy the token."),
+    next_step: Some("Sign in again so GitHub CLI stores the token in the Keychain. Removing the line doesn't revoke the token."),
     advice: Advice {
         steps: &[
             "Sign out, which also removes the stored token: gh auth logout",
-            "Sign in again: gh auth login. It uses the Keychain when it can, but may fall back to a plain-text file; gh auth status shows which.",
-            "In GitHub Settings > Applications > Authorized OAuth Apps, revoke 'GitHub CLI' if the old token may have been copied.",
+            "If the old token may have been copied, revoke 'GitHub CLI' in GitHub Settings > Applications > Authorized OAuth Apps. This signs GitHub CLI out on every computer.",
+            "Sign in again with 'gh auth login'. Then run 'gh auth status', which shows whether the token is in the Keychain or in a plain-text file.",
         ],
         link: Some("https://github.com/settings/applications"),
     },

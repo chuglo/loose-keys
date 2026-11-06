@@ -8,15 +8,15 @@ pub const GIT_CREDENTIALS: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Possible Git password stored as plain text",
-    explanation: "Git's plain-text credential file has a URL with a username and password in it. Loose Keys did not check whether they still work.",
+    explanation: "Git's plain-text credential file has a URL with a username and password in it. Loose Keys didn't check whether they still work.",
     reason: Some("Any program that can read this file can copy the password."),
-    next_step: Some("Let Git keep this in the Keychain instead. Deleting the line does not revoke the password; revoke it at the host."),
+    next_step: Some("Revoke the password at the host, and let Git keep the new one in the Keychain. Deleting the line doesn't revoke it."),
     advice: Advice {
         steps: &[
             "Tell Git to use the macOS Keychain: git config --global credential.helper osxkeychain",
             "At the host named here, revoke this token or change this password (GitHub: Settings > Developer settings > Personal access tokens).",
             "Delete the line from ~/.git-credentials, or the whole file if nothing else is in it.",
-            "The next push or pull asks you to sign in once and stores the new credential in the Keychain.",
+            "Push or pull once and sign in when asked. Git stores the new credential in the Keychain.",
         ],
         link: None,
     },

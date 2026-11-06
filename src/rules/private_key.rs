@@ -8,7 +8,7 @@ pub const SSH_KEY: Rule = Rule {
     kind: "inventory",
     severity: "low",
     title: "Possible private key",
-    explanation: "The start of this file looks like a private key. Loose Keys did not check whether the key works anywhere.",
+    explanation: "The start of this file looks like a private key. Loose Keys didn't check whether the key works anywhere.",
     reason: None,
     next_step: None,
     advice: Advice::NONE,
@@ -24,14 +24,15 @@ pub const SSH_KEY_NO_PASSPHRASE: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Private key with no passphrase",
-    reason: Some("The key has no passphrase, so anyone with a copy of this file can use it. Loose Keys did not check whether the key is still trusted anywhere."),
-    next_step: Some("If this key has only ever been in ~/.ssh on this Mac, adding a passphrase protects it from now on. If it has ever been anywhere else (a synced folder, a repository, an email, a backup), or you are not sure, replace it. Create a new key with a passphrase, add it wherever the old one is trusted, then remove the old one from those places. Deleting the file or adding a passphrase does not stop a copy made earlier from working."),
+    reason: Some("The key has no passphrase, so anyone with a copy of this file can use it wherever it's still trusted."),
+    next_step: Some("If this key has only ever been in ~/.ssh on this Mac, add a passphrase. If it's been anywhere else, or you're not sure, replace it. Deleting the file or adding a passphrase doesn't stop a copy made earlier from working."),
     advice: Advice {
         steps: &[
-            "If it is an SSH key you use, add a passphrase: ssh-keygen -p -f <key file>. Don't run this on a key another program reads, such as a web server's HTTPS key: it rewrites the file in SSH's own format.",
-            "To avoid typing the passphrase each time, run ssh-add --apple-use-keychain <key file>, and put UseKeychain yes at the top of ~/.ssh/config so SSH still finds it after a restart.",
-            "If a script or server signs in with this key unattended, a passphrase will stop it. Leave the key without one and limit what it can do where it's trusted, for example as a read-only deploy key.",
-            "If you don't use it, remove it where it's trusted, then delete the file and its .pub. ssh-keygen -lf <key file> prints its fingerprint, which GitHub (Settings > SSH and GPG keys) and similar services show beside each key.",
+            "If it's an SSH key you use, add a passphrase with 'ssh-keygen -p -f <key file>'. Don't run this on a key another program reads, such as a web server's HTTPS key, because it rewrites the file in SSH's own format.",
+            "If it's ever been in a synced folder, a repository, an email or a backup, replace it. Create a new key with a passphrase and add it wherever the old one is trusted. Then remove the old one from those places.",
+            "To avoid typing the passphrase each time, run 'ssh-add --apple-use-keychain <key file>'. Then put 'UseKeychain yes' at the top of ~/.ssh/config so SSH still finds it after a restart.",
+            "If a script or server signs in with this key unattended, a passphrase would stop it from working. Leave the key without one and limit what it can do where it's trusted, for example as a read-only deploy key.",
+            "If you don't use it, remove it where it's trusted, then delete the file and its .pub. To find it there, run 'ssh-keygen -lf <key file>'. It prints the fingerprint that GitHub (Settings > SSH and GPG keys) and similar services show beside each key.",
         ],
         link: None,
     },
@@ -49,14 +50,14 @@ pub const SSH_KEY_NO_PASSPHRASE: Rule = Rule {
 pub const GPG_KEY_UNPROTECTED: Rule = Rule {
     id: "key.gpg.private",
     title: "GnuPG private key with no passphrase",
-    explanation: "This GnuPG private key has no passphrase. Loose Keys did not test it.",
-    reason: Some("A copy of this file can sign and decrypt as you. Malware that spreads through packages goes after keys used to sign commits or releases."),
+    explanation: "This GnuPG private key has no passphrase. Loose Keys didn't test it.",
+    reason: Some("A copy of this file can sign and decrypt as you. Malware that spreads through packages looks for keys used to sign commits or releases."),
     next_step: Some("Add a passphrase. If the key may have been copied, revoke it and publish the revocation."),
     advice: Advice {
         steps: &[
             "Find the key: gpg --list-secret-keys --keyid-format long",
-            "Add a passphrase: gpg --edit-key <key id>, then 'passwd', then 'save'.",
-            "If the key may have been copied, generate a revocation certificate (gpg --gen-revoke <key id>), import it, publish it to the keyservers and to GitHub or GitLab, then create a new key.",
+            "Add a passphrase: run 'gpg --edit-key <key id>', then type 'passwd', then 'save'.",
+            "If the key may have been copied, create a revocation certificate with 'gpg --gen-revoke <key id>' and import it. Publish it to the keyservers and to GitHub or GitLab, then create a new key.",
         ],
         link: None,
     },
@@ -74,7 +75,7 @@ pub const GPG_KEY_UNPROTECTED: Rule = Rule {
 pub const GPG_KEY: Rule = Rule {
     id: "key.gpg.private",
     title: "GnuPG private key",
-    explanation: "This GnuPG private key is protected by a passphrase. Loose Keys did not test it.",
+    explanation: "This GnuPG private key is protected by a passphrase. Loose Keys didn't test it.",
     targets: &[Target::Dir(".gnupg/private-keys-v1.d")],
     matcher: Matcher::Head(gpg_protected),
     samples: &[

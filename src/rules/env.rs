@@ -8,14 +8,14 @@ pub const ENV_SECRET: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Password or key in a plain-text settings file",
-    explanation: "A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value is not a placeholder. It may be a local or test value.",
+    explanation: "A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value.",
     reason: Some("Malware often collects .env and shell files, because they hold working passwords and keys in plain text."),
     next_step: Some("Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file."),
     advice: Advice {
         steps: &[
             "Check what the variable is for. A value for a local test database needs nothing more.",
-            "For a real credential, revoke or change it at the service that issued it. Removing the line does not do that.",
-            "Load the replacement at run time instead of storing it: a password manager CLI (for example 'op run' or 'security find-generic-password') can fill the variable when the program starts.",
+            "For a real credential, revoke or change it at the service that issued it. Removing the line doesn't do that.",
+            "Load the replacement at run time instead of storing it. A password manager CLI, such as 'op run' or 'security find-generic-password', can fill the variable when the program starts.",
             "Remove the old value from this file. Check that the file is in .gitignore and was never committed.",
         ],
         link: None,

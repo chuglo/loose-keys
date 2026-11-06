@@ -7,13 +7,14 @@ pub const NPM_CREDENTIALS: Rule = Rule {
     id: "dev.npm.inline-credentials",
     title: "Possible npm token stored in a config file",
     severity: "high",
-    explanation: "A token or password is stored in npm's user config. Malware that spreads through packages often looks for npm tokens, because they can publish packages. Loose Keys did not check whether it still works or what it can access.",
-    next_step: Some("Revoke this token and replace it with a narrower one. Removing the line does not revoke it."),
+    explanation: "A token or password is stored in npm's user config. Loose Keys didn't check whether it still works or what it can access.",
+    reason: Some("Malware that spreads through packages often looks for npm tokens, because they can publish packages."),
+    next_step: Some("Revoke this token and replace it with a narrower one. Removing the line doesn't revoke it."),
     advice: Advice {
         steps: &[
             "List your tokens with 'npm token list', then revoke this one: npm token revoke <id>",
             "If you still publish from this Mac, create a granular access token limited to the packages you need, with an expiry date.",
-            "npm has no Keychain storage. To keep the value out of this file, write //registry.npmjs.org/:_authToken=${NPM_TOKEN} and supply NPM_TOKEN from a password manager when you publish.",
+            "npm can't use the Keychain. To keep the value out of this file, supply NPM_TOKEN from a password manager when you publish, and write this line in its place: //registry.npmjs.org/:_authToken=${NPM_TOKEN}",
             "If you only install public packages, delete the line: no token is needed.",
         ],
         link: Some("https://docs.npmjs.com/revoking-access-tokens"),

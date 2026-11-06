@@ -533,11 +533,11 @@ fn findings_distinguish_indicators_from_actual_access_or_revocation() {
     assert!(export["explanation"]
         .as_str()
         .unwrap()
-        .contains("does not prove"));
+        .contains("doesn't prove"));
     assert!(export["next_step"]
         .as_str()
         .unwrap()
-        .contains("does not revoke"));
+        .contains("doesn't revoke"));
     let key = findings
         .iter()
         .find(|x| x["rule"] == "key.ssh.private")
@@ -1721,7 +1721,7 @@ fn wallets_app_sessions_notes_and_agent_records_are_found() {
     assert!(record["steps"][1]
         .as_str()
         .unwrap()
-        .contains("Delete this file"));
+        .contains("delete this file"));
     // One finding per distinct token, not per appearance.
     let lines: Vec<_> = findings
         .iter()

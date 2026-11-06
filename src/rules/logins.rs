@@ -10,14 +10,14 @@ pub const CLI_LOGIN: Rule = Rule {
     kind: "inventory",
     severity: "medium",
     title: "Command-line tool sign-in stored in a file",
-    explanation: "A command-line tool keeps its sign-in token in this file as plain text. Many tools do this. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "A command-line tool keeps its sign-in token in this file as plain text. Many tools do this. Loose Keys didn't check whether it still works or what it can access.",
     reason: None,
     next_step: Some("Sign out of tools you no longer use, which removes the stored token."),
     advice: Advice {
         steps: &[
             "For a tool you still use, leave this in place. If the tool can keep its token in the macOS Keychain instead, turn that on.",
             "For a tool you no longer use, run its sign-out command (most have 'logout'), then delete this file.",
-            "If the token was created by hand in the service's settings, revoke it there too: signing out locally does not always do that.",
+            "If the token was created by hand in the service's settings, revoke it there too: signing out locally doesn't always do that.",
         ],
         link: None,
     },
@@ -105,11 +105,11 @@ fn stored_login_hits(bytes: &[u8]) -> Hits {
 pub const AWS_SESSION: Rule = Rule {
     id: "dev.aws.session-cache",
     title: "AWS sign-in session stored by the AWS CLI",
-    explanation: "The AWS CLI keeps single sign-on and temporary role credentials in this folder. They expire on their own, usually within hours; a refresh token here can last longer.",
+    explanation: "The AWS CLI keeps single sign-on and temporary role credentials in this folder. They expire on their own, usually within hours, but a refresh token here can last longer.",
     next_step: Some("Sign out when you finish working with AWS, which removes the cached sessions."),
     advice: Advice {
         steps: &[
-            "Sign out and clear the cache when you are done: aws sso logout",
+            "When you're done, sign out and clear the cache: aws sso logout",
             "Ask for short session lengths in IAM Identity Center, so a copied session stops working soon.",
         ],
         link: None,
@@ -151,13 +151,13 @@ pub const AZURE_SERVICE_PRINCIPAL: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Azure service principal secret stored in a file",
-    explanation: "The Azure CLI signed in as a service principal and keeps its secret in this file as plain text. Loose Keys did not check whether it still works or what it can access.",
-    reason: Some("A service principal secret works from any computer until it expires or is rotated, and often has broad access to a subscription."),
-    next_step: Some("Sign out, and rotate the secret in Microsoft Entra. Deleting the file does not revoke it."),
+    explanation: "The Azure CLI signed in as a service principal and keeps its secret in this file as plain text. Loose Keys didn't check whether it still works or what it can access.",
+    reason: Some("A service principal secret works from any computer until it expires or is deleted, and often has broad access to a subscription."),
+    next_step: Some("Sign out, and replace the secret in Microsoft Entra. Deleting the file doesn't revoke it."),
     advice: Advice {
         steps: &[
-            "Sign out and clear the stored entries: az logout, then az account clear",
-            "In Microsoft Entra, open App registrations, choose the app, and under Certificates & secrets delete this client secret and create a new one if still needed.",
+            "Sign out and clear the stored entries: run 'az logout', then 'az account clear'.",
+            "In Microsoft Entra, open App registrations, choose the app, and under Certificates & secrets delete this client secret. If something still needs a secret, create a new one.",
             "For automation, prefer workload identity federation or a managed identity, which need no stored secret.",
         ],
         link: Some("https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"),
@@ -183,9 +183,9 @@ pub const COMPOSER_AUTH: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Tokens stored in Composer's auth file",
-    explanation: "Composer keeps tokens and passwords for code hosts and package repositories in this file as plain text. Loose Keys did not check whether they still work or what they can access.",
+    explanation: "Composer keeps tokens and passwords for code hosts and package repositories in this file as plain text. Loose Keys didn't check whether they still work or what they can access.",
     reason: Some("These are usually personal access tokens for GitHub or GitLab, which work from any computer until revoked."),
-    next_step: Some("Revoke the tokens at each host and replace them with narrower ones. Removing an entry does not revoke it."),
+    next_step: Some("Revoke the tokens at each host and replace them with narrower ones. Removing an entry doesn't revoke it."),
     advice: Advice {
         steps: &[
             "At the host named here, revoke the token (GitHub: Settings > Developer settings > Personal access tokens).",
@@ -241,14 +241,14 @@ fn composer_hits(bytes: &[u8]) -> Hits {
 pub const MAVEN_PASSWORD: Rule = Rule {
     id: "dev.maven.settings-password",
     title: "Password stored in Maven settings",
-    explanation: "A repository password or token is written in Maven's settings file as plain text. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "A repository password or token is written in Maven's settings file as plain text. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("Repository credentials can publish packages that other people's builds download."),
     next_step: Some("Change the password or revoke the token at the repository, and store the replacement encrypted or outside the file."),
     advice: Advice {
         steps: &[
             "At the repository manager, change this password or revoke this token.",
-            "Reference an environment variable instead of the value: <password>${env.REPO_TOKEN}</password>, and set REPO_TOKEN when you build.",
-            "Or use Maven's password encryption (mvn --encrypt-password), keeping the master password off this Mac's disk if you can.",
+            "Set REPO_TOKEN when you build, and put it in place of the value: <password>${env.REPO_TOKEN}</password>",
+            "If a variable won't work, encrypt the password with 'mvn --encrypt-password' instead. If you can, keep the master password off this Mac's disk.",
         ],
         link: None,
     },
@@ -354,7 +354,7 @@ fn maven_hits(bytes: &[u8]) -> Hits {
 pub const BUNDLER_CREDENTIALS: Rule = Rule {
     id: "dev.bundler.inline-credentials",
     title: "Gem server credentials stored by Bundler",
-    explanation: "Bundler keeps a user name and password or token for a gem server in this file as plain text. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "Bundler keeps a user name and password or token for a gem server in this file as plain text. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("These credentials let anything running as you download, and often publish, private gems."),
     next_step: Some("Change the password or revoke the token at the gem server, then supply the replacement from the environment."),
     advice: Advice {
@@ -451,7 +451,7 @@ fn bundler_hits(bytes: &[u8]) -> Hits {
 pub const URL_PASSWORD: Rule = Rule {
     id: "dev.url.inline-password",
     title: "Password written inside a URL in a config file",
-    explanation: "A URL in this config file has a user name and password or token written into it, as in https://user:password@host. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "A URL in this config file has a user name and password or token written into it, as in https://user:password@host. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("The credential is plain text, and tools print these URLs in logs and error messages."),
     next_step: Some("Change the password or revoke the token at the host named here, and take it out of the URL."),
     advice: Advice {

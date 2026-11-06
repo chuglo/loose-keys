@@ -10,9 +10,9 @@ pub const SERVICE_TOKEN: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Service token stored in a file",
-    explanation: "This file has text in the format of a service's access token. Loose Keys did not check whether it still works or what it can do.",
-    reason: Some("A token like this usually works from any computer until it is revoked. Any program that can read this file can copy it."),
-    next_step: Some("Revoke the token where it was issued, then remove it from this file. Deleting the text does not revoke the token."),
+    explanation: "This file has text in the format of a service's access token. Loose Keys didn't check whether it still works or what it can access.",
+    reason: Some("A token like this usually works from any computer until it's revoked. Any program that can read this file can copy it."),
+    next_step: Some("Revoke the token where it was issued, then remove it from this file. Deleting the text doesn't revoke the token."),
     advice: advice(None),
     targets: &[
         Target::Discovery,
@@ -79,15 +79,15 @@ pub const SERVICE_TOKEN: Rule = Rule {
 pub const AGENT_RECORD: Rule = Rule {
     id: "secret.agent-record",
     title: "Service token in an AI agent's records",
-    explanation: "An AI coding agent's session record or log has text in the format of a service's access token. Agents save the commands they run and what those print, so a token used in a session stays on disk. Loose Keys did not check whether it still works.",
-    reason: Some("These records are plain files that any program running as you can read, and they are kept long after the session ends."),
-    next_step: Some("Revoke the token, then delete the session record that holds it. Deleting the record does not revoke the token."),
+    explanation: "An AI coding agent's session record or log has text in the format of a service's access token. Agents save the commands they run and what those print, so a token used in a session stays on disk. Loose Keys didn't check whether it still works.",
+    reason: Some("These records are plain files that any program running as you can read, and they're kept long after the session ends."),
+    next_step: Some("Revoke the token, then delete the session record that holds it. Deleting the record doesn't revoke the token."),
     advice: Advice {
         steps: &[
             "Revoke or replace the token where it was issued. Do this first: it keeps working until then.",
-            "Delete this file if you no longer need the session record, using the tool's own delete option if it has one. Check for other copies and backups too.",
-            "Keep credentials in the Keychain or a password manager and load them when needed. Do not paste them into prompts or commands, and make sure commands and debug logs do not print them.",
-            "Shorten how long the tool keeps session records, if it has a setting for that.",
+            "If you no longer need the session record, delete this file. Use the tool's own delete option if it has one, and check for other copies and backups.",
+            "Keep credentials in the Keychain or a password manager and load them when needed. Don't paste them into prompts or commands, and make sure commands and debug logs don't print them.",
+            "If the tool has a setting for it, shorten how long it keeps session records.",
         ],
         link: None,
     },
@@ -170,7 +170,7 @@ pub const STEPS: &[&str] = &[
     "Revoke or replace the token where it was issued. Do this first: until then, the old token keeps working wherever it was copied.",
     "If something still needs access, issue a replacement with the smallest permissions and the shortest expiry that work.",
     "Keep the replacement out of plain files. Store it in the macOS Keychain or a password manager and load it when needed.",
-    "Remove the old value from this file. If it is a shell history file, delete that line.",
+    "Remove the old value from this file. If it's a shell history file, delete that line.",
 ];
 
 struct Provider {

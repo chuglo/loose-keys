@@ -8,14 +8,14 @@ pub const AWS_KEYS: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "AWS access keys stored in a file",
-    explanation: "This file has an AWS secret access key. Loose Keys did not check whether it still works or what it can access.",
-    reason: Some("Static AWS access keys do not expire and work from any computer. Any program that can read this file can copy them."),
-    next_step: Some("Replace static keys with short-lived sign-in. Deleting this file does not revoke keys; deactivate them in IAM."),
+    explanation: "This file has an AWS secret access key. Loose Keys didn't check whether it still works or what it can access.",
+    reason: Some("Static AWS access keys don't expire and work from any computer. Any program that can read this file can copy them."),
+    next_step: Some("Switch to short-lived sign-in, and deactivate the old keys in IAM. Deleting this file doesn't revoke them."),
     advice: Advice {
         steps: &[
             "Find out what still uses this profile. In the IAM console, the key's 'Last used' column shows when and for which service.",
             "Switch to short-lived credentials: run 'aws configure sso' (IAM Identity Center), which stores no long-lived secret.",
-            "In IAM > Users > Security credentials, make the old access key inactive, confirm nothing broke, then delete it.",
+            "In IAM > Users > Security credentials, choose Actions > Deactivate for the old access key. When everything works without it, choose Actions > Delete.",
             "Remove the profile's aws_access_key_id and aws_secret_access_key lines from ~/.aws/credentials.",
         ],
         link: Some("https://console.aws.amazon.com/iam/home#/security_credentials"),

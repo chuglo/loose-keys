@@ -9,14 +9,14 @@ pub const TELEGRAM_SESSION: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Telegram session stored on this Mac",
-    explanation: "Telegram Desktop keeps its signed-in session in this folder. Loose Keys found the folder but did not open it.",
-    reason: Some("Someone with a copy of this folder may be able to use your account without signing in. Loose Keys did not check whether a local passcode protects it."),
+    explanation: "Telegram Desktop keeps its signed-in session in this folder. Loose Keys found the folder but didn't open it.",
+    reason: Some("Someone with a copy of this folder may be able to use your account without signing in. Loose Keys didn't check whether a local passcode protects it."),
     next_step: Some("Set a local passcode in Telegram, and check which devices are signed in."),
     advice: Advice {
         steps: &[
             "In Telegram, open Settings > Privacy and Security > Local Passcode and set one. The stored session is then encrypted with it.",
-            "In Settings > Devices (Active Sessions), end any session you do not recognize.",
-            "Turn on Two-Step Verification to protect new sign-ins. It does not end sessions that are already signed in, so if this one may have been copied, end it from a device you trust.",
+            "In Settings > Devices (Active Sessions), end any session you don't recognize.",
+            "Turn on Two-Step Verification to protect new sign-ins. It doesn't end sessions that are already signed in, so if this one may have been copied, end it from a device you trust.",
         ],
         link: None,
     },
@@ -39,13 +39,13 @@ pub const DBEAVER_PASSWORDS: Rule = Rule {
     id: "app.dbeaver.saved-passwords",
     category: "developer-cloud",
     title: "Database passwords saved by DBeaver",
-    explanation: "DBeaver keeps saved database passwords in this file. Loose Keys did not open it, so it does not know what is inside or how it is protected.",
+    explanation: "DBeaver keeps saved database passwords in this file. Loose Keys didn't open it, so it doesn't know what's inside or how it's protected.",
     reason: Some("A copy of this file may give access to your databases, depending on your DBeaver version and settings."),
     next_step: Some("Change the saved database passwords, and set a master password in DBeaver or stop saving them."),
     advice: Advice {
         steps: &[
             "For shared or production databases saved here, change the password on the server.",
-            "Check how your DBeaver version protects saved passwords, or stop saving them for each connection.",
+            "Set a master password in DBeaver if your version offers one, or turn off password saving in each connection's settings.",
             "Remove connections you no longer use.",
         ],
         link: None,
@@ -63,13 +63,13 @@ pub const KEEPASS_DATABASE: Rule = Rule {
     kind: "inventory",
     severity: "low",
     title: "KeePass password database",
-    explanation: "The start of this file looks like a KeePass password database. Loose Keys did not open it or check how it is protected.",
-    reason: None,
-    next_step: Some("Check that the master password is long and used nowhere else. Malware copies these files and guesses weak master passwords offline."),
+    explanation: "The start of this file looks like a KeePass password database. Loose Keys didn't open it or check how it's protected.",
+    reason: Some("Malware copies these files and tries to guess weak master passwords offline."),
+    next_step: Some("Check that the master password is long and used nowhere else."),
     advice: Advice {
         steps: &[
             "Use a master password of several random words, used nowhere else.",
-            "Add a key file kept on a separate device, so the database alone is not enough.",
+            "Add a key file kept on a separate device, so the database alone isn't enough.",
             "Delete old copies and backups of the database you no longer need.",
         ],
         link: None,
@@ -92,7 +92,7 @@ pub const FILEZILLA_PASSWORD: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Server password saved by FileZilla",
-    explanation: "This FileZilla config has a saved password. FileZilla stores it in base64, which anyone can decode. Loose Keys did not decode it or try it on a server.",
+    explanation: "This FileZilla config has a saved password. FileZilla stores it in base64, which anyone can decode. Loose Keys didn't decode it or try it on a server.",
     reason: Some("Any program that can read this file may be able to reuse the saved passwords."),
     next_step: Some("Change the saved passwords at each server, then protect or stop saving them in FileZilla."),
     advice: Advice {
@@ -150,14 +150,14 @@ fn filezilla_hits(bytes: &[u8]) -> Hits {
 pub const VPN_PROFILE_KEY: Rule = Rule {
     id: "app.openvpn.embedded-key",
     title: "VPN profile with its private key inside",
-    explanation: "This OpenVPN profile has a private key inside. Loose Keys did not check whether the key is valid, encrypted, or enough on its own to connect.",
+    explanation: "This OpenVPN profile has a private key inside. Loose Keys didn't check whether the key is valid, encrypted, or enough on its own to connect.",
     reason: Some("Password-stealing malware collects .ovpn files. A copied profile with a key inside gives access to the network behind the VPN, unless a separate password or code is also required."),
     next_step: Some("Ask whoever runs the VPN to revoke this profile's certificate and issue a new one, and keep the new profile out of Downloads."),
     advice: Advice {
         steps: &[
             "If this is a work VPN, tell IT the profile was stored unprotected and ask for it to be reissued.",
             "Import the new profile into the VPN app, then delete the .ovpn file and empty the Trash. The app keeps what it needs.",
-            "Ask for the VPN to require a second factor, so a copied profile is not enough on its own.",
+            "Ask for the VPN to require a second factor, so a copied profile isn't enough on its own.",
         ],
         link: None,
     },
@@ -203,7 +203,7 @@ pub const PASSWORD_NOTE: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Possible passwords in a text note",
-    explanation: "This text file has lines that look like saved passwords, such as 'password: ...'. Loose Keys only checked that they are not placeholders. They may be notes about something else.",
+    explanation: "This text file has lines that look like saved passwords, such as 'password: ...'. Loose Keys only checked that they aren't placeholders. They may be notes about something else.",
     reason: Some("Password-stealing malware collects small text files from Desktop, Documents and Downloads, because people keep passwords in them."),
     next_step: Some("Move these passwords into a password manager and delete the note."),
     advice: Advice {
@@ -286,13 +286,13 @@ fn password_lines(text: &str) -> Vec<usize> {
 pub const RCLONE_SECRET: Rule = Rule {
     id: "app.rclone.stored-secret",
     title: "Storage password or key saved by rclone",
-    explanation: "This rclone config has a saved password or key. rclone only obscures passwords, and anyone with rclone can reveal them. Loose Keys did not try them.",
+    explanation: "This rclone config has a saved password or key. rclone only obscures passwords, and anyone with rclone can reveal them. Loose Keys didn't try them.",
     reason: Some("A copy of this file can reach the same storage until the passwords or keys are changed."),
     next_step: Some("Set a password on the rclone config, and change what was stored here if the file may have been copied."),
     advice: Advice {
         steps: &[
             "Encrypt the config: run 'rclone config', choose 's' (Set configuration password).",
-            "If the file may have been copied, change the password or rotate the key of each remote named here at its service.",
+            "If the file may have been copied, change the password or replace the key of each remote named here at its service.",
             "Remove remotes you no longer use: rclone config delete <name>",
         ],
         link: None,
@@ -321,7 +321,7 @@ pub const RCLONE_LOGIN: Rule = Rule {
     kind: "inventory",
     severity: "medium",
     title: "Cloud storage sign-in stored by rclone",
-    explanation: "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. That is normal for rclone. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "rclone keeps the sign-in token of a cloud storage remote in this file as plain text. That's normal for rclone. Loose Keys didn't check whether it still works or what it can access.",
     reason: None,
     next_step: Some("Set a password on the rclone config to encrypt these tokens."),
     matcher: Matcher::Whole {

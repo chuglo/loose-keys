@@ -8,9 +8,9 @@ pub const DOCKER_AUTH: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Docker registry password or token in the config file",
-    explanation: "This file has registry sign-in data stored without encryption. Loose Keys did not check whether it still works.",
-    reason: Some("Docker on macOS can keep this in the Keychain instead."),
-    next_step: Some("Move the sign-in to the Keychain. Removing it from the file does not revoke it; change it at the registry."),
+    explanation: "This file has registry sign-in data stored without encryption. Loose Keys didn't check whether it still works.",
+    reason: Some("Any program that can read this file can copy the sign-in."),
+    next_step: Some("Move the sign-in to the Keychain, and change it at the registry. Removing it from the file doesn't revoke it."),
     advice: Advice {
         steps: &[
             "Sign out of each registry listed in the file, which removes its entry: docker logout <registry>",

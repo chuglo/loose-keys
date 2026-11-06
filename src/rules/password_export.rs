@@ -8,15 +8,15 @@ pub const PASSWORD_EXPORT: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Possible password export file",
-    explanation: "The first line of this CSV file looks like a browser or password manager export. That does not prove the file holds passwords. Loose Keys read only that line.",
+    explanation: "The first line of this CSV file looks like a browser or password manager export. That doesn't prove the file holds passwords. Loose Keys read only that line.",
     reason: Some("If it holds passwords, any program that can read the file can read them too."),
-    next_step: Some("Delete exports you no longer need, including copies in the Trash and in synced folders. Deleting a file does not revoke the passwords in it, so change any that were exposed."),
+    next_step: Some("Delete exports you no longer need, including copies in the Trash and in synced folders. Deleting a file doesn't revoke the passwords in it, so change any that were exposed."),
     advice: Advice {
         steps: &[
-            "Open the file's folder and confirm it is a password export you made.",
+            "Open the file's folder and confirm it's a password export you made.",
             "If you still need these passwords, import the file into a password manager first.",
             "Delete the file, then empty the Trash. Look for other copies in Downloads, Desktop and iCloud Drive.",
-            "If the file sat in a shared or synced folder, or you think this Mac had malware, change the passwords for your email and bank accounts first, then the rest.",
+            "If the file was in a shared or synced folder, or you think this Mac had malware, change your email and bank passwords first, then the rest.",
         ],
         link: None,
     },
@@ -34,7 +34,8 @@ pub const PASSWORD_EXPORT: Rule = Rule {
 pub const BITWARDEN_EXPORT: Rule = Rule {
     id: "export.password-bitwarden-json",
     title: "Possible unencrypted Bitwarden export",
-    explanation: "This file looks like an unencrypted Bitwarden export, and at least one login in it has a password. Loose Keys did not check whether the passwords still work.",
+    explanation: "This file looks like an unencrypted Bitwarden export, and at least one login in it has a password. Loose Keys didn't check whether the passwords still work.",
+    reason: Some("Any program that can read the file can read the passwords in it."),
     matcher: Matcher::Whole {
         candidate: is_bitwarden_candidate,
         test: bitwarden_hits,
@@ -56,7 +57,7 @@ pub const BITWARDEN_EXPORT: Rule = Rule {
 pub const ONEPASSWORD_EXPORT: Rule = Rule {
     id: "export.password-1pux",
     title: "1Password export file",
-    explanation: "This file has the name and format of a 1Password export (1PUX). These exports hold every item unencrypted. Loose Keys did not read the items inside.",
+    explanation: "This file has the name and format of a 1Password export (1PUX). These exports hold every item unencrypted. Loose Keys didn't read the items inside.",
     targets: &[Target::Name("*.1pux")],
     matcher: Matcher::Head(is_zip),
     samples: &[

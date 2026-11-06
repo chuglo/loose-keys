@@ -9,9 +9,9 @@ pub const PYPI_PASSWORD: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "PyPI password or token stored in a file",
-    explanation: "A password or API token is stored in the Python package upload config. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "A password or API token is stored in the Python package upload config. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("A PyPI token can publish packages under your name, which is why malware that spreads through packages collects this file."),
-    next_step: Some("Revoke the token and keep the replacement in the Keychain. Removing the line does not revoke it."),
+    next_step: Some("Revoke the token and keep the replacement in the Keychain. Removing the line doesn't revoke it."),
     advice: Advice {
         steps: &[
             "In your PyPI account settings, delete the API token that was stored here.",
@@ -109,15 +109,15 @@ fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> Option<&str>) -> 
 pub const CARGO_TOKEN: Rule = Rule {
     id: "dev.cargo.inline-token",
     title: "crates.io token stored in a file",
-    explanation: "A registry token is stored in Cargo's credentials file as plain text. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "A registry token is stored in Cargo's credentials file as plain text. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("A crates.io token can publish crates under your name."),
-    next_step: Some("Revoke the token and let Cargo keep the replacement in the Keychain. Removing the line does not revoke it."),
+    next_step: Some("Revoke the token and let Cargo keep the replacement in the Keychain. Removing the line doesn't revoke it."),
     advice: Advice {
         steps: &[
             "Remove the stored token: cargo logout",
             "On crates.io, open Account Settings > API Tokens and revoke the token.",
-            "Tell Cargo to use the Keychain by adding to ~/.cargo/config.toml: [registry] global-credential-providers = [\"cargo:macos-keychain\"]",
-            "When you next publish, 'cargo login' stores the new token in the Keychain. Give the token an expiry date and only the scopes you need.",
+            "Tell Cargo to use the Keychain: in ~/.cargo/config.toml, under [registry], add global-credential-providers = [\"cargo:macos-keychain\"]",
+            "When you next publish, create a token with an expiry date and only the scopes you need, then run 'cargo login'. Cargo stores it in the Keychain.",
         ],
         link: Some("https://crates.io/settings/tokens"),
     },
@@ -143,9 +143,9 @@ fn cargo_hits(bytes: &[u8]) -> Hits {
 pub const GEM_KEY: Rule = Rule {
     id: "dev.rubygems.inline-key",
     title: "RubyGems API key stored in a file",
-    explanation: "An API key is stored in the RubyGems credentials file as plain text. Loose Keys did not check whether it still works or what it can access.",
+    explanation: "An API key is stored in the RubyGems credentials file as plain text. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("A RubyGems API key can publish gems under your name."),
-    next_step: Some("Revoke the key in your RubyGems account. Removing the line does not revoke it."),
+    next_step: Some("Revoke the key in your RubyGems account. Removing the line doesn't revoke it."),
     advice: Advice {
         steps: &[
             "Remove the stored key: gem signout",
@@ -206,7 +206,7 @@ fn gem_hits(bytes: &[u8]) -> Hits {
 pub const NETRC_PASSWORD: Rule = Rule {
     id: "dev.netrc.inline-password",
     title: "Password stored in .netrc",
-    explanation: "A password or token for a network host is stored in ~/.netrc as plain text. Loose Keys did not check whether it still works.",
+    explanation: "A password or token for a network host is stored in ~/.netrc as plain text. Loose Keys didn't check whether it still works.",
     reason: Some("Tools such as curl, git and package managers read this file, and so can any other program running as you."),
     next_step: Some("Change the password or revoke the token at the host named here, then keep the replacement in the Keychain."),
     advice: Advice {
@@ -236,7 +236,7 @@ pub const PGPASS_PASSWORD: Rule = Rule {
     id: "dev.postgres.pgpass",
     severity: "medium",
     title: "Database password stored in .pgpass",
-    explanation: "psql reads passwords from ~/.pgpass, where they are stored as plain text. Loose Keys did not check whether this one is for a local test database or a production one.",
+    explanation: "psql reads passwords from ~/.pgpass, where they're stored as plain text. Loose Keys didn't check whether this one is for a local test database or a production one.",
     reason: Some("Any program running as you can read this file and connect to the databases it lists."),
     next_step: Some("For anything but a local test database, change the password and stop storing it in this file."),
     advice: Advice {
@@ -304,7 +304,7 @@ fn pgpass_fields(line: &str) -> Vec<String> {
 pub const MYCNF_PASSWORD: Rule = Rule {
     id: "dev.mysql.mycnf",
     title: "Database password stored in .my.cnf",
-    explanation: "A MySQL password is stored in ~/.my.cnf as plain text. Loose Keys did not check whether it is for a local test database or a production one.",
+    explanation: "A MySQL password is stored in ~/.my.cnf as plain text. Loose Keys didn't check whether it's for a local test database or a production one.",
     targets: &[Target::File(".my.cnf")],
     matcher: Matcher::Whole {
         candidate: any,
@@ -334,7 +334,8 @@ pub const MYCNF_PASSWORD: Rule = Rule {
 pub const WAREHOUSE_PASSWORD: Rule = Rule {
     id: "dev.warehouse.inline-password",
     title: "Data warehouse password stored in a client config",
-    explanation: "A password or token for a data warehouse is written in this dbt or Snowflake client config as plain text. Loose Keys did not check whether it still works.",
+    explanation: "A password or token for a data warehouse is written in this dbt or Snowflake client config as plain text. Loose Keys didn't check whether it still works.",
+    next_step: Some("Change the password or revoke the token at the warehouse, and stop storing it in this file."),
     targets: &[
         Target::File(".dbt/profiles.yml"),
         Target::File(".snowsql/config"),
@@ -358,7 +359,7 @@ pub const WAREHOUSE_PASSWORD: Rule = Rule {
         steps: &[
             "Check which warehouse the entry is for, and change the password or revoke the token there.",
             "In dbt, read it from the environment instead: password: \"{{ env_var('DBT_PASSWORD') }}\"",
-            "Prefer browser sign-in or key-pair sign-in with a passphrase where the warehouse offers it.",
+            "Where the warehouse offers it, use browser sign-in, or key-pair sign-in with a passphrase.",
         ],
         link: None,
     },
