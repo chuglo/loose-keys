@@ -10,6 +10,8 @@ specified, use local `main`.
 - Two unmerged branches together: pass both refs. The script combines them
   without a commit.
 - Uncommitted changes in a worktree: pass `.` from that worktree's root.
+  A change the person hasn't approved yet is built this way, also with
+  `--into`, and committed only after they approve it.
 - Never make a commit, merge or branch only so that a build has something:
   no work-in-progress or unsigned commit either.
 
@@ -31,9 +33,9 @@ specified, use local `main`.
    within minutes, so offering to wait for it is reasonable.
 
    Only when the person asks for the build in a VM that is already open,
-   add `--into <VM>` before the ref: it replaces the app in that VM, keeps
-   the app's saved state and the decoys, and restarts the helper if it was
-   loaded. It works only for a running VM this script opened with the same
+   add `--into <VM>` before the ref or `.`: it replaces the app in that VM,
+   keeps the app's saved state and the decoys, and restarts the helper if it
+   was loaded. It works only for a running VM this script opened with the same
    `TMPDIR`. Never choose it yourself instead of a new VM.
 
    To open it as a Mac whose organization manages the app, add
@@ -52,6 +54,15 @@ specified, use local `main`.
 4. If it fails, report the step and the log it names. A run that fails after
    starting its VM stops that VM and keeps it. Without `--into`, every build
    gets a new clone: never fall back to a VM from an earlier run.
+5. Once the person approves what the VM showed or says they're done, stop
+   and delete it without asking: `tart stop`, then `tart delete`. This is
+   only the VM named on the `VM:` line of a run in this conversation without
+   `--into`, never one it only put a build into. After they turn it down or
+   change topic, ask once, since they may want the next build in it. A VM a
+   failed run kept goes too, once the failure is reported and no one is
+   looking into it. Of window-check clones, delete only the one named on the
+   `VM:` line of a check you ran (in `window.log` for a `tests/check-all.sh`
+   run), never one picked by name or time.
 
 What the script does: it checks that fewer than two VMs are running, then
 builds from a `git archive` export of the commit (of two commits combined
@@ -73,6 +84,7 @@ refuses to have written. Otherwise it is `macos-tahoe-base`, which boots with
 SIP off: macOS asks for no folders and the helper does not behave as on a real
 Mac. `LOOSE_KEYS_BASE=<image>` picks another.
 
-The app runs only in the guest. Never open it on this Mac. Stopping and
-deleting VMs (`tart stop`, `tart delete`) are the person's call; old `lk-*`
-VMs stay until they remove them.
+The app runs only in the guest. Never open it on this Mac. Any other VM,
+such as an older `lk-*` clone or one another session opened, is the
+person's to stop or delete; it stays until they remove it. Never delete
+`lk-sip-base` or a `ghcr.io` base image.

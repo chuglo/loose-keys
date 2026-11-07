@@ -58,8 +58,9 @@ not successful cleanup.
 Each invocation keeps its source archive, checksum, command logs, report and
 report log in a new `run.*` folder beneath the output path. A failing check
 keeps its exit status. Cleanup stops only the clone it created, on success
-or failure, and a failed stop makes the wrapper fail. The clone is retained
-for inspection, never automatically deleted. Transfer checksums detect
+or failure, and a failed stop makes the wrapper fail. The wrapper never
+deletes the clone; the session that ran the check deletes it, by the name on
+its `VM:` line, after reporting the result. Transfer checksums detect
 accidental changes; they do not authenticate a hostile host. This checks
 sample window behavior, not the real bundle, helper, or visual appearance.
 The Rust harness's offline wrapper controls replace Tart with a stand-in and check a stalled
