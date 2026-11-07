@@ -52,8 +52,8 @@ cargo test --locked --workspace
 For prose-only changes, meaning Markdown files and images under `docs/`,
 Markdown files under `.agents/skills/`, and the `AGENTS.md` and `CLAUDE.md`
 files, review the edited text and check referenced local paths and commands
-against their definitions. No build or test reads them, so no other check is
-required, before a push to `main` either.
+against their definitions. No build or test reads them, so none is required,
+before a push to `main` either.
 
 The table below is the verification matrix for the whole repository,
 including `gui/`. [Local checks](docs/testing/local-verification.md) has each
@@ -72,7 +72,9 @@ command, what it needs and what it does not cover:
 The shipped-bundle and native-helper checks run only in the disposable macOS
 guest; `docs/testing/guest.md` has its setup and both checks.
 
-There is no CI. Before a push to `main` that is not prose-only, run
+There is no CI. Before any push, check the docs against the commits being
+pushed with the `documentation` skill (`.agents/skills/documentation/`) and
+report what it finds. Before a push to `main` that is not prose-only, also run
 `sh tests/check-all.sh` on the exact commit and report each check's exit
 status ("Before a push to `main`" in `docs/testing/local-verification.md`).
 Run the shipped-app and native-helper guest checks only when the person
