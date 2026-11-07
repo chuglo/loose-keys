@@ -91,18 +91,40 @@ final class SampleEngine: Engine {
         self.onEvent = onEvent
     }
 
+    /// The checks change this engine's state on the main thread while the
+    /// window calls it from others, at times two at once. Unguarded, that
+    /// crashed the window check. So the state is read and written on the main
+    /// thread only, and only the waits stay off it, so that the checks can
+    /// act while one goes on.
     func call(_ command: String, _ args: [String: Any]) throws -> Data {
         switch command {
         case "prepare_access":
-            if let gate = Self.accessGate, gate.wait(timeout: .now() + 10) != .success {
+            if let gate = Self.onMain({ Self.accessGate }), gate.wait(timeout: .now() + 10) != .success {
                 throw EngineError(message: "The window check never released folder access.")
             }
             return Data("null".utf8)
+        case "start_scan":
+            Thread.sleep(forTimeInterval: Self.onMain { Self.scanRequests += 1; return Self.scanSeconds })
+        default:
+            break
+        }
+        return try Self.onMain { try respond(command, args) }
+    }
+
+    /// On the main thread, waiting for it, or at once when already there.
+    private static func onMain<T>(_ work: () throws -> T) rethrows -> T {
+        if Thread.isMainThread { return try work() }
+        return try DispatchQueue.main.sync(execute: work)
+    }
+
+    /// The answer to a call, on the main thread.
+    private func respond(_ command: String, _ args: [String: Any]) throws -> Data {
+        switch command {
         case "places": return Data(#"{"home":"~","home_error":null,"extra":["/Volumes/Backup"],"error":null}"#.utf8)
         case "remove_place", "unskip_folder":
             // The sample keeps its folders. The checks look at what was asked.
             Self.folderRequest = args
-            return command == "remove_place" ? try call("places", [:]) : Data("null".utf8)
+            return command == "remove_place" ? try respond("places", [:]) : Data("null".utf8)
         case "version": return Data(#""0.2.0-beta.1""#.utf8)
         case "save_report" where Self.reportFails:
             throw EngineError(message: "Could not save: the disk is full.")
@@ -163,8 +185,6 @@ final class SampleEngine: Engine {
             if Self.coverageFails { throw EngineError(message: "Synthetic coverage read failure.") }
             return Data(Self.automaticCoverage.utf8)
         case "start_scan":
-            Self.scanRequests += 1
-            Thread.sleep(forTimeInterval: Self.scanSeconds)
             // The sample scan could not read everything: its status is "partial".
             var answer = Self.results
             if Self.nothingFound { answer = answer.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) }
@@ -1410,8 +1430,12 @@ enum Checks {
         // is then an older list, or none, and neither is what was found.
         SampleEngine.refused = true
         await model.refreshReview()
-        // The alert that reports the failure is not what is checked here.
-        model.failure = nil
+        // The alert that reports the failure is not what is checked here. It
+        // is closed with OK, as a person closes it: cleared in code while it
+        // was still opening, it stopped the check inside AppKit.
+        _ = await eventually { button("OK") != nil }
+        await press(button("OK"), "closing the alert about the review list",
+                    until: { model.failure == nil })
         await settle(after: "the request for the review list failing")
         let refused = written()
         expect(refused.contains("Cannot Open Worth Reviewing") && !refused.contains("Nothing to Review")
