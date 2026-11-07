@@ -57,21 +57,10 @@ appears in `NSWorkspace.runningApplications`, as required by
 The twenty-second action deadline is unchanged.
 
 Without this handling, the app waits in Preparing Folder Access and disables
-Scan Automatically. The old driver misreported that disabled control as
-missing, and cleanup could not turn monitoring off either. These checks run
-through the command-line harness and guest Accessibility; they do not need
-Codex Desktop or Computer Use.
-The prompt wording and responsible-client attribution were checked on the
-macOS 26.6.2 guest. Other macOS versions and non-English dialogs remain
-unverified; an unmatched request must fail rather than receive a guessed
-answer.
-
-Regression checked on 2026-10-27 against the unchanged 0.3.0 candidate:
-the old driver failed enable-baseline and cleanup; the updated driver passed
-all eight positive stages (exit 0). A separate fresh guest with
-`--omit-create` failed event-create, left the later cases NOT RUN, and passed
-cleanup (exit 1), as required. Both guests were stopped and their receipts
-kept on the host. Earlier failed diagnostic runs remain recorded too.
+Scan Automatically. The prompt wording and responsible-client attribution
+were checked on the macOS 26.6.2 guest. Other macOS versions and non-English
+dialogs remain unverified; an unmatched request must fail rather than receive
+a guessed answer.
 
 `results.json` in the work folder records PASS, FAIL, BLOCKED or NOT RUN for
 each case, never the review store, its key or fixture values. Exit 0 means

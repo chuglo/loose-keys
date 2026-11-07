@@ -55,16 +55,6 @@ sh security-tests/check_detection.sh
 With `--workspace` it also runs every workspace test, so one run replaces
 this and `cargo test --locked --workspace`.
 
-The retained `codex-inline-comma` case checks double-quoted comma values
-and rejects assignment-looking text inside a nonsecret value. The inline
-table unit test also covers escaped quotes, escaped backslashes and literal
-strings ending in a backslash. `poetry-comment` checks positive and negative
-Poetry `auth.toml` inputs through the CLI and engine, supplementing the
-matcher unit test. Both were preserved from the older bug-audit worktree;
-the production fixes were already present. Temporary regressions that split
-at quoted commas or count commented Poetry entries must make these checks
-fail; restore the production code before the full verification run.
-
 ## App bundle
 
 Needs Apple's command-line tools and Node. It builds the app and does not
@@ -86,7 +76,8 @@ After building the bundle, run `sh gui/package-dmg.sh`. It verifies the code
 signature and the compressed image. Mount the image without opening the app:
 
 ```sh
-hdiutil attach -readonly -nobrowse target/release/bundle/macos/Loose-Keys-0.4.0.dmg
+DMG="target/release/bundle/macos/Loose-Keys-$(plutil -extract CFBundleShortVersionString raw -o - gui/macos/Info.plist).dmg"
+hdiutil attach -readonly -nobrowse "$DMG"
 readlink "/Volumes/Loose Keys/Applications"
 codesign --verify --deep --strict "/Volumes/Loose Keys/Loose Keys.app"
 diff -qr "target/release/bundle/macos/Loose Keys.app" "/Volumes/Loose Keys/Loose Keys.app"
@@ -94,11 +85,11 @@ hdiutil detach "/Volumes/Loose Keys"
 ```
 
 The shortcut must point to `/Applications`; the bundle must match the source.
-Use the version printed by the packaging script. Finder chooses the layout;
-there is no custom background or forced icon positioning. Not verified by
-these commands: dragging in Finder, installing over an older app, opening
-the downloaded image through Gatekeeper, or launching the installed app.
-Those checks belong in the disposable guest when requested.
+Finder chooses the layout; there is no custom background or forced icon
+positioning. Not verified by these commands: dragging in Finder, installing
+over an older app, opening the downloaded image through Gatekeeper, or
+launching the installed app. Those checks belong in the disposable guest when
+requested.
 
 ## The window
 
@@ -107,26 +98,14 @@ folder. It runs in a fresh headless macOS guest, so it does not put a window
 on the host. See [guest prerequisites and retained logs](guest.md#sample-window-check).
 The guest screen must be awake and unlocked. Status 2 means it was
 blocked, not passed. It reads the icon's label but cannot open its menu. The
-model check shows no window, and it uses a fake clock for the window's five-,
-two- and thirty-second timers and the daily update check, so it does not
-check real timing. Its update cases use a stand-in for GitHub; no check here
-makes a request to GitHub.
+model check shows no window, and it uses a fake clock, so it does not check
+real timing. Its update cases use a stand-in for GitHub; no check here makes
+a request to GitHub.
 
-The model check covers grouped-secondary-path filtering (open, fixed and
-set-aside copies), matching-path context without changing representative ids,
-filtered counts and failure precedence, copy hints (one per file, however many
-rules matched in it), inspector selection changes, the menu bar's first line
-before any check, manual-report lifetime wording and initial content-size
-bounds.
-It also checks that a folder-removal refusal or save failure inside a successful
-engine response reaches the alert state without losing the usable folder list.
-This uses controlled responses, not a failed write in the running bundle.
-The window check also presses Clear Filter on Worth Reviewing, Set Aside
-and Stored Sign-ins and checks the matching-copy text, copy hint, empty
-inspector and initial window frame. It sets filter text in the model, not
-with keyboard input. These checks do not establish actual typing, restored
-window sizing, multiple displays or Spanish layout; those need a guest
-interaction pass. No host UI is needed for the model check.
+The model check answers with a stand-in engine, not the running bundle. The
+window check sets filter text in the model, not with keyboard input. Neither
+establishes actual typing, restored window sizing, multiple displays or
+Spanish layout; those need a guest interaction pass.
 
 ```sh
 sh gui/tests/check-window-guest.sh "$TMPDIR/window-check"
@@ -182,14 +161,14 @@ report the exit status it prints for each check:
 sh tests/check-all.sh
 ```
 
-It runs every command above except the scan by hand, with the workspace tests
-and detection as one `--workspace` run. The sample window check starts first
-in a headless guest and runs alongside the others, which run one at a time; it
-builds from its own copy of the sources inside the guest. Ctrl-C stops it and
-waits while it stops its guest. It keeps going after a failure, exits 1 if any
-check failed and prints how long each check took. Each check's log is in the
-folder it names at the end. A later pass does not cancel an earlier failure.
-The shipped-app and native-helper guest checks are not in it.
+It runs every command above except the installer disk image and the scan by
+hand, with the workspace tests and detection as one `--workspace` run. The
+sample window check starts first in a headless guest and runs alongside the
+others, which run one at a time; it builds from its own copy of the sources
+inside the guest. Ctrl-C stops it and waits while it stops its guest. It keeps
+going after a failure, exits 1 if any check failed and prints how long each
+check took. Each check's log is in the folder it names at the end. The
+shipped-app and native-helper guest checks are not in it.
 
 The harness self-test and the window check are skipped when none of the files
 they use differ from `origin/main`, which passed this script before it was
