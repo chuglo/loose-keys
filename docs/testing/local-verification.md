@@ -173,9 +173,10 @@ HOME="$TMPDIR/synth/home" ./target/release/loose-keys scan --feedback -
 
 ## Before a push to `main`
 
-A push that changes only Markdown and images under `docs/` needs only a review
-of the text. For any other push, run this on the exact commit and report the
-exit status it prints for each check:
+A push that changes only Markdown and images under `docs/`, Markdown under
+`.agents/skills/`, or the `AGENTS.md` and `CLAUDE.md` files needs only a
+review of the text. For any other push, run this on the exact commit and
+report the exit status it prints for each check:
 
 ```sh
 sh tests/check-all.sh

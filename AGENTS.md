@@ -50,9 +50,10 @@ cargo test --locked --workspace
 ```
 
 For prose-only changes, meaning Markdown files and images under `docs/`,
-review the edited text and check referenced local paths and commands against
-their definitions. No build or test reads them, so no other check is required,
-before a push to `main` either.
+Markdown files under `.agents/skills/`, and the `AGENTS.md` and `CLAUDE.md`
+files, review the edited text and check referenced local paths and commands
+against their definitions. No build or test reads them, so no other check is
+required, before a push to `main` either.
 
 The table below is the verification matrix for the whole repository,
 including `gui/`. [Local checks](docs/testing/local-verification.md) has each
