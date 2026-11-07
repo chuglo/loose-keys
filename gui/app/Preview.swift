@@ -600,7 +600,7 @@ enum Checks {
         await press(button("Not Now"), "putting the newer version off", until: { model.updateResult == nil })
         SampleEngine.newer = nil
         await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with no newer version",
-                    until: { written().contains("You're Up to Date") })
+                    until: { written().contains("You’re up to date.") })
         await press(button("OK"), "closing the up-to-date check",
                     until: { model.updateResult == nil && !written().contains("Loose Keys 9.9.9 Is Available") })
         expect(SampleReleases.requests == 4, "each check asks the sample's GitHub once (\(SampleReleases.requests) asked)")

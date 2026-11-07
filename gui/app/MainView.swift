@@ -68,7 +68,7 @@ struct MainView: View {
             return String(localized: "Loose Keys \(release.newer ?? "") Is Available",
                           comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0.")
         case .result(.upToDate):
-            return String(localized: "You're Up to Date",
+            return String(localized: "You’re up to date.",
                           comment: "The title of the alert after Check for Updates… when no newer version is out.")
         case .result(.failed):
             return String(localized: "Could Not Check for Updates",
@@ -84,9 +84,8 @@ struct MainView: View {
         case .result(.newer(let release)):
             return String(localized: "You're using version \(release.current).",
                           comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0.")
-        case .result(.upToDate(let release)):
-            return String(localized: "Loose Keys \(release.current) is the latest version.",
-                          comment: "Under the title of the alert after Check for Updates… when no newer version is out. %@ is this app's version number, such as 0.6.0.")
+        case .result(.upToDate):
+            return ""
         case .result(.failed(let reason)):
             return reason
         }

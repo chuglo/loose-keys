@@ -680,9 +680,6 @@
 /* Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0. [MainView.swift, Overview.swift] */
 "You're using version %@." = "Tienes la versión %@.";
 
-/* Under the title of the alert after Check for Updates… when no newer version is out. %@ is this app's version number, such as 0.6.0. [MainView.swift] */
-"Loose Keys %@ is the latest version." = "Loose Keys %@ es la versión más reciente.";
-
 /* [MainView.swift, Overview.swift] */
 "Download" = "Descargar";
 
@@ -690,7 +687,7 @@
 "Not Now" = "Ahora no";
 
 /* The title of the alert after Check for Updates… when no newer version is out. [MainView.swift] */
-"You're Up to Date" = "Estás al día";
+"You’re up to date." = "Estás al día.";
 
 /* The title of the alert after Check for Updates… when the check failed. [MainView.swift] */
 "Could Not Check for Updates" = "No se pudieron buscar actualizaciones";
