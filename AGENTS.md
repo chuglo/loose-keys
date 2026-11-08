@@ -305,6 +305,11 @@ run from the repository or worktree root as their instructions specify.
   a line to `Checks` in `gui/app/Preview.swift` for a control you add. It
   cannot type or point, so a change to either still needs a person, or a
   session that can use the screen, to click through the built bundle.
+- Check a window change yourself, then commit it: the checks the matrix
+  requires and, for what only the running app shows, an Accessibility driver
+  against the built bundle in a guest. Do not send the person to a VM to
+  confirm what those checks cover. Open one for them only when they ask, and
+  then keep the change uncommitted until they approve.
 - Engine calls answer in any order. Review and monitor reads go through
   `ReadTurns` in `AppModel`, which coalesces requests and allows one read of
   each list at a time. Folder responses use `RequestOrder`. Keep failures
