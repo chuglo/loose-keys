@@ -331,10 +331,10 @@ fn maven_encrypted(value: &str) -> bool {
 /// <password> elements holding a literal: not `${...}` and not `{encrypted}`.
 /// Nothing else in a value is a reference here, so a "$" alone is part of it.
 fn maven_hits(bytes: &[u8]) -> Hits {
-    utf8_lines(bytes, |text| {
+    utf8_text(bytes, |text| {
         let mut server = String::new();
         let mut out = Vec::new();
-        xml_tags(text, |name, _, value, line| {
+        let whole = xml_tags(text, |name, _, value, line| {
             if matches!(name, "server" | "/server" | "proxy" | "/proxy") {
                 server.clear();
             } else if name == "id" {
@@ -347,7 +347,7 @@ fn maven_hits(bytes: &[u8]) -> Hits {
                 }
             }
         });
-        out
+        xml_hits(out, whole)
     })
 }
 

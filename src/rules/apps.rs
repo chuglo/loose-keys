@@ -92,7 +92,7 @@ pub const FILEZILLA_PASSWORD: Rule = Rule {
     kind: "review",
     severity: "high",
     title: "Server password saved by FileZilla",
-    explanation: "This FileZilla config has a saved password. FileZilla stores it in base64, which anyone can decode. Loose Keys didn't decode it or try it on a server.",
+    explanation: "This FileZilla config has a saved password, stored as plain text or in base64, which anyone can decode. Loose Keys didn't try it on a server.",
     reason: Some("Any program that can read this file may be able to reuse the saved passwords."),
     next_step: Some("Change the saved passwords at each server, then protect or stop saving them in FileZilla."),
     advice: Advice {
@@ -128,10 +128,10 @@ pub const FILEZILLA_PASSWORD: Rule = Rule {
 /// A nonempty <Pass> element that is not encrypted with a master password,
 /// labelled with the nearest <Host> before it.
 fn filezilla_hits(bytes: &[u8]) -> Hits {
-    utf8_lines(bytes, |text| {
+    utf8_text(bytes, |text| {
         let mut host = String::new();
         let mut out = Vec::new();
-        xml_tags(text, |name, attributes, value, line| {
+        let whole = xml_tags(text, |name, attributes, value, line| {
             if matches!(name, "Server" | "/Server") {
                 host.clear();
             } else if name == "Host" {
@@ -143,7 +143,7 @@ fn filezilla_hits(bytes: &[u8]) -> Hits {
                 out.push(Hit::line(line).about(&host));
             }
         });
-        out
+        xml_hits(out, whole)
     })
 }
 
@@ -347,7 +347,10 @@ pub const RCLONE_LOGIN: Rule = Rule {
 /// One hit per remote: its OAuth token when `logins`, its saved passwords
 /// and keys otherwise.
 fn rclone_hits(bytes: &[u8], logins: bool) -> Hits {
-    let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
+    utf8_text(bytes, |text| rclone_remotes(text, logins))
+}
+
+fn rclone_remotes(text: &str, logins: bool) -> Hits {
     let mut remotes: Vec<&str> = Vec::new();
     let mut out = Vec::new();
     for (line, remote, _) in rclone_secrets(text, logins) {

@@ -29,39 +29,66 @@ pub const AWS_KEYS: Rule = Rule {
     samples: &[
         (b"[default]\naws_access_key_id = AKIASYNTHETIC\naws_secret_access_key = synthetic\n", true),
         (b"\xef\xbb\xbf[default]\naws_secret_access_key = synthetic\n", true),
+        (b"[default]\naws_secret_access_key = synthetic\naws_session_token = synthetic\n", true),
         (b"[default]\nregion = us-east-1\n", false),
         (b"[fixture]\naws_secret_access_key = #comment-only\n", false),
     ],
 };
 
+/// For a profile that also has a session token: keys that AWS STS issued,
+/// which expire on their own and which IAM can't deactivate.
+pub const TEMPORARY_KEYS: Wording = Wording {
+    explanation: "This file has temporary AWS keys: a secret access key with a session token. Loose Keys didn't check whether they've expired or what they can access.",
+    reason: Some("Temporary AWS keys work from any computer until they expire. Any program that can read this file can copy them."),
+    next_step: Some("Remove these keys from the file. Deleting them doesn't end them, so if they may have been copied, revoke the role's active sessions."),
+    advice: Advice {
+        steps: &[
+            "Remove the profile's aws_access_key_id, aws_secret_access_key and aws_session_token lines from this file.",
+            "If the keys may have been copied, end them before they expire: in the IAM console, open the role they're for, and on its Revoke sessions tab choose Revoke active sessions. This ends every session of that role issued until now, including other people's.",
+            "To sign in again without keys in this file, use 'aws configure sso' (IAM Identity Center).",
+        ],
+        link: Some("https://console.aws.amazon.com/iam/home#/roles"),
+    },
+};
+
 /// AWS files are parsed leniently, so invalid UTF-8 never hides other keys.
 fn aws_hits(bytes: &[u8]) -> Hits {
-    Ok(aws_profiles_with_keys(&String::from_utf8_lossy(bytes)))
+    capped_hits(aws_profiles_with_keys(&String::from_utf8_lossy(bytes)), 100)
 }
 
-/// Profile headers whose section contains aws_secret_access_key.
+/// Profile headers whose section contains aws_secret_access_key, with the
+/// temporary keys' wording where the section has a session token too.
 pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
-    let mut out = Vec::new();
-    let mut section: Option<(usize, &str)> = None;
-    let mut counted = false;
+    // Each section: its header's line, its profile, and whether it has a
+    // secret access key and a session token.
+    let mut sections: Vec<(usize, &str, bool, bool)> = Vec::new();
     // A byte order mark is not part of the first line.
     for (i, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let l = raw.trim();
         if l.starts_with('[') && l.ends_with(']') {
-            section = Some((i + 1, &l[1..l.len() - 1]));
-            counted = false;
-        } else if let (Some((line, profile)), false) = (section, counted) {
-            if let Some((k, v)) = l.split_once('=') {
-                if k.trim().eq_ignore_ascii_case("aws_secret_access_key")
-                    && scalar_literal(v).is_some()
-                {
-                    out.push(Hit::line(line).about(&format!("profile {profile}")));
-                    counted = true;
+            let name = &l[1..l.len() - 1];
+            // ~/.aws/config writes "[profile name]" for all but the default.
+            let profile = name.strip_prefix("profile ").map_or(name, str::trim);
+            sections.push((i + 1, profile, false, false));
+        } else if let (Some(section), Some((k, v))) = (sections.last_mut(), l.split_once('=')) {
+            if scalar_literal(v).is_some() {
+                match k.trim().to_ascii_lowercase().as_str() {
+                    "aws_secret_access_key" => section.2 = true,
+                    // The older name, which botocore also reads (unverified).
+                    "aws_session_token" | "aws_security_token" => section.3 = true,
+                    _ => {}
                 }
             }
         }
     }
-    out
+    sections
+        .into_iter()
+        .filter(|(_, _, secret, _)| *secret)
+        .map(|(line, profile, _, session)| Hit {
+            wording: session.then_some(&TEMPORARY_KEYS),
+            ..Hit::line(line).about(&format!("profile {profile}"))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -77,6 +104,42 @@ mod tests {
             vec![Some(1), Some(8)]
         );
         assert_eq!(hits[0].subject.as_deref(), Some("profile default"));
+    }
+
+    /// ~/.aws/config names a profile "[profile name]", the credentials file "[name]".
+    #[test]
+    fn a_profile_is_named_once() {
+        let hits = aws_profiles_with_keys(
+            "[profile prod]\naws_secret_access_key = synthetic-only\n[default]\naws_secret_access_key = synthetic-only\n",
+        );
+        let named: Vec<_> = hits.iter().map(|h| h.subject.as_deref()).collect();
+        assert_eq!(named, [Some("profile prod"), Some("profile default")]);
+    }
+
+    /// Keys with a session token are temporary, as tools that sign in
+    /// through AWS STS write them, wherever the token stands in the profile.
+    #[test]
+    fn temporary_keys_have_their_own_wording() {
+        let hits = aws_profiles_with_keys(concat!(
+            "[static]\naws_secret_access_key = synthetic-only\n",
+            "[sts]\naws_session_token = synthetic-only\naws_secret_access_key = synthetic-only\n",
+            "[legacy]\naws_secret_access_key = synthetic-only\naws_security_token = synthetic-only\n",
+            "[empty]\naws_secret_access_key = synthetic-only\naws_session_token =\n",
+            "[token-only]\naws_session_token = synthetic-only\n",
+        ));
+        let found: Vec<_> = hits
+            .iter()
+            .map(|h| (h.subject.as_deref(), h.wording.is_some()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (Some("profile static"), false),
+                (Some("profile sts"), true),
+                (Some("profile legacy"), true),
+                (Some("profile empty"), false),
+            ]
+        );
     }
 
     #[test]

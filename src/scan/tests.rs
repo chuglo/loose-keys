@@ -49,6 +49,29 @@ fn matcher_limits_retain_hits_and_make_rechecks_unknown() {
         ("terraform.tfstate", "dev.terraform.state-secret", 100),
         (".zsh_history", "secret.service-token", 100),
         (".claude/session.jsonl", "secret.agent-record", 50),
+        (".git-credentials", "dev.git.inline-credentials", 100),
+        (".gitconfig", "dev.url.inline-password", 100),
+        (".kube/config", "dev.kube.inline-credentials", 100),
+        (".config/gh/hosts.yml", "dev.gh.inline-token", 100),
+        (".npmrc", "dev.npm.inline-credentials", 100),
+        (".pgpass", "dev.postgres.pgpass", 100),
+        (".gem/credentials", "dev.rubygems.inline-key", 100),
+        (".bundle/config", "dev.bundler.inline-credentials", 100),
+        (".m2/settings.xml", "dev.maven.settings-password", 100),
+        (
+            ".config/filezilla/sitemanager.xml",
+            "app.filezilla.saved-password",
+            100,
+        ),
+        (".aws/credentials", "dev.aws.inline-credentials", 100),
+        (".netrc", "dev.netrc.inline-password", 100),
+        (".continue/config.yaml", "dev.mcp.inline-secret", 100),
+        (
+            "Library/Application Support/pypoetry/auth.toml",
+            "dev.pypi.inline-credentials",
+            100,
+        ),
+        (".snowsql/config", "dev.warehouse.inline-password", 100),
     ] {
         let f = Fixture::new("matcher-limits");
         let path = f.0.join(name);
@@ -94,6 +117,41 @@ fn matcher_limits_retain_hits_and_make_rechecks_unknown() {
                             "<key>\n-----BEGIN {}-----\nsynthetic-{i}\n</key>\n",
                             "PRIVATE KEY"
                         ),
+                        ".git-credentials" => {
+                            format!("https://fixture:synthetic-value-{i}@host{i}.invalid\n")
+                        }
+                        ".gitconfig" => format!(
+                            "[url \"https://fixture:synthetic-value-{i}@host{i}.invalid/\"]\n"
+                        ),
+                        ".kube/config" => format!("    password: synthetic-value-{i}\n"),
+                        ".config/gh/hosts.yml" => {
+                            format!("host{i}.invalid:\n    oauth_token: synthetic-value-{i}\n")
+                        }
+                        ".npmrc" => format!("//host{i}.invalid/:_authToken=synthetic-value-{i}\n"),
+                        ".pgpass" => format!("host{i}.invalid:5432:db:user:synthetic-value-{i}\n"),
+                        ".gem/credentials" => format!(":key{i}: synthetic-value-{i}\n"),
+                        ".bundle/config" => {
+                            format!("BUNDLE_HOST{i}__INVALID: \"fixture:synthetic-value-{i}\"\n")
+                        }
+                        ".m2/settings.xml" => format!(
+                            "<server><id>s{i}</id><password>synthetic-value-{i}</password></server>\n"
+                        ),
+                        ".config/filezilla/sitemanager.xml" => format!(
+                            "<Server><Host>h{i}.invalid</Host><Pass>synthetic-value-{i}</Pass></Server>\n"
+                        ),
+                        ".aws/credentials" => {
+                            format!("[p{i}]\naws_secret_access_key=synthetic-value-{i}\n")
+                        }
+                        ".netrc" => format!(
+                            "machine host{i}.invalid login fixture password synthetic-value-{i}\n"
+                        ),
+                        ".continue/config.yaml" => format!("apiKey: synthetic-value-{i}\n"),
+                        "Library/Application Support/pypoetry/auth.toml" => {
+                            format!("[repo{i}]\npassword = synthetic-value-{i}\n")
+                        }
+                        ".snowsql/config" => {
+                            format!("[connections.c{i}]\npassword = synthetic-value-{i}\n")
+                        }
                         _ => format!("{}abcdeABCDE{i:026}\n", "ghp_"),
                     })
                     .collect(),
@@ -131,6 +189,45 @@ fn matcher_limits_retain_hits_and_make_rechecks_unknown() {
             );
         }
     }
+}
+
+/// Keys with a session token expire on their own, and IAM can't deactivate
+/// them: their finding says so, under the same rule, kind and severity.
+#[test]
+fn temporary_aws_keys_are_reported_as_temporary() {
+    let f = Fixture::new("temporary-aws-keys");
+    fs::create_dir(f.0.join(".aws")).unwrap();
+    let path = f.0.join(".aws/credentials");
+    fs::write(
+        &path,
+        "[static]\naws_secret_access_key=synthetic-value\n[sts]\naws_secret_access_key=synthetic-value\naws_session_token=synthetic-value\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let scan = Scan::run(&f.0, std::slice::from_ref(&f.0));
+    let found: Vec<_> = scan
+        .findings
+        .iter()
+        .filter(|hit| hit.rule == "dev.aws.inline-credentials")
+        .collect();
+    assert_eq!(found.len(), 2);
+    let (fixed, temporary) = (found[0], found[1]);
+    assert_eq!(fixed.subject.as_deref(), Some("profile static"));
+    assert_eq!(temporary.subject.as_deref(), Some("profile sts"));
+    let rule = RULES.iter().find(|r| r.id == fixed.rule).unwrap();
+    assert_eq!(fixed.explanation, rule.explanation);
+    assert_eq!(fixed.next_step, rule.next_step);
+    let wording = crate::rules::wordings().next().unwrap();
+    assert_eq!(temporary.explanation, wording.explanation);
+    assert_eq!(temporary.reason.as_deref(), wording.reason);
+    assert_eq!(temporary.next_step, wording.next_step);
+    assert_eq!(temporary.steps, wording.advice.steps);
+    assert_eq!(temporary.link, wording.advice.link);
+    assert_eq!(
+        (temporary.kind, temporary.severity, temporary.title),
+        (fixed.kind, fixed.severity, fixed.title)
+    );
 }
 
 #[test]
@@ -833,11 +930,17 @@ fn a_record_with_a_dropped_hit_is_read_again() {
 fn a_known_file_with_more_findings_than_a_scan_keeps_does_not_hold_the_pass() {
     let f = Fixture::new("known-full");
     let token = format!("hf{}{}", "_", "abcdefghijABCDEFGHIJabcdefghijABCD");
-    fs::write(
-        f.0.join(".pgpass"),
-        "db.example.invalid:5432:shop:shop_user:synthetic-only\n".repeat(5000),
-    )
-    .unwrap();
+    // Composer lists each host, with no limit of its own below a scan's.
+    let hosts: serde_json::Map<String, serde_json::Value> = (0..5000)
+        .map(|n| {
+            (
+                format!("h{n}.invalid"),
+                format!("synthetic-value-{n}").into(),
+            )
+        })
+        .collect();
+    let auth = serde_json::json!({ "github-oauth": hosts });
+    put(&f.0, ".composer/auth.json", auth.to_string().as_bytes());
     put(&f.0, ".codex/sessions/s.jsonl", record(&token).as_bytes());
     put(&f.0, "docs/export.csv", b"url,username,password\n");
     let mut found = HashSet::new();
@@ -853,7 +956,7 @@ fn a_known_file_with_more_findings_than_a_scan_keeps_does_not_hold_the_pass() {
         assert!(slice < 50, "the pass did not end");
     }
     for path in [
-        "~/.pgpass",
+        "~/.composer/auth.json",
         "~/.codex/sessions/s.jsonl",
         "~/docs/export.csv",
     ] {
@@ -3919,11 +4022,12 @@ fn cancelled_monitor_has_partial_coverage_and_no_reads() {
 #[test]
 fn monitor_bounds_findings_and_hashes_each_file_once() {
     let f = Fixture::new("monitor-bounds");
-    fs::write(
-        f.0.join(".npmrc"),
-        "_authToken=synthetic-only\n".repeat(5000),
-    )
-    .unwrap();
+    // A file lists 100 matches at most: the findings one scan keeps are
+    // reached in the 41st.
+    for n in 0..42 {
+        let lines = "_authToken=synthetic-only\n".repeat(100);
+        put(&f.0, &format!("big/n{n:02}/.npmrc"), lines.as_bytes());
+    }
     let hashed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let scopes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let values = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -3959,7 +4063,7 @@ fn monitor_bounds_findings_and_hashes_each_file_once() {
         |_| {},
     );
     assert_eq!(r.findings.len(), 4096);
-    assert_eq!(hashed.load(Ordering::SeqCst), 1);
+    assert_eq!(hashed.load(Ordering::SeqCst), 41);
     assert_eq!(scopes.load(Ordering::SeqCst), 4096);
     assert_eq!(values.load(Ordering::SeqCst), 4096);
     assert_eq!(r.status, "partial");
@@ -3973,15 +4077,19 @@ fn monitor_bounds_findings_and_hashes_each_file_once() {
 #[test]
 fn dropped_hits_are_one_gap_for_their_file() {
     let f = Fixture::new("dropped-hits");
-    fs::write(
-        f.0.join(".npmrc"),
-        "_authToken=synthetic-only\n".repeat(5000),
-    )
-    .unwrap();
+    // A file lists 100 matches at most: the findings one scan keeps are
+    // reached in the 41st.
+    for n in 0..42 {
+        let lines = "_authToken=synthetic-only\n".repeat(100);
+        put(&f.0, &format!("big/n{n:02}/.npmrc"), lines.as_bytes());
+    }
     let cancel = Arc::new(AtomicBool::new(false));
     let r = Scan::report_controlled(&f.0, &[], &[], cancel, digest, |_| {});
     assert_eq!(r.findings.len(), 4096);
-    let gaps = r.not_checked.iter().filter(|g| g.path == "~/.npmrc");
+    let gaps = r
+        .not_checked
+        .iter()
+        .filter(|g| g.path == "~/big/n40/.npmrc");
     assert_eq!(gaps.count(), 1);
     assert_eq!(r.not_checked[0].reason, "scan-limit");
 }
@@ -4505,13 +4613,13 @@ fn a_path_the_check_s_own_limits_cut_short_is_said_to_be() {
     assert_eq!(left.out_of_budget, paths[1..]);
     assert!(left.cancelled.is_empty());
 
-    // The findings one scan keeps: a file with more is not read through.
-    fs::write(
-        f.0.join(".npmrc"),
-        "_authToken=synthetic-only\n".repeat(5000),
-    )
-    .unwrap();
-    let paths = [".npmrc", "more/c.csv"].map(|p| f.0.join(p));
+    // The findings one scan keeps: a folder with more is not read through.
+    // A file lists 100 matches at most, so they are in many files.
+    for n in 0..42 {
+        let lines = "_authToken=synthetic-only\n".repeat(100);
+        put(&f.0, &format!("big/n{n:02}/.npmrc"), lines.as_bytes());
+    }
+    let paths = ["big", "more/c.csv"].map(|p| f.0.join(p));
     let cancel = Arc::new(AtomicBool::new(false));
     let (r, left) = Scan::changed(&f.0, &[], &paths, limits(1000), cancel, digest);
     assert_eq!(r.findings.len(), 4096);

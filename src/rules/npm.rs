@@ -49,9 +49,7 @@ fn npm_hits(bytes: &[u8]) -> Hits {
 }
 
 fn npm_credential_lines(text: &str) -> Vec<Hit> {
-    // A byte order mark is not part of the first line.
-    text.trim_start_matches('\u{feff}')
-        .lines()
+    text.lines()
         .enumerate()
         .filter_map(|(i, raw)| {
             let line = raw.trim();

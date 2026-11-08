@@ -310,6 +310,22 @@ fn required() -> (Vec<Required>, Vec<String>) {
         }
     }
 
+    // Text a finding gives in place of its rule's.
+    for wording in rules::wordings() {
+        let origin = "rules::wordings(): a finding's text in place of its rule's";
+        if let Some(reason) = wording.reason {
+            problems.extend(escaped(reason, origin));
+        }
+        let fields = [Some(wording.explanation), wording.reason, wording.next_step];
+        for text in fields
+            .into_iter()
+            .flatten()
+            .chain(wording.advice.steps.iter().copied())
+        {
+            rule_text.push(need(text, origin));
+        }
+    }
+
     // A token finding's subject is its provider's name, and its steps are
     // the providers' shared ones.
     let mut tokens: Vec<Required> = rules::token_names()

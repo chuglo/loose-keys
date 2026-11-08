@@ -93,6 +93,16 @@ impl Advice {
     };
 }
 
+/// What a finding says in place of its rule's text, where a match is a kind
+/// the rule's own words don't fit. Its rule's id, kind and severity stay.
+#[derive(Clone, Copy, PartialEq)]
+pub struct Wording {
+    pub explanation: &'static str,
+    pub reason: Option<&'static str>,
+    pub next_step: Option<&'static str>,
+    pub advice: Advice,
+}
+
 /// One match. Never holds a secret value.
 #[derive(Default)]
 pub struct Hit {
@@ -102,6 +112,8 @@ pub struct Hit {
     pub subject: Option<String>,
     /// Issuer-specific advice, when the match identifies its issuer.
     pub advice: Option<&'static Advice>,
+    /// Text and advice in place of the rule's, for a match its words don't fit.
+    pub wording: Option<&'static Wording>,
     /// The kind of token, from the scanner's fixed list. Unlike `subject`,
     /// this is never read from the file, so reports may include it.
     pub token_type: Option<&'static str>,
@@ -376,7 +388,13 @@ pub fn known_link(url: &str) -> bool {
         .iter()
         .filter_map(|r| r.advice.link)
         .chain(token::links())
+        .chain(wordings().filter_map(|w| w.advice.link))
         .any(|link| link == url)
+}
+
+/// The text findings can give in place of their rule's.
+pub fn wordings() -> impl Iterator<Item = &'static Wording> {
+    [&aws::TEMPORARY_KEYS].into_iter()
 }
 
 /// The token providers' names, which token findings give as their subject.
@@ -579,11 +597,37 @@ fn json_hits(bytes: &[u8], test: fn(&serde_json::Value) -> bool) -> Hits {
     }
 }
 
-/// Line-based CLI configs must be UTF-8; anything else is a gap.
+/// Line-based CLI configs must be UTF-8; anything else is a gap. So many
+/// matches are listed, as `capped_hits` keeps them, so a planted file cannot
+/// fill the findings one scan keeps.
 fn utf8_lines(bytes: &[u8], parser: fn(&str) -> Vec<Hit>) -> Hits {
-    Ok(parser(
-        std::str::from_utf8(bytes).map_err(|_| "unreadable")?,
-    ))
+    utf8_text(bytes, |text| capped_hits(parser(text), 100))
+}
+
+/// A text config, which must be UTF-8: anything else is a gap. A byte order
+/// mark is not part of the first line, so `parser` gets the text after it,
+/// and the positions it gives are moved to be ones in the file.
+fn utf8_text(bytes: &[u8], parser: impl FnOnce(&str) -> Hits) -> Hits {
+    let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
+    let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mark = text.len() - body.len();
+    let in_file = |hits: Vec<Hit>| -> Vec<Hit> {
+        let moved = |s: std::ops::Range<usize>| s.start + mark..s.end + mark;
+        hits.into_iter()
+            .map(|mut hit| {
+                hit.span = hit.span.map(moved);
+                hit.scope = hit.scope.map(moved);
+                hit
+            })
+            .collect()
+    };
+    match parser(body) {
+        Ok(hits) => Ok(in_file(hits)),
+        Err(Incomplete { reason, hits }) => Err(Incomplete {
+            reason,
+            hits: in_file(hits),
+        }),
+    }
 }
 
 /// A stored value that is not an obvious placeholder or sample.
@@ -646,7 +690,9 @@ fn json_has_secret(v: &serde_json::Value, keys: &[&str]) -> bool {
 
 /// Visit XML tags and their scalar text without expanding entities or loading
 /// a DTD. This reads the scalar subset used by Maven and FileZilla, not all XML.
-fn xml_tags(text: &str, mut visit: impl FnMut(&str, &str, &str, usize)) {
+/// False when the text stops inside a tag, comment or declaration: what
+/// follows that point was not visited.
+fn xml_tags(text: &str, mut visit: impl FnMut(&str, &str, &str, usize)) -> bool {
     let mut rest = text;
     let mut line = 1;
     while let Some(start) = rest.find('<') {
@@ -662,7 +708,9 @@ fn xml_tags(text: &str, mut visit: impl FnMut(&str, &str, &str, usize)) {
             None
         };
         if let Some((end, width)) = skip {
-            let Some(end) = rest.find(end) else { break };
+            let Some(end) = rest.find(end) else {
+                return false;
+            };
             let consumed = end + width;
             line += rest[..consumed].bytes().filter(|b| *b == b'\n').count();
             rest = &rest[consumed..];
@@ -676,7 +724,7 @@ fn xml_tags(text: &str, mut visit: impl FnMut(&str, &str, &str, usize)) {
             // Declaration comments can contain brackets and apparent tags.
             if declaration && quote.is_none() && rest.as_bytes()[end..].starts_with(b"<!--") {
                 let Some(width) = rest[end + 4..].find("-->") else {
-                    return;
+                    return false;
                 };
                 end += 4 + width + 3;
                 continue;
@@ -693,7 +741,7 @@ fn xml_tags(text: &str, mut visit: impl FnMut(&str, &str, &str, usize)) {
             end += 1;
         }
         if end == rest.len() {
-            break;
+            return false;
         }
         let tag = rest[1..end].trim();
         let (name, attributes) = tag.split_once(char::is_whitespace).unwrap_or((tag, ""));
@@ -736,6 +784,21 @@ fn xml_tags(text: &str, mut visit: impl FnMut(&str, &str, &str, usize)) {
         line += rest[..end + 1].bytes().filter(|b| *b == b'\n').count();
         rest = after;
     }
+    true
+}
+
+/// What an XML rule found, as `capped_hits` lists it, where `whole` says
+/// whether `xml_tags` read the file to its end. One it did not is a gap,
+/// with what was found before the point it stopped at.
+fn xml_hits(hits: Vec<Hit>, whole: bool) -> Hits {
+    let hits = capped_hits(hits, 100);
+    if whole {
+        return hits;
+    }
+    Err(Incomplete {
+        reason: "unreadable",
+        hits: hits.unwrap_or_else(|incomplete| incomplete.hits),
+    })
 }
 
 fn xml_attribute<'a>(mut attributes: &'a str, wanted: &str) -> Option<&'a str> {
@@ -905,6 +968,113 @@ mod rule_samples {
             "Host",
             "Pass",
         );
+    }
+
+    /// A file that stops inside a tag, a comment or a declaration was not
+    /// read to its end: what is found before that point is kept, and the
+    /// file is a gap, not a complete list.
+    #[test]
+    fn xml_that_stops_inside_a_tag_is_a_gap() {
+        for (rule, entry, name, password) in [
+            (logins::MAVEN_PASSWORD, "server", "id", "password"),
+            (apps::FILEZILLA_PASSWORD, "Server", "Host", "Pass"),
+        ] {
+            let Matcher::Whole { test, .. } = rule.matcher else {
+                panic!("XML rules read whole files");
+            };
+            let first = format!(
+                "<{entry}><{name}>a.invalid</{name}><{password}>synthetic-one</{password}></{entry}>\n"
+            );
+            let second = format!("<{password}>synthetic-two</{password}></{entry}>\n");
+            for stop in [
+                format!("<{entry} note=\"unclosed>"),
+                format!("<{entry} note='unclosed>"),
+                "<!-- unclosed comment ".to_string(),
+                "<![CDATA[ unclosed".to_string(),
+                "<?xml unclosed".to_string(),
+                "<!DOCTYPE x [<!-- unclosed ]>".to_string(),
+            ] {
+                // Also where nothing follows.
+                for xml in [format!("{first}{stop}{second}"), format!("{first}{stop}")] {
+                    let incomplete = test(xml.as_bytes()).err().expect(&stop);
+                    assert_eq!(incomplete.reason, "unreadable", "{}: {stop}", rule.id);
+                    let found: Vec<_> = incomplete
+                        .hits
+                        .iter()
+                        .map(|h| (h.line, h.subject.as_deref()))
+                        .collect();
+                    assert_eq!(found, [(Some(1), Some("a.invalid"))], "{}: {stop}", rule.id);
+                }
+            }
+            let xml = format!("{first}<{entry}");
+            let incomplete = test(xml.as_bytes()).err().expect("a tag left open");
+            assert_eq!(
+                (incomplete.reason, incomplete.hits.len()),
+                ("unreadable", 1)
+            );
+            // A quote inside a value or a closed attribute ends nothing.
+            let xml = format!(
+                "{first}<{entry} note=\"it's\"><{password}>synthetic-two'</{password}></{entry}>\n"
+            );
+            assert_eq!(test(xml.as_bytes()).unwrap().len(), 2, "{}", rule.id);
+        }
+    }
+
+    /// A byte order mark is not part of the first line: it neither hides
+    /// what the line holds nor joins its label, and the positions of values
+    /// stay ones in the file.
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_first_line() {
+        for (rule, body) in [
+            (
+                git::GIT_CREDENTIALS,
+                "https://fixture:synthetic-only@git.example.invalid\n",
+            ),
+            (
+                registry::PYPI_PASSWORD,
+                "[pypi]\npassword = synthetic-only\n",
+            ),
+            (
+                registry::PYPI_PASSWORD,
+                "[pypi-token]\nfixture-repo = \"synthetic-only\"\n",
+            ),
+            (
+                registry::NETRC_PASSWORD,
+                "machine fixture.invalid login fixture password synthetic-only\n",
+            ),
+            (
+                apps::RCLONE_SECRET,
+                "[fixture]\ntype = sftp\npass = c3ludGhldGljLW9ubHk\n",
+            ),
+            (
+                registry::WAREHOUSE_PASSWORD,
+                "[connections]\npassword = synthetic-only\n",
+            ),
+            (registry::GEM_KEY, ":rubygems_api_key: synthetic-only\n"),
+            (cloud::KUBE_CREDENTIALS, "password: synthetic-only\n"),
+            (
+                gh::GH_TOKEN,
+                "github.com:\n    oauth_token: synthetic-only\n",
+            ),
+        ] {
+            let Matcher::Whole { test, .. } = rule.matcher else {
+                panic!("{} reads whole files", rule.id);
+            };
+            let shown = |file: &str| -> Vec<_> {
+                test(file.as_bytes())
+                    .unwrap()
+                    .into_iter()
+                    .map(|h| {
+                        let value = h.span.clone().map(|s| file[s].to_string());
+                        let key = h.scope.clone().map(|s| file[s].to_string());
+                        (h.line, h.subject, value, key)
+                    })
+                    .collect()
+            };
+            let plain = shown(body);
+            assert_eq!(plain.len(), 1, "{}: {body}", rule.id);
+            assert_eq!(shown(&format!("\u{feff}{body}")), plain, "{}", rule.id);
+        }
     }
 
     #[test]

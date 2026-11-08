@@ -435,8 +435,8 @@ helper refused.
 `loose-keys --list-rules` prints every rule and where it looks.
 
 Each finding has a risk level and numbered steps for dealing with it. High
-means the credential works from any computer until it is revoked, medium that
-it needs more to use or unlocks less, and low that it is protected, short-lived
+means the credential works from any computer until it is revoked or expires,
+medium that it needs more to use or unlocks less, and low that it is protected
 or for testing only. `--fail-on-open` counts only what is worth reviewing: a
 stored sign-in counts once its file's permissions let other users read it, and
 a test-mode key never counts. The summary also says what a finding concerns,

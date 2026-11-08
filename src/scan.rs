@@ -697,8 +697,13 @@ impl Scan {
         if source.is_none() {
             self.found.insert(key);
         }
-        let advice = hit.advice.unwrap_or(&rule.advice);
-        let (mut kind, mut reason) = (rule.kind, rule.reason.map(String::from));
+        let wording = hit.wording;
+        let advice = hit
+            .advice
+            .or(wording.map(|w| &w.advice))
+            .unwrap_or(&rule.advice);
+        let rule_reason = wording.map_or(rule.reason, |w| w.reason);
+        let (mut kind, mut reason) = (rule.kind, rule_reason.map(String::from));
         let mut severity = rule.severity;
         if hit.low {
             (kind, severity, reason) = ("inventory", "low", None);
@@ -751,9 +756,9 @@ impl Scan {
             kind,
             severity,
             title: rule.title,
-            explanation: rule.explanation,
+            explanation: wording.map_or(rule.explanation, |w| w.explanation),
             reason,
-            next_step: rule.next_step,
+            next_step: wording.map_or(rule.next_step, |w| w.next_step),
             steps: advice.steps,
             link: hit.link.or(advice.link),
             token_type: hit.token_type,

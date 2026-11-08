@@ -44,7 +44,7 @@ own. Numbers in brackets refer to the sources at the end.
   came from a scanned file. A panic prints the error's `Debug` form, which for
   `FromUtf8Error` and `NulError` includes the bytes, and a `serde_json` type
   error can quote the value it did not expect. Map the error to a fixed
-  reason, as `utf8_lines` and `json_hits` in `src/rules/mod.rs` do.
+  reason, as `utf8_text` and `json_hits` in `src/rules/mod.rs` do.
 - `std::process::exit` runs no `Drop`, on any thread. The command returns
   an `ExitCode` from `main` instead. The agent calls `exit` in `run`, only
   at startup failures and at the end. New code that ends the agent saves
@@ -941,7 +941,10 @@ exception, for device-management checks that ask for it. The usage text in
 - A rule lives in one file per family under `src/rules/` and is listed in
   `RULES` in `mod.rs`. Its text, targets, matcher and `samples` sit together,
   and a unit test fails a rule that lacks a matching or a non-matching sample.
-  Report text is fixed scanner text, never built from file contents.
+  Report text is fixed scanner text, never built from file contents. A hit
+  can carry a `Wording` in place of its rule's text, as temporary AWS keys
+  do, under the same id, kind and severity; list it in `wordings()` so the
+  Spanish check sees it.
 - Each registered implementation also needs a case in
   `tests/detection-corpus.json`, or the coverage test fails. `Case` in
   `tests/support/detection.rs` documents the fields. Write the expected
@@ -977,6 +980,12 @@ exception, for device-management checks that ask for it. The usage text in
   `*.ovpn`, `*.tfstate`) are also named by a rule that accepts any head, which
   reads the file and reports `too-large`. No test covers it. A change updates
   the reads limit in `docs/usage.md`.
+- Text configs read through `utf8_text` drop a leading byte order mark, and
+  the value positions they give stay ones in the file. Maven and FileZilla
+  XML that stops inside a tag, comment or declaration is an `unreadable` gap
+  that keeps what was found before that point. Tests:
+  `a_byte_order_mark_is_not_part_of_the_first_line` and
+  `xml_that_stops_inside_a_tag_is_a_gap` in `src/rules/mod.rs`.
 - Codex's MCP servers in `~/.codex/config.toml` are read line by line for
   literal HTTP headers under `http_headers`, inline or as a table of their
   own, and judged as the JSON MCP configs' headers are. `env_http_headers`
@@ -984,12 +993,14 @@ exception, for device-management checks that ask for it. The usage text in
   limited subset of TOML: a multiline string, array or table, or a server
   written as one inline table, can hide a header. The field names were not
   checked against Codex's current documentation or code (unverified).
-- Matcher caps: 100 assignments per environment or shell file, 100 MCP
-  holders, 100 Codex MCP header lines, 100 OpenVPN key blocks, 100 rclone
-  remotes per rule, and 20
-  password-note lines. Poetry token entries fill the first 100 findings after
-  any INI password findings; warehouse configs list up to 100 embedded keys in
-  addition to their password fields. Terraform lists 100 holders and examines
+- Matcher caps: 100 matches per file for the line-based configs that go
+  through `utf8_lines` and for Maven, FileZilla, AWS and `.netrc`, 100
+  assignments per environment or shell file, 100 MCP holders, 100 Codex MCP
+  header lines, 100 OpenVPN key blocks, 100 rclone remotes per rule, and 20
+  password-note lines. PyPI passwords and Poetry tokens share one 100, as do a
+  warehouse config's password fields and embedded keys. Composer and
+  Terraform's token file, one finding per host, have no cap of their own.
+  Terraform lists 100 holders and examines
   up to 1,000 instances per resource and 100 named sensitive attributes per
   instance; in a version 3 state (Terraform 0.11 and earlier) a resource's
   instances are its `primary` and its `deposed` copies, searched under the

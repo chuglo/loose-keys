@@ -43,7 +43,10 @@ pub const PYPI_PASSWORD: Rule = Rule {
 };
 
 fn pypi_hits(bytes: &[u8]) -> Hits {
-    let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
+    utf8_text(bytes, pypi_passwords)
+}
+
+fn pypi_passwords(text: &str) -> Hits {
     // twine reads .pypirc raw, so "$" and "!" are text there.
     let mut hits = ini_hits_by(text, &["password"], |value| {
         scalar_literal_by(value, |value, _| verbatim_literal(value))
@@ -51,7 +54,6 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
     // Poetry: under [pypi-token], each name is a repository and each
     // value its token.
     let mut tokens = false;
-    let mut limited = false;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.starts_with('#') {
@@ -61,23 +63,12 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
             tokens = line == "[pypi-token]";
         } else if let Some((repository, value)) = line.split_once('=').filter(|_| tokens) {
             if let Some(value) = scalar_literal(value) {
-                if hits.len() < 100 {
-                    let repository = repository.trim().trim_matches('"');
-                    hits.push(Hit::line(i + 1).about(repository).at(text, value));
-                } else {
-                    limited = true;
-                }
+                let repository = repository.trim().trim_matches('"');
+                hits.push(Hit::line(i + 1).about(repository).at(text, value));
             }
         }
     }
-    if limited {
-        Err(Incomplete {
-            reason: "scan-limit",
-            hits,
-        })
-    } else {
-        Ok(hits)
-    }
+    capped_hits(hits, 100)
 }
 
 /// Lines in an INI or TOML file that set one of `keys` to a literal, labelled
@@ -324,7 +315,7 @@ pub const MYCNF_PASSWORD: Rule = Rule {
         steps: &[
             "Check which database the entry is for. A local development database needs nothing more.",
             "For a shared or production database, change the password on the server.",
-            "Store the login with 'mysql_config_editor set', or remove the password line and let the client prompt.",
+            "Remove the password line so the client asks for the password when you connect.",
         ],
         link: None,
     },
@@ -369,8 +360,11 @@ pub const WAREHOUSE_PASSWORD: Rule = Rule {
 /// Exact field names only: these files also have fields such as `sslkey`
 /// that hold a path.
 fn warehouse_hits(bytes: &[u8]) -> Hits {
-    let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
-    let mut hits = ini_hits(
+    utf8_text(bytes, warehouse_passwords)
+}
+
+fn warehouse_passwords(text: &str) -> Hits {
+    let hits = ini_hits(
         text,
         &[
             "password",
@@ -390,17 +384,7 @@ fn warehouse_hits(bytes: &[u8]) -> Hits {
         (name.trim().trim_matches('"') == "private_key" && value.starts_with("-----BEGIN "))
             .then(|| Hit::line(i + 1))
     });
-    match capped_hits(keys, 100) {
-        Ok(keys) => {
-            hits.extend(keys);
-            Ok(hits)
-        }
-        Err(mut incomplete) => {
-            hits.append(&mut incomplete.hits);
-            incomplete.hits = hits;
-            Err(incomplete)
-        }
-    }
+    capped_hits(hits.into_iter().chain(keys), 100)
 }
 
 fn mycnf_hits(bytes: &[u8]) -> Hits {
@@ -523,7 +507,10 @@ impl<'a> NetrcWords<'a> {
 /// holds commands and runs to the next empty line: a password in one is
 /// still listed, with no host, and no other word of it is questioned.
 fn netrc_hits(bytes: &[u8]) -> Hits {
-    let text = std::str::from_utf8(bytes).map_err(|_| "unreadable")?;
+    utf8_text(bytes, netrc_passwords)
+}
+
+fn netrc_passwords(text: &str) -> Hits {
     let mut words = NetrcWords {
         text,
         at: 0,
@@ -583,7 +570,7 @@ fn netrc_hits(bytes: &[u8]) -> Hits {
             _ => {}
         }
     }
-    Ok(out)
+    capped_hits(out, 100)
 }
 
 #[cfg(test)]
