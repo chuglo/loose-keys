@@ -199,9 +199,13 @@ start out in Set Aside instead of Worth Reviewing. Deliver a configuration
 profile with a payload of type `dev.loosekeys.desktop` holding the key
 `ExpectedFindings`: an array of dictionaries, each with `rule` (an id from
 `loose-keys --list-rules`) and `path` (`~/` and the file's path inside the
-home folder, plain ASCII, one file per entry). The first 32 entries are used.
-The app reads the key only from a managed value; a plist in
-`~/Library/Preferences` is ignored.
+home folder, plain ASCII, one file per entry). The first 32 entries in that
+form are used; an entry with a rule this version doesn't have, or a path of
+another form, is ignored without notice. The app reads the key only from a
+managed value; a plist in `~/Library/Preferences` is ignored. Only a profile
+installed by hand, on a test Mac with SIP off, has been checked; delivery from
+an MDM server and a user-scope profile are unverified
+([managed settings](testing/guest.md#managed-settings)).
 
 ```xml
 <key>ExpectedFindings</key>
@@ -213,11 +217,17 @@ The app reads the key only from a managed value; a plist in
 </array>
 ```
 
+An entry covers only the rule it names. Where two checks find one credential
+in a file, list an entry for each, or the item stays in Worth Reviewing and
+can alert. For a token in `~/.config/gh/hosts.yml`, that is
+`dev.gh.inline-token` and `secret.service-token`.
+
 Expected findings are still found and counted, and stay in saved reports and
 copied summaries. The background helper follows the list the app last read, so
-a changed profile takes effect the next time the app opens. The `loose-keys`
-command does not read the list: scripts that collect its reports apply the same
-rule and path pairs themselves.
+a changed or removed profile takes effect when the app next opens or comes to
+the front. The `loose-keys` command does not read the list, so `--fail-on-open`
+and counts files count expected findings as open. To honour the list, a script
+reads the full report (`--export`) and matches each finding's rule and path.
 
 ### Background helper and notifications
 

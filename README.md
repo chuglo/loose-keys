@@ -17,6 +17,8 @@ Version 0.9.0 · MIT licensed
 Loose Keys requires a Mac with Apple silicon and macOS 14 or later.
 
 1. Download the app from the [latest release](https://github.com/chuglo/loose-keys/releases/latest).
+   To check the download, run `shasum -a 256` on it and compare the result
+   with that file's checksum in the release notes.
 2. Unzip it and move **Loose Keys** to Applications. If the release includes a
    `.dmg`, you can open it instead, drag **Loose Keys** onto its **Applications**
    shortcut, and eject the disk.
@@ -77,9 +79,25 @@ Run `loose-keys --help` for the remaining options and exit codes.
 A full report contains file paths. A counts file leaves out paths, but still
 shows which kinds of credentials you have. Check either file before sharing it.
 
+A counts file's `schema` is `loose-keys/feedback/1`, or
+`loose-keys/device-counts/1` with `--device-id`, which adds `device_id` and
+`generated_at`. For each risk level, `review` counts the findings worth
+reviewing (`open` and `open_by_rule`), the ones `--fail-on-open` checks.
+`findings_by_rule` and `findings_by_severity` count every finding, stored
+sign-ins included, and `findings_by_token_type` counts service tokens by type.
+The app's **Save Counts Only…** writes the same file, and counts findings set
+aside there as open.
+
 The command checks the home folder that `HOME` names. When a device-management
 tool runs it as root, set `HOME` to the user's home folder. With root's `HOME`,
 it checks root's home instead and can still report the scan as complete.
+
+From a terminal, macOS may ask in the terminal app's name before the scan
+enters protected folders such as Desktop, Documents and Downloads, and the
+scan waits for your answer (unverified). Places macOS refuses are listed as
+"Access denied by macOS" and make the scan partial, with exit code 1. To
+include them, allow the terminal app in **System Settings › Privacy &
+Security**, under **Files & Folders** (unverified), then scan again.
 
 ## Development
 
@@ -94,4 +112,5 @@ locally; see [local checks](docs/testing/local-verification.md) for the list.
 - [Usage and detection limits](docs/usage.md)
 - [All documentation](docs/README.md)
 - [JSON report schema](schema/report-1.schema.json)
+- [Reporting a security problem](SECURITY.md)
 - [License](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES)
