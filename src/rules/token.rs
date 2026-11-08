@@ -836,6 +836,15 @@ mod tests {
         format!("{prefix}{body}")
     }
 
+    /// The text summary gives one entry, with one set of steps, to all the
+    /// token types a rule found, so the steps must not depend on the issuer.
+    #[test]
+    fn every_issuer_has_the_same_steps() {
+        for p in PROVIDERS {
+            assert_eq!(p.advice.steps, STEPS, "{}", p.name);
+        }
+    }
+
     #[test]
     fn lines_and_types_are_reported_without_values() {
         let gh = fake("ghp_", "0123456789abcdefghijABCDEFGHIJ012345");

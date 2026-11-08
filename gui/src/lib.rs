@@ -1325,7 +1325,6 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
                 .any(|gap| gap.reason == "permission-denied" && gap.path == format!("~/{folder}"))
         })
         .collect();
-    let coverage = r.coverage.as_ref();
     ResultsView {
         status: r.status,
         context: r.context,
@@ -1337,10 +1336,8 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
         groups,
         gaps,
         blocked,
-        roots: coverage.map_or(Vec::new(), |c| {
-            c.roots.iter().map(|p| report::escape(p)).collect()
-        }),
-        excluded: coverage.map_or(Vec::new(), |c| c.excluded_directories.to_vec()),
+        roots: r.coverage.roots.iter().map(|p| report::escape(p)).collect(),
+        excluded: r.coverage.excluded_directories.to_vec(),
         limitations: report::LIMITATIONS,
     }
 }
@@ -4149,7 +4146,7 @@ mod tests {
             generated_at: report::utc_now(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: report::Coverage::default(),
             findings: (0..=review::MAX_ITEMS)
                 .map(|n| report::Finding {
                     rule: "export.password-csv",
@@ -4322,7 +4319,7 @@ mod tests {
             generated_at: report::utc_now(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: report::Coverage::default(),
             findings: vec![],
             not_checked: vec![report::NotChecked {
                 path: "~/.npmrc".into(),
@@ -4514,7 +4511,7 @@ mod tests {
             generated_at: report::utc_now(),
             status: "complete",
             context: "user",
-            coverage: None,
+            coverage: report::Coverage::default(),
             findings: vec![
                 finding("dev.npm.inline-credentials", known),
                 finding("secret.service-token", Some("digest-a")),
@@ -4708,7 +4705,7 @@ mod tests {
             generated_at: report::utc_now(),
             status: "complete",
             context: "user",
-            coverage: None,
+            coverage: report::Coverage::default(),
             findings: (0..10_000)
                 .map(|index| report::Finding {
                     fingerprint: None,
@@ -4779,7 +4776,7 @@ mod tests {
             generated_at: report::utc_now(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: report::Coverage::default(),
             findings: vec![finding("~/ok.csv"), finding("~/p-\u{202e}vsc.csv")],
             not_checked: vec![report::NotChecked {
                 path: "~/\u{1b}[31m".into(),

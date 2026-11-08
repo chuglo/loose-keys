@@ -966,8 +966,8 @@ impl Review {
         // a file in it can be looked at.
         let unread: Vec<&str> = report
             .coverage
+            .roots
             .iter()
-            .flat_map(|c| &c.roots)
             .filter(|root| {
                 report.not_checked.iter().any(|g| {
                     g.path == **root && matches!(g.reason, "unreadable" | "permission-denied")
@@ -1449,7 +1449,7 @@ mod tests {
             generated_at: "synthetic".into(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: crate::report::Coverage::default(),
             findings: findings
                 .iter()
                 .map(|(kind, path)| Finding {
@@ -2473,7 +2473,7 @@ mod tests {
         // A scan of the home folder and a drive, with nothing found again.
         let scan = |gaps: &[(&str, &'static str)]| {
             let mut r = complete(report(&[]));
-            let roots = &mut r.coverage.as_mut().unwrap().roots;
+            let roots = &mut r.coverage.roots;
             roots.push("/Volumes/Backup".into());
             for (path, reason) in gaps {
                 let path = path.to_string();
@@ -3174,12 +3174,12 @@ mod tests {
     fn complete(mut r: Report) -> Report {
         r.status = "complete";
         r.not_checked.clear();
-        r.coverage = Some(crate::report::Coverage {
+        r.coverage = crate::report::Coverage {
             roots: vec!["~/".into()],
             excluded_directories: crate::scan::EXCLUDED,
             excluded_by_user: Vec::new(),
             limitations: crate::report::LIMITATIONS,
-        });
+        };
         r
     }
 

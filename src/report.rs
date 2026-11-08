@@ -69,7 +69,7 @@ pub struct NotChecked {
     pub reason: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct Coverage {
     pub roots: Vec<String>,
     pub excluded_directories: &'static [&'static str],
@@ -88,8 +88,7 @@ pub struct Report {
     pub generated_at: String,
     pub status: &'static str,
     pub context: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coverage: Option<Coverage>,
+    pub coverage: Coverage,
     pub findings: Vec<Finding>,
     pub not_checked: Vec<NotChecked>,
 }
@@ -154,8 +153,8 @@ fn counts_json(report: &Report, device_id: Option<&str>) -> String {
         generated_at: device_id.map(|_| report.generated_at.as_str()),
         status: report.status,
         context: report.context,
-        requested_roots: report.coverage.as_ref().map_or(0, |c| c.roots.len()),
-        excluded_by_user: (report.coverage.as_ref()).map_or(0, |c| c.excluded_by_user.len()),
+        requested_roots: report.coverage.roots.len(),
+        excluded_by_user: report.coverage.excluded_by_user.len(),
         findings_by_rule: Default::default(),
         findings_by_severity: Default::default(),
         findings_by_token_type: Default::default(),
@@ -228,9 +227,21 @@ const GAPS_SHOWN: usize = 5;
 
 /// Word-wrap fixed scanner text. Never use for paths: they must stay whole.
 fn wrap(out: &mut String, first: &str, rest: &str, text: &str) {
+    wrap_words(out, first, rest, text.split_whitespace());
+}
+
+/// Wrap that breaks only between the pieces given, so a piece with a space
+/// in it, such as a folder name, stays on one line.
+fn wrap_words<S: AsRef<str>>(
+    out: &mut String,
+    first: &str,
+    rest: &str,
+    words: impl IntoIterator<Item = S>,
+) {
     let mut col = 0;
     let mut indent = first;
-    for word in text.split_whitespace() {
+    for word in words {
+        let word = word.as_ref();
         if col > indent.len() && col + 1 + word.len() > WIDTH {
             out.push('\n');
             col = 0;
@@ -400,44 +411,52 @@ pub fn to_text(r: &Report, limits: bool) -> String {
     push_findings(&mut s, r, "inventory", "STORED SIGN-INS");
     push_gaps(&mut s, r);
     s.push('\n');
-    if let Some(c) = &r.coverage {
-        // A root in a folder left out on request is left out with it.
-        let roots: Vec<String> = c
-            .roots
-            .iter()
-            .filter(|p| {
-                !c.excluded_by_user
-                    .iter()
-                    .any(|x| Path::new(p).starts_with(x))
-            })
-            .map(|p| format!("\"{}\"", escape(p)))
-            .collect();
-        s.push_str(&format!("Scanned: {}\n", roots.join(", ")));
-        wrap(
-            &mut s,
-            "Skipped folders: ",
-            "                 ",
-            &c.excluded_directories.join(", "),
-        );
-        // Never left out: a folder skipped on request is not a clean folder.
-        for skipped in &c.excluded_by_user {
-            s.push_str(&format!("You left out: \"{}\"\n", escape(skipped)));
-        }
+    let c = &r.coverage;
+    // A root in a folder left out on request is left out with it.
+    let roots: Vec<String> = c
+        .roots
+        .iter()
+        .filter(|p| {
+            !c.excluded_by_user
+                .iter()
+                .any(|x| Path::new(p).starts_with(x))
+        })
+        .map(|p| format!("\"{}\"", escape(p)))
+        .collect();
+    s.push_str(&format!("Scanned: {}\n", roots.join(", ")));
+    let last = c.excluded_directories.len().saturating_sub(1);
+    wrap_words(
+        &mut s,
+        "Skipped folders: ",
+        "                 ",
+        c.excluded_directories.iter().enumerate().map(|(i, d)| {
+            if i < last {
+                format!("{d},")
+            } else {
+                d.to_string()
+            }
+        }),
+    );
+    // Never left out: a folder skipped on request is not a clean folder.
+    for skipped in &c.excluded_by_user {
+        s.push_str(&format!("You left out: \"{}\"\n", escape(skipped)));
     }
     wrap(
         &mut s,
         "Not covered: ",
         "             ",
-        "browser cookies and sessions, Safari, Notes, Keychain items, images.",
+        "browser cookies and sessions, Safari, Notes, Keychain items, images and password manager vaults.",
     );
-    match &r.coverage {
-        Some(c) if limits => {
-            s.push_str("\nLIMITS\n");
-            wrap(&mut s, "", "", c.limitations);
-        }
-        _ => s.push_str(
-            "Loose Keys cannot find everything, so a short or empty list does not mean this Mac is safe. Add --limits to see what it cannot detect.\n",
-        ),
+    if limits {
+        s.push_str("\nLIMITS\n");
+        wrap(&mut s, "", "", c.limitations);
+    } else {
+        wrap(
+            &mut s,
+            "",
+            "",
+            "Loose Keys cannot find everything, so a short or empty list does not mean this Mac is safe. Add --limits to see what it cannot detect.",
+        );
     }
     s
 }
@@ -490,7 +509,7 @@ mod tests {
             generated_at: utc_now(),
             status: "complete",
             context: "user",
-            coverage: None,
+            coverage: Coverage::default(),
             findings: vec![],
             not_checked: vec![NotChecked {
                 path: "~/\u{202e}\u{1F600}\u{1b}".into(),
@@ -512,7 +531,7 @@ mod tests {
             generated_at: utc_now(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: Coverage::default(),
             findings: vec![],
             not_checked: vec![NotChecked {
                 path: "~/a\u{7f}b".into(),
@@ -537,7 +556,7 @@ mod tests {
             generated_at: utc_now(),
             status: "complete",
             context: "user",
-            coverage: None,
+            coverage: Coverage::default(),
             findings: vec![Finding {
                 fingerprint: Some("synthetic-file-digest".into()),
                 scope: Some("synthetic-scope-digest".into()),
@@ -600,7 +619,7 @@ mod tests {
             generated_at: utc_now(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: Coverage::default(),
             findings: vec![finding("~/a.csv"), finding("~/b\u{1b}.csv")],
             not_checked: (0..7).map(|i| gap(&format!("~/gap{i}"))).collect(),
         };
@@ -635,7 +654,7 @@ mod tests {
             generated_at: utc_now(),
             status: "complete",
             context: "user",
-            coverage: None,
+            coverage: Coverage::default(),
             findings: vec![
                 finding("Square access token", "https://one.invalid"),
                 finding("Tailscale API key", "https://two.invalid"),
@@ -671,7 +690,7 @@ mod tests {
             generated_at: utc_now(),
             status: "partial",
             context: "user",
-            coverage: None,
+            coverage: Coverage::default(),
             findings: vec![],
             not_checked: vec![NotChecked {
                 path: "~/.npmrc".into(),
@@ -684,6 +703,51 @@ mod tests {
         let t = to_text(&r, false);
         assert!(!t.contains("outside the home folder"), "{t}");
         assert!(t.contains("Not followed: link (no link is followed as root) (1)"));
+    }
+
+    fn covered_report() -> Report {
+        Report {
+            schema: "loose-keys/report/1",
+            tool_version: "0.1.0",
+            generated_at: utc_now(),
+            status: "complete",
+            context: "user",
+            coverage: Coverage {
+                roots: vec!["~/".into()],
+                excluded_directories: crate::scan::EXCLUDED,
+                excluded_by_user: vec![],
+                limitations: LIMITATIONS,
+            },
+            findings: vec![],
+            not_checked: vec![],
+        }
+    }
+
+    #[test]
+    fn text_says_not_covered_what_the_limitations_say_is_skipped() {
+        let skipped = LIMITATIONS.split_once("It skips ").unwrap().1;
+        let skipped = skipped.split_once('.').unwrap().0;
+        let t = to_text(&covered_report(), false);
+        let words = t.split_whitespace().collect::<Vec<_>>().join(" ");
+        let listed = words.split_once("Not covered: ").unwrap().1;
+        assert_eq!(listed.split_once('.').unwrap().0, skipped);
+    }
+
+    #[test]
+    fn text_wraps_every_line_and_keeps_folder_names_whole() {
+        let r = covered_report();
+        for limits in [false, true] {
+            let t = to_text(&r, limits);
+            assert!(t.lines().all(|l| l.len() <= WIDTH), "{t}");
+            for name in crate::scan::EXCLUDED {
+                assert!(
+                    t.lines()
+                        .any(|l| l.contains(&format!(" {name},"))
+                            || l.ends_with(&format!(" {name}"))),
+                    "split: {name}\n{t}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -556,12 +556,12 @@ impl Scan {
                 "partial"
             },
             context: if is_root() { "system" } else { "user" },
-            coverage: Some(report::Coverage {
+            coverage: report::Coverage {
                 roots: roots.iter().map(|p| s.rel(p)).collect(),
                 excluded_directories: EXCLUDED,
                 excluded_by_user: s.skip.iter().map(|p| s.rel(p)).collect(),
                 limitations: report::LIMITATIONS,
-            }),
+            },
             findings: s.findings,
             not_checked: s.not_checked,
         }
