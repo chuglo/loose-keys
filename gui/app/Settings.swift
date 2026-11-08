@@ -68,8 +68,6 @@ struct SettingsView: View {
                         Button("Restart Helper") { model.restartHelper() }
                     case .approve:
                         Button("Open System Settings") { model.openLoginItems() }
-                    case .none:
-                        EmptyView()
                     }
                 } label: {
                     Text("Helper")
@@ -148,7 +146,7 @@ struct SettingsView: View {
     }
 
     /// What the button beside the helper's state does.
-    private enum HelperFix { case none, restart, approve }
+    private enum HelperFix { case restart, approve }
 
     /// What the helper needs, if it is not simply running. macOS reports a
     /// registered helper as enabled even when it will not start.
@@ -156,8 +154,6 @@ struct SettingsView: View {
         // Just turned on, the helper is starting: not yet registered or running.
         if model.helperStarting, monitor.login == 1 || monitor.login == 2 { return nil }
         switch monitor.login {
-        case 0:
-            return (String(localized: "Needs macOS 13 or later", comment: "Settings, beside Helper: the state of the helper (a singular noun)."), .none)
         case 2:
             return monitor.health.running == false
                 ? (String(localized: "Not running", comment: "Settings, beside Helper: the state of the helper (a singular noun). It is registered with macOS, but not running."), .restart)

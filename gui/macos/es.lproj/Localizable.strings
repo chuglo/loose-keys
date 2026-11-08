@@ -534,9 +534,6 @@
 /* [Settings.swift:75] */
 "Notifications never show file names or credentials." = "Las notificaciones nunca muestran nombres de archivo ni credenciales.";
 
-/* Settings, beside Helper: the state of the helper (a singular noun). [Settings.swift:85] */
-"Needs macOS 13 or later" = "Requiere macOS 13 o posterior";
-
 /* Settings, beside Helper: the state of the helper (a singular noun). It is registered with macOS, but not running. [Settings.swift:88] */
 "Not running" = "No está en ejecución";
 
