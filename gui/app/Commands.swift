@@ -14,16 +14,17 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Scan Now") { model.startScan() }
                 .keyboardShortcut("r")
-                .disabled(model.phase == .scanning)
+                .disabled(!model.canStartScan)
             Button("Stop Scan") { model.cancelScan() }
                 .keyboardShortcut(".")
                 .disabled(model.phase != .scanning)
             Divider()
+            // As the toolbar's Export menu, which a scan in progress disables.
             Button("Save Report…") { model.save(feedback: false) }
                 .keyboardShortcut("s")
-                .disabled(model.results == nil)
+                .disabled(model.results == nil || model.phase == .scanning)
             Button("Save Counts Only…") { model.save(feedback: true) }
-                .disabled(model.results == nil)
+                .disabled(model.results == nil || model.phase == .scanning)
             Button("Copy Summary") { model.copySummary() }
                 .disabled(model.results == nil || model.phase == .scanning)
         }

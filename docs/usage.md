@@ -279,7 +279,8 @@ consent, and the status still says whether the helper is running. While it
 is not running, Settings offers **Restart Helper** to try again.
 
 A new finding worth reviewing, or one whose credential changed or whose file
-became readable by others, can produce one grouped alert. Stored sign-ins and
+became readable by others, can produce one grouped alert. It says only that
+something was found, never which file or credential. Stored sign-ins and
 scan gaps do not alert, and an unresolved item does not alert again across
 scans or restarts. While the app is in front, the alert is held; within a
 minute after you switch away, it is sent for the items still open that you

@@ -235,7 +235,7 @@
 			<string>%lld folders</string>
 		</dict>
 	</dict>
-	<key>The last scan found %lld findings, but they are not in this list. Scan again, or save the report to see them.</key>
+	<key>The last scan found %lld findings, but they aren't in this list. Scan again, or save the report to see them.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>The last scan found %#@findings@</string>
@@ -246,9 +246,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>lld</string>
 			<key>one</key>
-			<string>%lld finding, but it is not in this list. Scan again, or save the report to see it.</string>
+			<string>%lld finding, but it isn't in this list. Scan again, or save the report to see it.</string>
 			<key>other</key>
-			<string>%lld findings, but they are not in this list. Scan again, or save the report to see them.</string>
+			<string>%lld findings, but they aren't in this list. Scan again, or save the report to see them.</string>
 		</dict>
 	</dict>
 	<key>The same credential is in %lld places</key>

@@ -59,8 +59,8 @@ final class GitHubReleases: ReleaseSource {
             throw Self.notExpected
         }
         guard http.statusCode == 200 else {
-            throw EngineError(message: String(localized: "GitHub returned an error (HTTP \(http.statusCode)). Try again later.",
-                                              comment: "In an alert after Check for Updates…. %lld is the HTTP status code GitHub sent."))
+            throw EngineError(message: String(localized: "Loose Keys couldn't get the latest version from GitHub. Try again later.",
+                                              comment: "In an alert after Check for Updates…: GitHub didn't send the description of the latest release."))
         }
         guard http.expectedContentLength <= Int64(Releases.limit) else { throw Self.notExpected }
         var data = Data()

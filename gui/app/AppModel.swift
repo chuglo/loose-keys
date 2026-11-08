@@ -124,6 +124,11 @@ final class ReadTurns {
     /// How many requests had been made when the read now out, or the last one, began.
     private var began = 0
     private var answered = 0
+    /// The newest request that asked for a failure to be shown in an alert.
+    private var alertAsked = 0
+    /// The newest request a read has shown an answer for: what it read, or
+    /// why it failed. A failure left to the read that follows shows none.
+    private var shown = 0
     private var reading: Task<Void, Never>?
 
     /// Whether a request has been made since the read now out began. Its
@@ -132,18 +137,24 @@ final class ReadTurns {
 
     /// Returns once a read that began after this request has been shown.
     /// Requests made while a read is out share the one read that follows it.
-    func run(_ read: @escaping @MainActor () async -> Void) async {
+    /// The read is told whether a failure is shown in an alert: whether any
+    /// request it answers for asked, including one whose failed read left
+    /// its answer to this one. It returns false when it leaves its answer to
+    /// the read that follows.
+    func run(alert: Bool = false, _ read: @escaping @MainActor (_ alert: Bool) async -> Bool) async {
         // The counts keep their order only on the main actor. Checked in
         // builds without optimization, such as the model check.
         MainActor.assertIsolated("ReadTurns runs on the main actor")
         asked += 1
         let mine = asked
+        if alert { alertAsked = mine }
         while answered < mine {
             if reading == nil {
                 began = asked
                 let covers = began
+                let alerts = alertAsked > shown
                 reading = Task {
-                    await read()
+                    if await read(alerts) { self.shown = covers }
                     self.answered = covers
                     self.reading = nil
                 }
@@ -179,12 +190,19 @@ final class AppModel: ObservableObject {
     }
     var inspectorSettled: Bool { Date().timeIntervalSince(inspectorPressed) > 1 }
     @Published var places: ScanPlaces?
+    /// Why the folders shown may not be the ones saved: the window couldn't
+    /// get the list, or the engine couldn't read its saved state. In the
+    /// window's language.
+    @Published var placesProblem: String?
     @Published var results: ScanResults?
     @Published var review: ReviewList?
     /// Why the last request for the review list failed, if it did. `review`
     /// is then an older list, or none.
     @Published var reviewUnread: String?
     @Published var monitor: MonitorStatus?
+    /// Why the last request for the status of background checks failed, if
+    /// it did. `monitor` is then none.
+    @Published var monitorUnread: String?
     @Published var inspectorWhy = false
     @Published var inspectorDetails = false
     @Published var inspectorCopies = false
@@ -623,7 +641,7 @@ final class AppModel: ObservableObject {
             return String(localized: "\(openCount) loose keys to review, list full",
                           comment: "The menu bar menu's first line: how many findings need attention, when the list is full and left some out.")
         case .problem:
-            return String(localized: "Could not load Worth Reviewing",
+            return String(localized: "Couldn't open Worth Reviewing",
                           comment: "The menu bar menu's first line when the list could not be read. Worth Reviewing is the list's name in the sidebar.")
         case .unknown:
             return String(localized: "Loading Worth Reviewing…",
@@ -742,23 +760,35 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
-        let request = placesOrder.next()
-        do {
-            let answer: ScanPlaces = try await engine.request("places")
-            if placesOrder.use(request) { places = answer }
-        } catch {
-            // The folders already shown stay, and so may a change still on its
-            // way: a list that could not be got is not an empty one.
-            if placesOrder.isNewest(request) { failure = Failure(title: FailureTitle.readPlaces, reason: error.localizedDescription) }
-        }
+        await refreshPlaces(reportFailure: true)
         await refreshReview()
         await refreshMonitor()
     }
 
+    /// The folders scans include, as the engine reads them after this was
+    /// asked. Read at launch, when Settings opens, and before a scan when
+    /// they couldn't be read.
+    func refreshPlaces(reportFailure: Bool = false) async {
+        let request = placesOrder.next()
+        do {
+            let answer: ScanPlaces = try await engine.request("places")
+            guard placesOrder.use(request) else { return }
+            places = answer
+            placesProblem = answer.error.map(EngineText.shown)
+        } catch {
+            // The folders already shown stay, and so may a change still on its
+            // way: a list that could not be got is not an empty one.
+            guard placesOrder.use(request) else { return }
+            placesProblem = error.localizedDescription
+            if reportFailure { failure = Failure(title: FailureTitle.readPlaces, reason: error.localizedDescription) }
+        }
+    }
+
     /// The list as the engine reads it after this was asked. Only these reads
     /// take turns: a scan, Stop and every other command go to the engine at once.
+    /// A read shared with a request that asked for an alert shows its failure in one.
     func refreshReview(reportFailure: Bool = true) async {
-        await reviewReads.run { [self] in
+        await reviewReads.run(alert: reportFailure) { [self] alert in
             do {
                 let answer: ReviewList = try await engine.request("pending_review")
                 review = answer
@@ -769,50 +799,57 @@ final class AppModel: ObservableObject {
             } catch {
                 // The read that follows a request made since answers for this
                 // one. Until it does, the last list read stays as it was.
-                guard !reviewReads.askedAgain else { return }
+                guard !reviewReads.askedAgain else { return false }
                 reviewUnread = error.localizedDescription
                 // Automatic refresh failures stay visible in the list without
                 // reopening a modal alert every five seconds.
-                if reportFailure { failure = Failure(title: FailureTitle.openReview, reason: error.localizedDescription) }
+                if alert { failure = Failure(title: FailureTitle.openReview, reason: error.localizedDescription) }
             }
+            return true
         }
     }
 
     func refreshMonitor() async {
-        await monitorReads.run { [self] in
-            let answer: MonitorStatus? = try? await engine.request("monitor_status")
-            guard answer != nil || !monitorReads.askedAgain else { return }
-            // None when the request failed: the window then says the checks are
-            // unavailable, not what an older status said of them.
-            monitor = answer
-            if let answer {
+        await monitorReads.run { [self] _ in
+            do {
+                let answer: MonitorStatus = try await engine.request("monitor_status")
+                monitor = answer
+                monitorUnread = nil
                 menuBarOn = answer.menuBar
                 followUpdateSetting(answer.updateCheck == true)
                 updateQuestionAnswered = answer.updateCheck != nil
                 if answer.health.fullPass != nil { helperPassDone = true }
-            }
-            if showingPlaces, let answer,
-               automaticCoverage == nil || automaticCoverageError != nil
-                || automaticCoverage?.fullPass != answer.health.fullPass {
-                await refreshAutomaticCoverage()
+                if showingPlaces,
+                   automaticCoverage == nil || automaticCoverageError != nil
+                    || automaticCoverage?.fullPass != answer.health.fullPass {
+                    await refreshAutomaticCoverage()
+                }
+            } catch {
+                guard !monitorReads.askedAgain else { return false }
+                // None when the request failed: the window then says the checks are
+                // unavailable, and why, not what an older status said of them.
+                monitor = nil
+                monitorUnread = error.localizedDescription
             }
             updatePolling()
             // The engine keeps the last scan this process ran, for a window opened after it.
             if results == nil, phase == .ready, let held = monitor?.results {
                 results = held
             }
+            return true
         }
     }
 
     func refreshAutomaticCoverage() async {
-        await coverageReads.run { [self] in
+        await coverageReads.run { [self] _ in
             do {
                 automaticCoverage = try await engine.request("automatic_coverage")
                 automaticCoverageError = nil
             } catch {
-                guard !coverageReads.askedAgain else { return }
+                guard !coverageReads.askedAgain else { return false }
                 automaticCoverageError = error.localizedDescription
             }
+            return true
         }
     }
 
@@ -953,8 +990,15 @@ final class AppModel: ObservableObject {
         accessCancelled = true
     }
 
+    /// Scan Now can be pressed: no scan or folder access preparation runs,
+    /// and the folders, if they could be read, include a home folder.
+    /// Folders that couldn't be read are read again first.
+    var canStartScan: Bool {
+        phase != .scanning && !preparingAccess && (places == nil || places?.home != nil)
+    }
+
     func startScan() {
-        guard phase != .scanning, !preparingAccess, places?.home != nil else { return }
+        guard canStartScan else { return }
         preparingAccess = true
         accessCancelled = false
         phase = .scanning
@@ -964,6 +1008,12 @@ final class AppModel: ObservableObject {
         pane = .overview
         Task {
             do {
+                if places == nil { await refreshPlaces(reportFailure: true) }
+                guard places?.home != nil else {
+                    preparingAccess = false
+                    phase = results == nil ? .ready : .done
+                    return
+                }
                 guard try await prepareAccess() else {
                     phase = results == nil ? .ready : .done
                     return
@@ -1048,7 +1098,12 @@ final class AppModel: ObservableObject {
     private func changePlaces(_ command: String, _ args: [String: Any]) async throws -> ScanPlaces {
         let request = placesOrder.next()
         let answer: ScanPlaces = try await engine.request(command, args)
-        if placesOrder.use(request) { places = answer }
+        if placesOrder.use(request) {
+            places = answer
+            // A change that was saved read the saved state. A refusal says
+            // nothing of it, and is the caller's to report.
+            if answer.error == nil { placesProblem = nil }
+        }
         return answer
     }
 
@@ -1126,7 +1181,7 @@ final class AppModel: ObservableObject {
     func openLink(_ link: String) {
         attempt(FailureTitle.openPage) {
             let checked: String = try await self.engine.request("open_link", ["url": link])
-            if let url = URL(string: checked) { NSWorkspace.shared.open(url) }
+            if let url = URL(string: checked) { self.openURL(url) }
         }
     }
 
@@ -1196,10 +1251,15 @@ final class AppModel: ObservableObject {
         try await engine.send("save_report", ["path": fresh.path, "feedback": feedback])
         do {
             try files.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            throw EngineError(message: String(localized: "Loose Keys couldn't move the old report to the Trash, so it saved the new one next to it as \(fresh.lastPathComponent). \(error.localizedDescription)",
+                                              comment: "In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave."))
+        }
+        do {
             try files.moveItem(at: fresh, to: url)
         } catch {
-            throw EngineError(message: String(localized: "Loose Keys could not move the old report to the Trash, so it saved the new one next to it as \(fresh.lastPathComponent). \(error.localizedDescription)",
-                                              comment: "In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave."))
+            throw EngineError(message: String(localized: "The old report is in the Trash, but Loose Keys couldn't give the new one its name. It's saved as \(fresh.lastPathComponent). \(error.localizedDescription)",
+                                              comment: "In an alert when the report the person chose to replace went to the Trash, but the new report couldn't be renamed to the name the person chose. The first %@ is the new file's name, the second is the reason macOS gave."))
         }
     }
 

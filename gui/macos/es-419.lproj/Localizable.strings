@@ -13,21 +13,23 @@
 
 "Off in System Settings" = "Desactivadas en Configuración del Sistema";
 
-"Automatic scanning does not include added folders and drives. Use Scan Now to check them." = "El análisis automático no incluye las carpetas ni los discos agregados. Usa Analizar ahora para comprobarlos.";
+"Automatic scanning doesn't include added folders and drives. Use Scan Now to check them." = "El análisis automático no incluye las carpetas ni los discos agregados. Usa Analizar ahora para comprobarlos.";
 
 "Open Settings to restart the helper." = "Abre Configuración para reiniciar el proceso auxiliar.";
 
 "Turn on Loose Keys in Login Items to show the icon at login." = "Activa Loose Keys en Elementos de inicio para que el ícono aparezca al iniciar sesión.";
 
-"Shown only while the app is open, because Loose Keys is not in Login Items." = "Solo se muestra mientras la app está abierta, porque Loose Keys no está en Elementos de inicio.";
+"Shown only while the app is open, because Loose Keys isn't in Login Items." = "Solo se muestra mientras la app está abierta, porque Loose Keys no está en Elementos de inicio.";
 
 /* In an alert when the report the person chose to replace could not be moved to the Trash. The first %@ is the new file's name, the second is the reason macOS gave. */
-"Loose Keys could not move the old report to the Trash, so it saved the new one next to it as %@. %@" = "Loose Keys no pudo mover el informe anterior al basurero, así que guardó el nuevo a su lado como %@. %@";
+"Loose Keys couldn't move the old report to the Trash, so it saved the new one next to it as %@. %@" = "Loose Keys no pudo mover el informe anterior al basurero, así que guardó el nuevo a su lado como %@. %@";
+"The old report is in the Trash, but Loose Keys couldn't give the new one its name. It's saved as %@. %@" = "El informe anterior está en el basurero, pero Loose Keys no pudo ponerle su nombre al nuevo. Se guardó como %@. %@";
 
 /* Latin American macOS calls System Settings Configuración del Sistema, and an app's Settings Configuración. */
 "Allow access in System Settings, then scan again." = "Permite el acceso en Configuración del Sistema y vuelve a analizar.";
 "Scans will skip %@. You can include it again in Settings." = "Los análisis omitirán %@. Puedes volver a incluir esta carpeta en Configuración.";
 
 "Couldn't Add the Folder" = "No se pudo agregar la carpeta";
+"Couldn't read the list of folders you added." = "No se pudo leer la lista de carpetas que agregaste.";
 
 "Check that Loose Keys is turned on under Allow in the Background in System Settings." = "Comprueba que Loose Keys esté activado en la sección Permitir en segundo plano de Configuración del Sistema.";

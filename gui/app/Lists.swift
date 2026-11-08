@@ -38,7 +38,7 @@ struct ReviewTable: View {
         if let error = model.reviewProblem {
             // Never "nothing to review" for a list that could not be read, saved or got.
             ContentUnavailableView {
-                Label("Cannot Open Worth Reviewing", systemImage: "exclamationmark.triangle")
+                Label(FailureTitle.openReview, systemImage: "exclamationmark.triangle")
             } description: {
                 // The engine keeps its own failure until the app is opened
                 // again, when it reads the list afresh. A request of this
@@ -179,15 +179,15 @@ extension ReviewTable {
                           comment: "Worth Reviewing, empty while automatic scanning is off, after it once ran."))
         }
         if results.review > 0 {
-            return (String(localized: "Cannot Show Findings", comment: "Worth Reviewing, empty although the last scan found something."), "exclamationmark.triangle",
-                    String(localized: "The last scan found \(results.review) findings, but they are not in this list. Scan again, or save the report to see them.",
+            return (FailureTitle.showFindings, "exclamationmark.triangle",
+                    String(localized: "The last scan found \(results.review) findings, but they aren't in this list. Scan again, or save the report to see them.",
                            comment: "Worth Reviewing, empty although the last scan counted this many findings."))
         }
         // A scan is "partial" whenever it could not read something, which
         // includes the folders macOS protects, so most scans are.
         return results.status == "complete"
             ? (String(localized: "Nothing to Review", comment: "Worth Reviewing, empty: no finding needs the person's attention. Never a claim that the Mac is safe."), "checkmark.circle",
-               String(localized: "The last scan found nothing to review. That does not mean this Mac is safe.",
+               String(localized: "The last scan found nothing to review. That doesn't mean this Mac is safe.",
                       comment: "Worth Reviewing, empty after a scan that read every place it was asked to."))
             : (String(localized: "Nothing Found", comment: "Worth Reviewing, empty after a scan that could not read some places."), "eye.slash",
                String(localized: "The last scan found nothing to review, but some places couldn't be checked.",
@@ -240,7 +240,7 @@ struct PlacesNotChecked: View {
         Form {
             if let error = model.automaticCoverageError {
                 Section("Last Automatic Scan") {
-                    Text("Could not update these details, so they may be out of date.")
+                    Text("Couldn't update these details, so they may be out of date.")
                     Text(EngineText.shown(error)).foregroundStyle(.secondary)
                     Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
                 }
@@ -250,13 +250,13 @@ struct PlacesNotChecked: View {
                     if let date = health.fullPass {
                         Text(localTime(date)).foregroundStyle(.secondary)
                     }
-                    Text("Automatic scans do not include added folders and drives.")
+                    Text("Automatic scanning doesn't include added folders and drives. Use Scan Now to check them.")
                     if let automatic = health.unreadGaps {
                         if automatic.isEmpty && health.unreadTruncated != true {
                             Text("Nothing was skipped in this automatic scan.")
                         }
                         if health.unreadTruncated == true {
-                            Text("This list is full, so it does not show every place Loose Keys could not check.")
+                            Text("This list is full, so it doesn't show every place Loose Keys couldn't check.")
                         }
                         ForEach(automatic) { gap in
                             LazyVStack(alignment: .leading, spacing: 8) {

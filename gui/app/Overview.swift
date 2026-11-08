@@ -89,7 +89,7 @@ struct OverviewView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(model.places?.home == nil)
+                    .disabled(!model.canStartScan)
                     Text("macOS may ask for access to some folders. You can say no and still scan.")
                         .font(.callout)
                         .multilineTextAlignment(.center)
@@ -97,8 +97,8 @@ struct OverviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 440)
                         .padding(.top, 28)
-                    if let places = model.places, places.home == nil {
-                        Label(Self.cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
+                    if let problem = scanProblem {
+                        Label(problem, systemImage: "exclamationmark.triangle")
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 12)
                     }
@@ -127,7 +127,7 @@ struct OverviewView: View {
         } else if let problem = model.reviewProblem {
             if let results = model.results {
                 // The count is the scan's own when the list cannot be used.
-                let line = String(localized: "Loose Keys could not open its saved list, so the Worth Reviewing count is from the last scan.")
+                let line = String(localized: "Loose Keys couldn't open its saved list, so the Worth Reviewing count is from the last scan.")
                 if results.review > 0 {
                     headerRow(.attention, itemsTitle(results.review), line) { reviewButton }
                 } else {
@@ -135,7 +135,7 @@ struct OverviewView: View {
                                              comment: "Overview title when Worth Reviewing has no item that needs a decision."), line) {}
                 }
             } else {
-                headerRow(.attention, String(localized: "Cannot Open Worth Reviewing"), problem) {}
+                headerRow(.attention, FailureTitle.openReview, problem) {}
             }
         } else if model.review != nil {
             let count = model.reviewCount
@@ -251,8 +251,18 @@ struct OverviewView: View {
     // MARK: Under the answer
 
     @ViewBuilder private var unscannable: some View {
-        if !model.preparingAccess && model.phase != .scanning, let places = model.places, places.home == nil {
-            Label(Self.cannotScan(places.homeError), systemImage: "exclamationmark.triangle")
+        if !model.preparingAccess && model.phase != .scanning, let problem = scanProblem {
+            Label(problem, systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    /// Why Scan Now can't scan, or may not: there is no home folder, or the
+    /// folders couldn't be read, which Scan Now tries again.
+    private var scanProblem: String? {
+        if let places = model.places { return places.home == nil ? Self.cannotScan(places.homeError) : nil }
+        return model.placesProblem.map {
+            String(localized: "Couldn't read the places to check. \($0)",
+                   comment: "Overview, under the answer or Scan Now, when the folders scans include couldn't be read. %@ is the reason, one or more sentences from the engine or macOS.")
         }
     }
 
@@ -343,9 +353,9 @@ struct OverviewView: View {
                     } label: {
                         Text("Notifications")
                         Text(model.review?.permission == "request failed"
-                             ? String(localized: "macOS could not show the request. Try again.",
+                             ? String(localized: "macOS couldn't show the request. Try again.",
                                       comment: "The state of notifications: macOS could not ask the person whether to allow them.")
-                             : String(localized: "Get notified about new findings while the app is closed. Notifications never name a file or credential."))
+                             : String(localized: "Get notified about new findings while the app is closed."))
                     }
                 }
                 if let error = monitor.error ?? monitor.health.error {
@@ -353,6 +363,9 @@ struct OverviewView: View {
                 }
             } else {
                 LabeledContent("Scan Automatically", value: model.backgroundState.text)
+                if let reason = model.monitorUnread {
+                    Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                }
             }
         } footer: {
             HStack {
@@ -366,9 +379,9 @@ struct OverviewView: View {
     /// gives one, is shown in the window's language.
     static func cannotScan(_ reason: String?) -> String {
         guard let reason else {
-            return String(localized: "Cannot scan: Loose Keys could not find the home folder.", comment: "Overview, when there is no home folder to scan.")
+            return String(localized: "Can't scan: Loose Keys couldn't find the places to check.", comment: "Overview and Settings, when there is no home folder to scan.")
         }
-        return String(localized: "Cannot scan: \(EngineText.shown(reason)).",
+        return String(localized: "Can't scan: \(EngineText.shown(reason)).",
                       comment: "Overview, when there is no home folder to scan. %@ is the engine's reason, such as that HOME is not set to an absolute path.")
     }
 }

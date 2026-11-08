@@ -579,6 +579,29 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     check(bench.engine.mostAtOnce("pending_review") == 1, "review: a failed read is not retried beside another read")
 }
 
+/// Requests that share a read share whether its failure is shown in an
+/// alert: shown if any of them asked for one, and not otherwise.
+@MainActor func reviewFailureAlertsForAnyRequest() async {
+    let bench = Bench()
+    // A refresh's read fails while a poll waits: the poll's read answers for both.
+    let refresh = await bench.ask("pending_review") { await $0.refreshReview() }
+    let poll = await bench.request { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(refresh, refused)
+    bench.answer(await bench.next("pending_review", after: 1), refused)
+    await poll.value
+    check(bench.model.reviewProblem != nil && bench.model.failure?.title == FailureTitle.openReview,
+          "review: a refresh's failure, answered by a poll's read, is still shown in an alert")
+    bench.model.failure = nil
+    // A refresh's read that works answers for it: the poll after it alerts nothing.
+    let shown = await bench.ask("pending_review") { await $0.refreshReview() }
+    let later = await bench.request { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(shown, .success(reviewList(1)))
+    bench.answer(await bench.next("pending_review", after: 3), refused)
+    await later.value
+    check(bench.model.reviewProblem != nil && bench.model.failure == nil,
+          "review: a poll's failure after a refresh that worked opens no alert")
+}
+
 /// A press names the row by its id and the revision it was drawn with. The
 /// engine refuses a press without the revision it holds for that row.
 @MainActor func reviewPressNamesTheRowDrawn() async {
@@ -649,6 +672,19 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     check(bench.model.monitor == nil, "monitor: after the newest request fails the status is unavailable, not the older one")
 }
 
+@MainActor func monitorFailureKeepsReason() async {
+    let bench = Bench()
+    await status(bench, refused)
+    check(bench.model.monitor == nil && bench.model.monitorUnread == "That action stopped unexpectedly.",
+          "monitor: a status the engine refused is unavailable, with the engine's reason")
+    await status(bench, .success(monitorStatus(enabled: false)))
+    check(bench.model.monitor != nil && bench.model.monitorUnread == nil, "monitor: a status read that works clears the reason")
+    // An answer the window can't decode is a failure too, with a reason.
+    await status(bench, .success("{}"))
+    check(bench.model.monitor == nil && !(bench.model.monitorUnread ?? "").isEmpty,
+          "monitor: a status that couldn't be decoded is unavailable, with a reason")
+}
+
 // MARK: Places to check
 
 @MainActor func placesOlderListAfterRemoval() async {
@@ -702,6 +738,32 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     check(bench.model.places?.home == "~" && bench.model.places?.extra == ["/Volumes/Fixture"],
           "places: a request that fails leaves the folders shown, not an empty list")
     check(bench.model.failure != nil, "places: the newest request's failure is reported")
+}
+
+/// A list of folders that couldn't be read at launch is read again when the
+/// person presses Scan Now, rather than the press doing nothing.
+@MainActor func placesReadAgainBeforeScan() async {
+    let bench = Bench()
+    let first = await bench.ask("places") { await $0.refresh() }
+    bench.answer(first.call, refused)
+    // The review list's failure comes after, in the same refresh.
+    bench.answer(await bench.next("pending_review"), refused)
+    bench.answer(await bench.next("monitor_status"), .success(monitorStatus(enabled: false)))
+    await first.done.value
+    check(bench.model.places == nil, "places: a list that couldn't be read is not an empty one")
+    bench.model.startScan()
+    bench.answer(await bench.next("places", after: 1), refused)
+    await eventually("the failed read ends the scan") { !bench.model.preparingAccess && bench.model.phase == .ready }
+    check(bench.model.failure?.title == FailureTitle.readPlaces && bench.engine.held("prepare_access").isEmpty,
+          "places: Scan Now says the folders still couldn't be read, and asks for no folder access")
+    bench.model.failure = nil
+    bench.model.startScan()
+    bench.answer(await bench.next("places", after: 2), .success(places([])))
+    let access = await bench.next("prepare_access")
+    check(bench.model.places?.home == "~", "places: Scan Now reads the folders again, then scans")
+    bench.model.cancelAccessPreparation()
+    bench.answer(access, .success("null"))
+    await eventually("the cancelled preparation ends") { !bench.model.preparingAccess }
 }
 
 // MARK: A scan in progress
@@ -1585,7 +1647,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
           "menu bar: before the list is read it says so")
     let failed = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
     await bench.answer(failed, refused)
-    check(model.menuBarMark == .problem && model.menuBarLine == "Could not load Worth Reviewing",
+    check(model.menuBarMark == .problem && model.menuBarLine == "Couldn't open Worth Reviewing",
           "menu bar: a list that could not be read is a problem, not nothing")
     let one = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(one, .success(reviewList(1)))
@@ -1709,13 +1771,16 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("review list: a change during a read", reviewChangeDuringRead),
             ("review list: a failed read, then the next", reviewFailureThenNextRead),
             ("review list: a press names the row drawn", reviewPressNamesTheRowDrawn),
+            ("review list: a shared read alerts if any request asked", reviewFailureAlertsForAnyRequest),
             ("background checks: older status, then newer", monitorOlderStatusBeforeNewer),
             ("background checks: older failure, then newer status", monitorOlderFailureBeforeNewer),
             ("background checks: newest failure after older status", monitorNewestFailure),
+            ("background checks: a failed status read keeps its reason", monitorFailureKeepsReason),
             ("places: older list after a removal", placesOlderListAfterRemoval),
             ("places: older failure after newer list", placesOlderFailureAfterNewer),
             ("places: removal refusal preserves folders and reports why", placesRemovalRefusal),
             ("places: newest failure after older list", placesNewestFailure),
+            ("places: read again before a scan", placesReadAgainBeforeScan),
             ("scan: refreshes while a scan runs", scanDoesNotHoldRefreshes),
             ("background checks: foreground follows the helper", foregroundFollowsHelper),
             ("background checks: honest helper status", backgroundStatusIsHonest),

@@ -21,7 +21,7 @@ struct Inspector: View {
                             }
                         }
                     } else {
-                        Text("These are fixed, so there is nothing to set aside.")
+                        Text("These are fixed, so there's nothing to set aside.")
                     }
                 }
                 .disabled(model.decidingSelection)
@@ -64,7 +64,7 @@ private struct ReviewInspector: View {
                     }
                 }
                 if item.status == "fixed" {
-                    Text("Loose Keys no longer finds this in the file. That does not mean the credential was revoked, or that no other copy exists.")
+                    Text("Loose Keys no longer finds this in the file. That doesn't mean the credential was revoked, or that no other copy exists.")
                         .foregroundStyle(.secondary)
                 }
                 // At the top, so it is in view without scrolling past what to do.
@@ -139,7 +139,7 @@ private struct ReviewInspector: View {
                 } header: {
                     Text("What to Do")
                 } footer: {
-                    Text("If this is for work, or you are not sure, ask IT before changing it. Loose Keys does not change files or revoke anything for you.")
+                    Text("If this is for work, or you aren't sure, ask IT before changing it.")
                 }
             }
 
@@ -265,7 +265,7 @@ private struct StoredInspector: View {
 
 /// A file's path, with the two things a person does with it.
 /// Said in place of Show in Finder and Copy Path, which the engine would refuse.
-private let unusualName = String(localized: "This name has unusual characters, so Loose Keys will not open or copy it.",
+private let unusualName = String(localized: "This name has unusual characters, so Loose Keys won't open or copy it.",
                                  comment: "Inspector, under a file's path, in place of Show in Finder and Copy Path.")
 
 /// A file's path, and the line in it when the rule gives one. The path is

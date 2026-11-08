@@ -234,7 +234,7 @@
 			<string>%lld carpetas</string>
 		</dict>
 	</dict>
-	<key>The last scan found %lld findings, but they are not in this list. Scan again, or save the report to see them.</key>
+	<key>The last scan found %lld findings, but they aren't in this list. Scan again, or save the report to see them.</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>El último análisis encontró %#@findings@</string>

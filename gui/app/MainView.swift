@@ -65,7 +65,7 @@ struct MainView: View {
             return String(localized: "You’re up to date.",
                           comment: "The title of the alert after Check for Updates… when no newer version is out.")
         case .failed:
-            return String(localized: "Could Not Check for Updates",
+            return String(localized: "Couldn't Check for Updates",
                           comment: "The title of the alert after Check for Updates… when the check failed.")
         }
     }
@@ -188,7 +188,7 @@ struct MainView: View {
             } else {
                 Button("Scan Now") { model.startScan() }
                     .help("Scan this Mac now")
-                    .disabled(model.places?.home == nil || model.preparingAccess)
+                    .disabled(!model.canStartScan)
             }
         }
         ToolbarItem {

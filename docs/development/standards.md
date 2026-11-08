@@ -1417,11 +1417,18 @@ is replaced (macOS behaviour).
   own command read, not a shared copy another call can replace. If a read
   fails while another is already queued, the window keeps what it shows until
   that one answers; otherwise the review list reports the failure and the
-  helper status shows as unavailable. Folder answers go through
-  `RequestOrder`, which numbers each request and uses an answer only when no
-  later request's answer has been used, so neither an older list nor an older
-  failure replaces what a newer answer showed. Two folder changes that
-  overlap may need another refresh to show the result. Scans and
+  helper status shows as unavailable, each with the reason. A read answers
+  for every request it shares, so its failure opens an alert when any of
+  them asked for one (every read but the timed ones does), including a
+  request whose own read failed and left its answer to this one. Folder
+  answers go through `RequestOrder`, which numbers each request and uses an
+  answer only when no later request's answer has been used, so neither an
+  older list nor an older failure replaces what a newer answer showed. Two
+  folder changes that overlap may need another refresh to show the result.
+  The folders are read at launch, each time Settings opens, and when Scan
+  Now is pressed before any list was read. A list the window couldn't get
+  is said on the Overview and in Settings, and one the engine couldn't read
+  from its saved state in Settings, never as no added folders. Scans and
   cancelling are not ordered with these reads.
 - While the window is in front, one task refreshes the review list and helper
   status, waiting five seconds after each pair of reads. Leaving the front

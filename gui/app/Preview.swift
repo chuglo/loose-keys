@@ -14,6 +14,12 @@ final class SampleEngine: Engine {
     static var storeFailed = false
     /// Set by the checks: the request for the review list then fails.
     static var refused = false
+    /// Set by the checks: the request for the status of background checks then fails.
+    static var statusRefused = false
+    static let statusRefusal = "Synthetic status read failure."
+    /// Set by the checks: the folders answer as the engine does when it
+    /// couldn't read its saved state.
+    static var placesFailed = false
     /// Set by the checks: saving a decision then fails, and from then on the
     /// review list answers as it does once a save has failed.
     static var saveFails = false
@@ -29,6 +35,10 @@ final class SampleEngine: Engine {
     static var documentsBlocked = false
     /// What the window last asked to have done to a folder, for the checks.
     static var folderRequest: [String: Any] = [:]
+    /// The folders scans skip. skip_folder adds one, and the checks put it back.
+    static var skipped = ["~/Movies/Raw"]
+    /// The folder of the sample's password export, which Stop Checking skips.
+    static let exportFolder = "~/Downloads"
     /// A file action must name the selected copy, not the group's lead.
     static var pathRequest: [String: Any] = [:]
     /// Set by the checks: the review list is then full. The engine says so in
@@ -120,7 +130,13 @@ final class SampleEngine: Engine {
     /// The answer to a call, on the main thread.
     private func respond(_ command: String, _ args: [String: Any]) throws -> Data {
         switch command {
+        case "places" where Self.placesFailed:
+            return Data(#"{"home":"~","home_error":null,"extra":[],"error":"Could not read the saved state."}"#.utf8)
         case "places": return Data(#"{"home":"~","home_error":null,"extra":["/Volumes/Backup"],"error":null}"#.utf8)
+        case "skip_folder":
+            Self.folderRequest = args
+            if args["id"] as? Int == 3, !Self.skipped.contains(Self.exportFolder) { Self.skipped.append(Self.exportFolder) }
+            return Data("null".utf8)
         case "remove_place", "unskip_folder":
             // The sample keeps its folders. The checks look at what was asked.
             Self.folderRequest = args
@@ -180,6 +196,7 @@ final class SampleEngine: Engine {
         case "refresh_notifications":
             onEvent?("notification-permission", Data("null".utf8))
             return Data("null".utf8)
+        case "monitor_status" where Self.statusRefused: throw EngineError(message: Self.statusRefusal)
         case "monitor_status": return Data(Self.monitor.utf8)
         case "automatic_coverage":
             if Self.coverageFails { throw EngineError(message: "Synthetic coverage read failure.") }
@@ -194,7 +211,9 @@ final class SampleEngine: Engine {
         case "item_path":
             Self.pathRequest = args
             return Data(#""sample""#.utf8)
-        case "summary_text", "open_link": return Data(#""sample""#.utf8)
+        case "summary_text": return Data(#""sample""#.utf8)
+        // As the engine, which hands back the page to open once its rules list it.
+        case "open_link": return try JSONSerialization.data(withJSONObject: args["url"] as? String ?? "", options: .fragmentsAllowed)
         case "cancel_scan":
             Self.cancelRequests += 1
             return Data("null".utf8)
@@ -204,7 +223,7 @@ final class SampleEngine: Engine {
 
     private static func item(_ id: Int, _ title: String, _ path: String, _ severity: String, _ state: String,
                              subject: String? = nil, detail: String? = nil, aside: String? = nil, places: String? = nil,
-                             actionable: Bool = true) -> String {
+                             link: String? = nil, folder: String? = nil, actionable: Bool = true) -> String {
         let aside = decisions[id] ?? aside
         let state = aside == nil ? state : "set-aside"
         let quoted = { (text: String?) in text.map { "\"\($0)\"" } ?? "null" }
@@ -215,9 +234,9 @@ final class SampleEngine: Engine {
          "reason":"A recovery phrase is the wallet. Anyone who copies these words can take everything in it, with no password, and stealers collect small text files from Desktop, Documents and Downloads.",
          "next_step":"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now.",
          "severity":"\(severity)","steps":["Write the phrase on paper, or stamp it in metal, and store it somewhere safe away from the computer.","Delete this file and empty the Trash. Check Notes, Photos and cloud folders for other copies, including screenshots.","If this Mac may have been infected, create a new wallet with a new phrase and move the funds to it."],
-         "link":null,"subject":\(quoted(subject)),"detail":\(quoted(detail)),"first_seen":"2026-10-\(10 + id % 9)T21:40:00Z","resolved_at":null,
+         "link":\(quoted(link)),"subject":\(quoted(subject)),"detail":\(quoted(detail)),"first_seen":"2026-10-\(10 + id % 9)T21:40:00Z","resolved_at":null,
          "resolved":\(state == "fixed"),"state":"\(state)","set_aside":\(quoted(aside)),"set_aside_at":\(quoted(aside.map { _ in setAsideAt })),
-         "places":\(copies),"folder":null,"actionable":\(actionable)}
+         "places":\(copies),"folder":\(quoted(folder)),"actionable":\(actionable)}
         """
     }
 
@@ -243,6 +262,14 @@ final class SampleEngine: Engine {
         """
     }
 
+    /// The pages the sample's rules name, which open_link hands back.
+    static let revokePage = "https://example.com/revoke"
+    static let managePage = "https://example.com/manage"
+
+    private static var skippedList: String {
+        "[" + skipped.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+    }
+
     private static var review: String {
         let error = storeFailed ? #""Could not save the review list.""# : "null"
         let tokenAside = kept.contains(4) && kept.contains(9) ? 1 : 0
@@ -252,13 +279,13 @@ final class SampleEngine: Engine {
         {"items":[
         \(item(7, "Possible wallet recovery phrase in a file", "~/Desktop/wallet backup.txt", "high", "open")),
         \(item(1, "Private key with no passphrase", "~/.ssh/id_ed25519", "high", "open")),
-        \(item(2, "AWS access keys stored in a file", "~/.aws/credentials", "high", "open", subject: "profile default")),
-        \(item(3, "Possible password export file", "~/Downloads/passwords.csv", "high", "open")),
+        \(item(2, "AWS access keys stored in a file", "~/.aws/credentials", "high", "open", subject: "profile default", link: revokePage)),
+        \(item(3, "Possible password export file", "~/Downloads/passwords.csv", "high", "open", folder: exportFolder)),
         \(tokenInTwoFiles),
         \(item(5, "Passwords saved in a browser", "~/Library/Application Support/Google/Chrome/Default/Login Data", "medium", "open", detail: "214 saved logins")),
         \(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open")),
         \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false))
-        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":["~/Movies/Raw"],"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
+        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":\(skippedList),"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
         """
     }
 
@@ -270,7 +297,7 @@ final class SampleEngine: Engine {
     {"status":"partial","context":"user","tool_version":"0.2.0-beta.1","generated_at":"2026-10-10T21:40:00Z",
      "review":8,"stored":5,"not_checked":123,
      "groups":[
-      {"kind":"inventory","severity":"medium","title":"Sign-in stored by an AI tool","explanation":"This tool keeps you signed in with a token in this file. That is how it is meant to work.","reason":"Any program running as you can read it, and stealers look for it by name.","next_step":"Sign out of the tool when you stop using it.","steps":["Sign out in the tool, which removes this file.","Sign in again when you next need it."],"link":null,
+      {"kind":"inventory","severity":"medium","title":"Sign-in stored by an AI tool","explanation":"This tool keeps you signed in with a token in this file. That is how it is meant to work.","reason":"Any program running as you can read it, and stealers look for it by name.","next_step":"Sign out of the tool when you stop using it.","steps":["Sign out in the tool, which removes this file.","Sign in again when you next need it."],"link":"\(managePage)",
        "items":[{"index":0,"path":"~/.codex/auth.json","line":null,"subject":"Codex","actionable":true},{"index":1,"path":"~/.claude/.credentials.json","line":null,"subject":"Claude Code","actionable":true},{"index":4,"path":"~/.gemini/oauth_creds.json","line":null,"subject":null,"actionable":true}]},
       {"kind":"inventory","severity":"medium","title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null,
        "items":[{"index":2,"path":"~/.config/gh/hosts.yml","line":null,"subject":"github.com","actionable":true},{"index":3,"path":"~/.config/glab-cli/config.yml","line":null,"subject":null,"actionable":true}]}],
@@ -629,6 +656,9 @@ enum Checks {
                "the first time, the app asks whether it may check for updates")
         expect(!everything().contains { role($0) == kAXSheetRole },
                "the update question is a row on the Overview, not an alert")
+        // One answer per launch: Check Automatically is pressed below, so Don't Check is only seen.
+        expect(button("Don’t Check").flatMap { value($0, kAXEnabledAttribute) as? Bool } == true,
+               "the update question offers Don't Check beside Check Automatically")
         await press(button("Check Automatically"), "allowing update checks",
                     until: { SampleEngine.updateCheck == true && SampleReleases.requests == 1 })
         expect(await eventually { written().contains("Loose Keys 9.9.9 Is Available") && button("Download") != nil },
@@ -639,7 +669,7 @@ enum Checks {
                     until: { SampleEngine.updateCheck == false && !written().contains("Loose Keys 9.9.9 Is Available") })
         SampleEngine.releaseFails = true
         await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with GitHub out of reach",
-                    until: { written().contains("Could Not Check for Updates") })
+                    until: { written().contains("Couldn't Check for Updates") })
         await press(button("OK"), "closing the failed check", until: { model.updateResult == nil })
         SampleEngine.releaseFails = false
         await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with a newer version out",
@@ -736,7 +766,7 @@ enum Checks {
         await model.refreshReview()
         await open(.review)
         let early = written()
-        expect(model.results == nil && early.contains("Cannot Open Worth Reviewing")
+        expect(model.results == nil && early.contains("Couldn't Open Worth Reviewing")
                && !early.contains { $0.contains("Save the report") },
                "before a scan, a review list that cannot be read does not tell the person to save a report")
         SampleEngine.storeFailed = false
@@ -868,6 +898,8 @@ enum Checks {
         }, "folder access explains the system prompts before starting checks")
         expect(!written().contains("Preparing folder access…"),
                "the Overview says it prepares folder access once, in its heading, not in the window's subtitle as well")
+        expect(await eventually { menuEnabled("Scan Now") == false },
+               "while folder access is prepared for automatic scanning, File > Scan Now can't be chosen")
         await press(button("Cancel Preparation"), "cancelling folder access preparation")
         SampleEngine.accessGate = nil
         accessGate.signal()
@@ -949,6 +981,23 @@ enum Checks {
         await open(.overview)
         let scanned = "Last scanned \(localTime(model.results?.generatedAt))."
         expect(await eventually { written().contains(scanned) }, "after a scan, the Overview's answer says when the scan ran")
+        // Save Report… and Save Counts Only… open a save panel, which would
+        // stop the check, so they are only seen to be offered.
+        expect(await eventually { menuEnabled("Save Report…") == true && menuEnabled("Save Counts Only…") == true },
+               "after a scan, the File menu offers Save Report… and Save Counts Only…")
+        await press(appMenuItem("Copy Summary"), "choosing Copy Summary in the File menu",
+                    until: { model.notice == "Summary copied" })
+        #if PREVIEW
+        // With results from a scan, a second scan still disables what exports them.
+        SampleEngine.scanSeconds = 3
+        await press(toolbarButton("Scan Now"), "pressing Scan Now with results to export",
+                    until: { model.phase == .scanning && !model.preparingAccess && model.results != nil })
+        expect(await eventually { menuEnabled("Save Report…") == false && menuEnabled("Save Counts Only…") == false
+                   && menuEnabled("Copy Summary") == false },
+               "while a scan runs, the File menu's export commands can't be chosen, as the toolbar's Export can't")
+        for _ in 0..<100 where model.phase == .scanning { await settle() }
+        SampleEngine.scanSeconds = 0.3
+        #endif
         // The details' lifetime is said on Stored Sign-ins, where they are missed.
         expect(!written().contains { $0.contains("Save the report") },
                "after a manual scan, Overview has no note about saving the report")
@@ -1149,6 +1198,33 @@ enum Checks {
             } else {
                 expect(false, "the sample list has a finding with a count")
             }
+            // What to Do opens the page the rule names, recorded instead of opened.
+            if let linked = model.reviewRows.firstIndex(where: { $0.link != nil }), linked < rows(list).count {
+                await choose(rows(list)[linked], "choosing a finding whose rule names a page to revoke it")
+                await press(button("Open the Page to Revoke It"), "pressing Open the Page to Revoke It",
+                            until: { opened.last?.absoluteString == SampleEngine.revokePage })
+                model.selectedReview = nil
+                await settle(after: "clearing the choice")
+            } else {
+                expect(false, "the sample list has a finding whose rule names a page")
+            }
+            // A finding in a folder scans can skip offers Stop Checking, which
+            // names the finding; once skipped, the inspector says so.
+            if let inFolder = model.reviewRows.firstIndex(where: { $0.folder != nil && $0.status == "open" }),
+               inFolder < rows(list).count, let folder = model.reviewRows[inFolder].folder {
+                let id = model.reviewRows[inFolder].id
+                await choose(rows(list)[inFolder], "choosing a finding in a folder scans can skip")
+                SampleEngine.folderRequest = [:]
+                await press(button("Stop Checking \(folder)"), "pressing Stop Checking in the inspector",
+                            until: { SampleEngine.folderRequest["id"] as? Int == id
+                                && written().contains("Scans will skip \(folder). You can include it again in Settings.") })
+                SampleEngine.skipped = ["~/Movies/Raw"]
+                await model.refreshReview()
+                model.selectedReview = nil
+                await settle(after: "including the folder again and clearing the choice")
+            } else {
+                expect(false, "the sample list has an open finding in a folder scans can skip")
+            }
             // The app acts only on plain names. For a file with another kind
             // of name it says so, and offers no button that could only fail.
             if let odd = model.reviewRows.firstIndex(where: { $0.path.contains("u{e9}") }), odd < rows(list).count {
@@ -1320,6 +1396,10 @@ enum Checks {
             let chosen = model.storedRows[1].id
             await choose(rows(list)[1], "choosing a stored sign-in")
             expect(model.selectedStored == chosen, "choosing a stored sign-in selects it")
+            #if PREVIEW
+            await press(button("Open the Page to Manage It"), "pressing Open the Page to Manage It",
+                        until: { opened.last?.absoluteString == SampleEngine.managePage })
+            #endif
             let keys: [PartialKeyPath<StoredRow>] = [\.shownTitle, \.file.path]
             await headings(list, keys, sort: { model.storedSort }, rows: { model.storedRows })
             model.search = "no sign-in has this text"
@@ -1358,7 +1438,7 @@ enum Checks {
         await model.refreshReview()
         await open(.review)
         let texts = everything().compactMap { value($0, kAXValueAttribute) as? String }
-        expect(texts.contains("Cannot Open Worth Reviewing") && !texts.contains("Nothing to Review")
+        expect(texts.contains("Couldn't Open Worth Reviewing") && !texts.contains("Nothing to Review")
                && model.reviewCount == model.results?.review,
                "a review list that cannot be read says so, and the count beside it is the scan's own")
         // The engine keeps the failure until the app is opened again, and
@@ -1424,6 +1504,14 @@ enum Checks {
         expect(failed && (try? String(contentsOf: old, encoding: .utf8)) == "the earlier report",
                "a report that cannot be written leaves the one it was to replace where it was")
         SampleEngine.reportFails = false
+        // The sample engine writes no file, so the old report goes to the
+        // Trash and the new one, which isn't there, can't take its name.
+        try? Data("the earlier report".utf8).write(to: old)
+        var moveFailure = ""
+        do { try await unsaved.write(feedback: false, to: old) } catch { moveFailure = error.localizedDescription }
+        let trashed = !FileManager.default.fileExists(atPath: old.path)
+        expect(trashed && moveFailure.contains("is in the Trash") && moveFailure.contains("report-"),
+               "when the old report went to the Trash but the new one couldn't take its name, the alert says so (trashed: \(trashed), it said: \(moveFailure))")
         try? FileManager.default.removeItem(at: folder)
 
         // The request for the list can fail as well. What the window holds
@@ -1438,7 +1526,7 @@ enum Checks {
                     until: { model.failure == nil })
         await settle(after: "the request for the review list failing")
         let refused = written()
-        expect(refused.contains("Cannot Open Worth Reviewing") && !refused.contains("Nothing to Review")
+        expect(refused.contains("Couldn't Open Worth Reviewing") && !refused.contains("Nothing to Review")
                && list() == nil && model.reviewSummary.isEmpty,
                "a review list the window could not get says so, and shows no older list or count in its place")
         // The Overview's answer is then the scan's own count, never "nothing".
@@ -1447,7 +1535,7 @@ enum Checks {
         expect(await eventually {
             let text = written()
             return fromScan > 1 && text.contains("\(fromScan) Items Worth Reviewing")
-                && text.contains("Loose Keys could not open its saved list, so the Worth Reviewing count is from the last scan.")
+                && text.contains("Loose Keys couldn't open its saved list, so the Worth Reviewing count is from the last scan.")
                 && !text.contains("Nothing Worth Reviewing")
         }, "with the review list unreadable, the Overview answers with the scan's own count and says why")
         await open(.review)
@@ -1458,6 +1546,9 @@ enum Checks {
         for _ in 0..<100 where fresh.phase != .done { await settle() }
         expect(fresh.review == nil && fresh.results != nil && fresh.reviewCount == fresh.results?.review,
                "after a scan, the count beside a review list the window never got is the scan's own (it is \(fresh.reviewCount))")
+        // Its status read started reads every 30 seconds, as for the menu
+        // bar. It is in no window, so they stop as they do when the app quits.
+        fresh.prepareToQuit()
         SampleEngine.refused = false
         await model.refreshReview()
         await settle(after: "the review list being got again")
@@ -1565,6 +1656,17 @@ enum Checks {
                "with the review list unreadable, Settings says the skipped folders could not be listed")
         SampleEngine.storeFailed = false
         await model.refreshReview()
+        // The added folders are in the saved state too, which can be unreadable.
+        SampleEngine.placesFailed = true
+        await model.refreshPlaces()
+        expect(await eventually { written(in: settingsWindow).contains("Couldn't read the list of folders you added.") }
+               && button("Remove", in: settingsWindow) == nil,
+               "with the saved state unreadable, Settings says the added folders could not be listed")
+        SampleEngine.placesFailed = false
+        await model.refreshPlaces()
+        expect(await eventually { !written(in: settingsWindow).contains("Couldn't read the list of folders you added.")
+                   && button("Remove", in: settingsWindow) != nil },
+               "once the saved state can be read, Settings lists the added folders again")
         // The helper's unread places open from the Overview, the one way to them.
         let scansBeforeDetails = SampleEngine.scanRequests
         await press(linkButton("Show Places Not Checked"), "opening unread places from the Overview",
@@ -1648,7 +1750,7 @@ enum Checks {
                     until: { Checks.loginItemsOpened == 2 })
         SampleEngine.appLogin = 1
         await model.refreshMonitor()
-        expect(await eventually { written().contains("Shown only while the app is open, because Loose Keys is not in Login Items.") },
+        expect(await eventually { written().contains("Shown only while the app is open, because Loose Keys isn't in Login Items.") },
                "Settings says when the app is not in Login Items")
         SampleEngine.appLogin = nil
         await model.refreshMonitor()
@@ -1693,6 +1795,14 @@ enum Checks {
         let settings = windows().first { window in !before.contains { CFEqual($0, window) } }
         expect(await eventually { toggle("Pause Scanning") == nil && button("Open System Settings", in: settings) == nil },
                "with automatic scanning off, Settings shows neither Pause Scanning nor notifications")
+        SampleEngine.statusRefused = true
+        await model.refreshMonitor()
+        expect(await eventually { written(in: settings).contains("Automatic scanning isn't available.")
+                   && written(in: settings).contains(SampleEngine.statusRefusal) },
+               "a status of background checks that couldn't be read says why in Settings")
+        SampleEngine.statusRefused = false
+        await model.refreshMonitor()
+        expect(await eventually { toggle("Show in Menu Bar", in: settings) != nil }, "Settings shows its switches again once the status can be read")
         await updates(model)
         if let settings, let close = value(settings, kAXCloseButtonAttribute), CFGetTypeID(close) == AXUIElementGetTypeID() {
             await press((close as! AXUIElement), "closing Settings")
@@ -1726,7 +1836,7 @@ enum Checks {
         SampleEngine.refused = true
         await model.refreshReview(reportFailure: false)
         let problemMarked = await marked(.problem)
-        expect(model.menuBarMark == .problem && model.menuBarLine == "Could not load Worth Reviewing" && problemMarked,
+        expect(model.menuBarMark == .problem && model.menuBarLine == "Couldn't open Worth Reviewing" && problemMarked,
                "with the review list refused, the menu bar shows a problem, not a count")
         SampleEngine.refused = false
         SampleEngine.storeFailed = true

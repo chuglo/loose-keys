@@ -13,7 +13,11 @@ struct SettingsView: View {
             } message: { failure in
                 Text(failure.reason)
             }
-            .onAppear { model.settingsOpen = true }
+            .onAppear {
+                model.settingsOpen = true
+                // Folders added while the list couldn't be read show up once it can be.
+                Task { await model.refreshPlaces() }
+            }
             .onDisappear { model.settingsOpen = false }
     }
 
@@ -23,7 +27,10 @@ struct SettingsView: View {
                 scanning(monitor)
             } else {
                 Section {
-                    Text("Automatic scanning is not available.").foregroundStyle(.secondary)
+                    Text("Automatic scanning isn't available.").foregroundStyle(.secondary)
+                    if let reason = model.monitorUnread {
+                        Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                    }
                 }
             }
             places
@@ -87,10 +94,6 @@ struct SettingsView: View {
                     .disabled(model.phase == .scanning)
                 notifications(monitor)
             }
-        } footer: {
-            if monitor.enabled {
-                Text("Notifications never show file names or credentials.")
-            }
         }
     }
 
@@ -131,6 +134,9 @@ struct SettingsView: View {
                     Text("Skipped", comment: "Settings, under a folder in Places to Check that scans skip because the person chose Stop Checking.")
                 }
             }
+            if model.placesProblem != nil {
+                Text("Couldn't read the list of folders you added.")
+            }
             if model.reviewProblem != nil {
                 Text("Couldn't read the list of folders you skipped.")
             }
@@ -138,7 +144,7 @@ struct SettingsView: View {
         } header: {
             Text("Places to Check")
         } footer: {
-            Text("Automatic scanning does not include added folders and drives. Use Scan Now to check them.")
+            Text("Automatic scanning doesn't include added folders and drives. Use Scan Now to check them.")
             if !skipped.isEmpty {
                 Text(FolderScopeText.exceptions)
             }
@@ -161,7 +167,7 @@ struct SettingsView: View {
         case 3:
             return (LoginItemsText.approveHelper, .approve)
         case 4:
-            return (String(localized: "macOS could not start it", comment: "Settings, beside Helper: macOS refused to start the helper (a singular noun)."), .restart)
+            return (String(localized: "macOS couldn't start it", comment: "Settings, beside Helper: macOS refused to start the helper (a singular noun)."), .restart)
         default:
             return (String(localized: "Not started", comment: "Settings, beside Helper: the state of the helper (a singular noun). It is not registered with macOS."), .restart)
         }
@@ -211,7 +217,7 @@ struct SettingsView: View {
                         Text("Turn on Loose Keys in Login Items to show the icon at login.").foregroundStyle(.secondary)
                     }
                 } else if monitor.appLogin == 1 || monitor.appLogin == 4 {
-                    Text("Shown only while the app is open, because Loose Keys is not in Login Items.").foregroundStyle(.secondary)
+                    Text("Shown only while the app is open, because Loose Keys isn't in Login Items.").foregroundStyle(.secondary)
                 }
             }
         }
@@ -239,7 +245,7 @@ struct SettingsView: View {
             return String(localized: "Only available when Loose Keys runs as an app",
                           comment: "Settings, the state of notifications: macOS allows them only to an app opened from its bundle.")
         case "request failed":
-            return String(localized: "macOS could not show the request. Try again.",
+            return String(localized: "macOS couldn't show the request. Try again.",
                           comment: "The state of notifications: macOS could not ask the person whether to allow them.")
         case "checking":
             return String(localized: "Checking…", comment: "Settings, the state of notifications while the app asks macOS whether they are allowed.")
