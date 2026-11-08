@@ -67,11 +67,14 @@ command, what it needs and what it does not cover:
 | rules, scan/report code, the engine's scan/export commands, the detection corpus | `sh security-tests/check_detection.sh` |
 | `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, the C interface | the bundle build and its contract test |
 | `gui/app/` | also the window check and the model check |
-| the helper runner or its Settings driver | the guest controls |
+| `gui/package-dmg.sh` | the installer disk image commands |
+| the helper runner or its Settings driver | the native helper check and its negative control, when asked |
 | `gui/src/notifications.m` | the bridge checks |
+| a script under `.agents/skills/` | the checks in its skill's `SKILL.md`, or `sh -n` where it has none |
 
 The shipped-bundle and native-helper checks run only in the disposable macOS
-guest; `docs/testing/guest.md` has its setup and both checks.
+guest. `docs/testing/guest.md` has its setup and the shipped-bundle check,
+and `docs/testing/native-helper-tests.md` the helper check.
 
 There is no CI. Before any push, check the docs against the commits being
 pushed with the `documentation` skill (`.agents/skills/documentation/`) and
@@ -122,10 +125,8 @@ sample window check runs in a guest whenever the matrix requires it.
   push to `main`" must pass on the exact release commit. Report passed checks
   and list omitted checks under "Not verified", including guest checks.
   Omitted optional checks do not require another confirmation to publish;
-  a failed or blocked required check still prevents release. Run shipped-app
-  and native-helper guest checks only when requested; the sample window check
-  still follows the matrix. The `release` skill (`.agents/skills/release/`)
-  has the steps and scripts for a release.
+  a failed or blocked required check still prevents release. The `release`
+  skill (`.agents/skills/release/`) has the steps and scripts for a release.
 
 ## What the product must keep doing
 
@@ -149,7 +150,7 @@ sample window check runs in a guest whenever the matrix requires it.
   be listed as it is.
 - **Say what was not checked.** A file in scope that could not be read is a
   `not_checked` gap, never silence. Exit codes describe the run, not the
-  findings. No scores, no "clean".
+  findings, unless `--fail-on-open` asks for 3. No scores, no "clean".
 - **Finding text says what the matcher established,** no more: a matched
   format is not a validated credential. Remediation tells preventing future
   sign-ins apart from ending an existing credential or session.
@@ -228,8 +229,8 @@ run from the repository or worktree root as their instructions specify.
   main` shows the form.
 - **Ask first** before changing a report field, flag or exit code (contracts,
   kept in `schema/report-1.schema.json` and the usage text in `src/main.rs`),
-  CI, lint settings, `edition` (2021) or `rust-version` (1.88), or removing
-  a test.
+  a shipped rule id, CI, lint settings, `edition` (2021) or `rust-version`
+  (1.88), or removing a test.
 
 ## Rust
 

@@ -1,11 +1,12 @@
 #!/bin/sh
-# Every check in docs/testing/local-verification.md except the scan by hand.
-# The sample window check runs in a headless macOS guest alongside the others,
-# which run one at a time. It and the harness self-test are skipped when none
-# of the files they use differ from origin/main. Prints each exit status and
-# elapsed seconds and keeps going after a failure; exits 1 if any check
-# failed. Each check's output is in its own log. The dependency audit needs
-# the network. Real app/helper guest checks do not run.
+# Every check in docs/testing/local-verification.md except the installer disk
+# image and the scan by hand. The sample window check runs in a headless macOS
+# guest alongside the others, which run one at a time. It and the harness
+# self-test are skipped when none of the files they use differ from
+# origin/main. Prints each exit status and elapsed seconds and keeps going
+# after a failure; exits 1 if any check failed. Each check's output is in its
+# own log. The dependency audit needs the network. Real app/helper guest
+# checks do not run.
 set -u
 if [ ! -f gui/macos/Info.plist ]; then
     printf '%s\n' 'Run this script from the repository root.' >&2

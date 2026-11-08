@@ -30,15 +30,16 @@ tart exec "$VM" sh -c "mkdir -p ~/work/target/release/bundle/macos &&
 ```
 
 Transfer checksums detect accidental changes; they do not authenticate a
-hostile host. These clones boot with SIP off. The
+hostile host. These clones run macOS 26 and boot with SIP off. The
 [native helper checks](native-helper-tests.md) need it on, so they clone
-`lk-sip-base` instead (below).
+`lk-sip-base` instead (below). No check runs the app on macOS 14 or 15.
 
 ## Sample window check
 
-Run from the repository root, with Tart installed and the
-`ghcr.io/cirruslabs/macos-tahoe-base:latest` image already cached. The
-wrapper does not download it:
+Run from the repository root, with `tart` on `PATH`, fewer than two VMs
+running (`tart list`: the check starts its own, and macOS runs at most two),
+and the `ghcr.io/cirruslabs/macos-tahoe-base:latest` image already cached.
+The wrapper does not download it:
 
 ```sh
 sh gui/tests/check-window-guest.sh "$TMPDIR/window-check"
@@ -79,9 +80,10 @@ update request.
 another new work folder. It must fail with
 `timeout: specific fixture findings in window`.
 
-The check does not cover appearance or the helper. The guest's language
-must be English: the driver finds controls, macOS's save panel included,
-by their English names.
+The check does not cover appearance, the helper, or macOS's Desktop,
+Documents and Downloads requests, since the app scans a synthetic home, not
+the account's own. The guest's language must be English: the driver finds
+controls, macOS's save panel included, by their English names.
 
 When done, run `sync` in the guest, then `tart stop "$VM"` on this Mac.
 

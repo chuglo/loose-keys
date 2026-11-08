@@ -123,11 +123,11 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   (`item_path`: a plain printable name, its folder opened without following
   links, never as root). A link is returned only if `rules::known_link` lists
   it. A new file or link action keeps this shape.
-- One page is opened without the engine: System Settings at Notifications
-  (`AppModel.openNotificationSettings`), a fixed `x-apple.systempreferences:`
-  link built from the app's bundle identifier, with nothing from a scan in
-  it. It goes through `AppModel.openURL`, which the window check replaces so
-  that the check opens nothing on the Mac running it.
+- Fixed pages open without the engine: System Settings at Notifications,
+  Files & Folders and Login Items, and GitHub's page for the latest release.
+  None has anything from a scan in it. Login Items opens through
+  `AppModel.openLoginItems`, the others through `AppModel.openURL`; the
+  window check replaces both, so that it opens nothing on the Mac running it.
 - `set_monitoring` does not take an approved helper registration as proof
   that its launchd job is loaded. On new consent it unregisters that
   registration and registers again, with no store or app lock held across
@@ -411,10 +411,11 @@ The threats are a local user racing a root run with links, and hostile files
   `~/` path below the home, 32 at most), then keeps them in `state.json`
   beside the person's decisions, with the same standing as a Kept decision;
   the helper reads them there and so applies the list the app last saved,
-  which can be stale until the app next runs. The CLI reads none of it. A
-  file planted at a listed path is still listed, under Set Aside with its
-  rule and details, counted and exported. Tests: `expected` and `returned`
-  in `gui/src/review.rs`, `set_expected` in `gui/src/lib.rs`.
+  which can be stale until the app next opens or comes to the front. The CLI
+  reads none of it. A file planted at a listed path is still listed, under
+  Set Aside with its rule and details, counted and exported. Tests:
+  `expected` and `returned` in `gui/src/review.rs`, `set_expected` in
+  `gui/src/lib.rs`.
 - The app's state folder is `review::STATE_DIR` in the home folder.
   `Store::open` makes and opens each folder on the way without following a
   link, so a link anywhere on that path stops it rather than sending the
@@ -866,6 +867,10 @@ vendors change their settings.
   another build, or under a target list that has changed since, is never
   marked fixed with its file unread. Test:
   `a_recheck_this_build_cannot_make_is_not_a_fix` in `src/scan/tests.rs`.
+- A shipped rule id is stored in saved choices, organizations'
+  `ExpectedFindings` lists and reports, and nothing migrates it. Renaming one
+  drops the organization's entries for it without notice, asks again about
+  findings set aside under it, and leaves items saved under the old id open.
 - Inline environment tables retain each literal secret separately and skip a
   service-token assignment only when its whole value matches the token rule. Quoted
   commas do not separate pairs. The existing scalar parser accepts a limited
@@ -1016,6 +1021,13 @@ deployment credential remain unverified. No Binance-specific matcher is added.
   (`network::caught_up` in `security-tests/network.rs`). If you see a miss,
   report it with `network-log/caught-up.json` from that run. Do not rerun
   until it passes and call that a pass.
+- Only `build.rs` and tests start a process. The scanner gate checks the
+  `loose-keys` command for it with probes that record whether they ran:
+  stand-ins for `git`, `aws`, `security` and other tools first on its
+  `PATH`, and the commands a hostile `.git/config`, AWS `credential_process`
+  and kubeconfig `exec` name. Nothing catches a program by another name or
+  full path, or a process started by the engine, the helper or the window:
+  review is the only guard there.
 - The window check runs the steps in `Checks` in `gui/app/Preview.swift`. It
   cannot type, so it sets the filter in code, and does in code what it has
   no control to press for. With the screen locked or its saver on, macOS
@@ -1055,8 +1067,9 @@ deployment credential remain unverified. No Binance-specific matcher is added.
   them, are dropped in `if let` and at the end of a block, makes
   `std::env::set_var` unsafe and reformats code. Moving is a change of its
   own, with the lock code reread. [7]
-- A version change touches `Cargo.toml`, `gui/Cargo.toml` and `Cargo.lock`.
-  The bundle's version keys in `gui/macos/Info.plist` take numbers and dots
+- A version change touches both `Cargo.toml` files, `Cargo.lock`,
+  `README.md` and `gui/macos/Info.plist`; the release skill's `bump.sh` sets
+  all five. The bundle's version keys in `Info.plist` take numbers and dots
   only.
 
 ## The window and running the app
@@ -1204,9 +1217,10 @@ is replaced (macOS behaviour).
 - The window, its alerts, the menu bar menu, the folder-access prompts and
   the notification are in English and Spanish; the saved reports, the copied
   summary and the command line stay English. The tables are in
-  `gui/macos/<lang>.lproj`, keyed by the English, and the build writes them
-  into the bundle as binary property lists, which also fails it on a syntax
-  error. A literal in a SwiftUI control is looked up already;
+  `gui/macos/<lang>.lproj`, keyed by the English (`InfoPlist.strings` by
+  its `Info.plist` key), and the build writes them into the bundle as binary
+  property lists, which also fails it on a syntax error. A literal in a
+  SwiftUI control is looked up already;
   `Text(verbatim:)` and `Text(someString)` are not, so other text comes from
   `String(localized:)`.
   A path, name or error is only ever an interpolated value, never part of a
@@ -1429,10 +1443,10 @@ environment from the host.
 
 Looking at the window without a screen. Two development builds, defined in
 `gui/app/Preview.swift`, save a picture of each page into `SNAPSHOT_DIR` and
-quit. A window appears on the person's screen for a few seconds, so say so
-first. The first build uses sample data and no engine; the second uses the
-real engine, runs only in the approved guest, and needs
-`sh gui/build-macos.sh` to have run there:
+quit. Both run in a disposable macOS guest; the first runs on this Mac only
+when the person explicitly asks, since its window appears on their screen.
+The first build uses sample data and no engine; the second uses the real
+engine and needs `sh gui/build-macos.sh` to have run there:
 
 ```sh
 swiftc -parse-as-library -D PREVIEW -target "$(uname -m)-apple-macosx14.0" \

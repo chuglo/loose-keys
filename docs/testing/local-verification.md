@@ -40,7 +40,11 @@ sh security-tests/harness.sh platform --binary target/release/loose-keys --work 
 
 The first command runs the harness against its own stand-in scanners, never
 the one in `src/`, so it is needed only when `security-tests/`, `schema/` or
-the Cargo files change. The other two check the scanner.
+the Cargo files change. The other two check the scanner. They run the
+release `loose-keys` command, not the engine or the app, against generated
+fixtures. The platform check's folder denial comes from the sandbox, not a
+real privacy prompt. Neither covers files kept only in the cloud, security
+software, or signing and notarization.
 
 ## Detection
 

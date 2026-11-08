@@ -157,9 +157,9 @@ Only after the person picks the findings to fix:
 1. Work in a worktree, as AGENTS.md says. Make the agreed changes and no
    others.
 2. Run both scripts on the edited pages and reread the changed text. A
-   Markdown-only change needs no build or test. A change to code, such as
-   the usage text in `src/main.rs` or a script's comment, follows the
-   AGENTS.md matrix.
+   change only to the files AGENTS.md calls prose-only needs no build or
+   test. A change to code, such as the usage text in `src/main.rs` or a
+   script's comment, follows the AGENTS.md matrix.
 3. Show the diff. Commit on the branch in the form `git log main` shows,
    keeping the configured commit signing. Push or merge only when asked.
 
