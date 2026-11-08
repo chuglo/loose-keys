@@ -39,8 +39,9 @@ sh security-tests/harness.sh platform --binary target/release/loose-keys --work 
 ```
 
 The first command runs the harness against its own stand-in scanners, never
-the one in `src/`, so it is needed only when `security-tests/`, `schema/` or
-the Cargo files change. The other two check the scanner. They run the
+the one in `src/`, so it is needed only when `security-tests/`, `schema/`,
+the Cargo files or `gui/tests/helper-control.swift`, which it compiles in,
+change. The other two check the scanner. They run the
 release `loose-keys` command, not the engine or the app, against generated
 fixtures. The platform check's folder denial comes from the sandbox, not a
 real privacy prompt. Neither covers files kept only in the cloud, security
@@ -147,11 +148,14 @@ cargo install cargo-audit --locked --version 0.22.2 --root "$TMPDIR/cargo-audit"
 
 ## A scan by hand
 
-On a synthetic home only, after `check_scanner.sh` has built the binary:
+On a synthetic home only, after `check_scanner.sh` has built the binary.
+`generate-home` refuses a folder it has already filled, so make a new one
+each time:
 
 ```sh
-sh security-tests/harness.sh generate-home "$TMPDIR/synth"
-HOME="$TMPDIR/synth/home" ./target/release/loose-keys scan --feedback -
+synth=$(mktemp -d "$TMPDIR/synth.XXXXXX")
+sh security-tests/harness.sh generate-home "$synth"
+HOME="$synth/home" ./target/release/loose-keys scan --feedback -
 ```
 
 ## Before a push to `main`

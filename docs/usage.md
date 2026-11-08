@@ -8,16 +8,19 @@ On the first page, click **Scan Now**. When the scan finishes, the Overview
 says what it found and offers **Scan Automatically**: turned on, a helper
 checks your home folder on its own, and its findings appear without a manual
 scan. If macOS requires approval, Overview offers **Open System Settings**
-to give it. Allow notifications separately if you want alerts while the app
-is closed.
+to give it. For alerts while the app is closed, click **Allow
+Notifications…**, on the Overview or in Settings; once macOS has your answer,
+Settings offers **Open System Settings** to change it.
 
 **Scan Now** gives a detailed point-in-time report. The sidebar lists
 what is worth reviewing and the sign-ins that are stored. When a scan could
 not read some places, **Show Places Not Checked** on the Overview lists them
 with the reasons. Select a finding to see what it is, why it matters and
-what to do. **Export** saves the full report or a counts-only file, and copies
-the text summary. Opening the app does not turn on automatic scanning or
-notifications.
+what to do. Where the rules name the issuer's page, **Open the Page to Revoke
+It** or **Open the Page to Manage It** opens it in your browser; these buttons
+open only pages the rules list. The **Export** menu has **Save Report…** for
+the full report, **Save Counts Only…**, and **Copy Summary** for the text
+summary. Opening the app does not turn on automatic scanning or notifications.
 
 Manual scan details, including Stored Sign-ins and the places a manual scan
 could not read, last only until you quit the app. Saved review findings and
@@ -45,15 +48,19 @@ The app and `--export`/`--feedback` refuse a folder that gives its new files
 an access list, as some shared folders do; save the file somewhere only you
 can read.
 A path with any character outside plain ASCII, such as an accented letter, is
-shown escaped, and **Copy Path** and **Show in Finder** do not work on it. A
-copied path or summary stays on this Mac's clipboard.
+shown escaped, and **Copy Path** and **Show in Finder** do not work on it.
+**Copy Path** puts a path with spaces or other characters a shell acts on in
+single quotes, so it can be pasted into Terminal. A copied path or summary
+stays on this Mac's clipboard.
 
 Worth Reviewing has one item for a password or token the app can pick out,
 however many files it is in. Other findings, such as a private key, are not
 matched across files: the same key in two files is two items. The saved report
-and the copied summary list each finding, so their count can be higher. When
-the list is full, the Overview says so; save the report to see the rest, up to
-the findings limit below.
+and the copied summary list each finding, so their count can be higher.
+Worth Reviewing and Set Aside together hold up to 4096 items that aren't
+fixed, fewer when their saved details near 6 MiB. When the list is full,
+the Overview says so; save the report to see the rest, up to the findings
+limit below.
 
 **Filter** matches each row's name, what it concerns (such as a profile or
 host) and every listed copy's path, including fixed and set-aside copies.
@@ -66,9 +73,13 @@ brings all rows back. The inspector starts hidden to leave space for the list
 and opens when you select an item. Its toolbar button, or **View > Show
 Inspector** (Option-Command-I), can show or hide it at any time.
 
-Every toolbar button is also in the menu bar. The **Item** menu has **Show in
-Finder**, **Copy Path** (Option-Command-C), **Set Aside** and **Move to Worth
-Reviewing** for the items selected in the list.
+Every toolbar button is also in the menu bar. The File menu's **Scan Now** is
+Command-R, **Stop Scan** Command-period and **Save Report…** Command-S;
+**View > Show Sidebar** is Control-Command-S. The **Item** menu has **Show
+in Finder**, **Copy Path** (Option-Command-C), **Set Aside** and **Move to
+Worth Reviewing** for the items selected in the list. Double-click a row in
+Worth Reviewing or Set Aside to show its file in Finder, or Control-click a
+row there or in Stored Sign-ins for **Show in Finder** and **Copy Path**.
 
 ### Reviewing findings
 
@@ -152,8 +163,10 @@ to review, 5 set aside"). To leave a folder out, select an open finding
 directly in it and choose **Stop Checking** followed by the folder's name,
 under Folder in the inspector. It is offered only for a folder inside your
 home folder with a plain ASCII path; to leave out part of an added folder or
-drive, remove it and add a narrower one. The folder then appears in every
-summary as not checked, and in Settings under Places to Check as Skipped, where
+drive, remove it and add a narrower one. Up to 32 folders can be skipped; past
+that, the app asks you to remove one first. Saved reports and the copied
+summary name a skipped folder as left out by you, which does not make the
+scan incomplete, and Settings lists it under Places to Check as Skipped, where
 **Include Again** brings it back. Known sign-in
 files in it, and
 the files directly in an AI tool's own folder, are still read by a scan and by
@@ -163,16 +176,18 @@ can silence the scanner: there is no ignore file or inline comment, by design.
 A scan in the app, and each automatic full pass as it ends, look at each
 pending item's own file again. When the file is gone or no longer matches, the
 item is marked fixed, even if the scan could not read everything else, but not
-by a scan you stop with **Stop Scan**. In a folder you stopped checking, an
-item is looked at again only when a scan still checks its file for it, so other
-items there stay open, even after you remove the credential, until you choose
-**Include Again** and scan. A file on a drive, network share or disk image that
-is not connected is not gone: its item stays open until the volume is back and
-the file can be looked at. The app cannot tell one volume from another mounted
-at the same place, so a second drive mounted under the first one's name reads
-as the file being gone. Fixed does not mean other copies are gone or that the
-credential was revoked. A fixed item stays in Worth Reviewing, greyed, with
-**Fixed** beside its name, until the list needs room for a new finding.
+by a scan you stop with **Stop Scan**. These rechecks stop after 10 seconds;
+an item not reached stays open until a later scan. In a folder you stopped
+checking, an item is looked at again only when a scan still checks its file
+for it, so other items there stay open, even after you remove the credential,
+until you choose **Include Again** and scan. A file on a drive, network share
+or disk image that is not connected is not gone: its item stays open until the
+volume is back and the file can be looked at. The app cannot tell one volume
+from another mounted at the same place, so a second drive mounted under the
+first one's name reads as the file being gone. Fixed does not mean other
+copies are gone or that the credential was revoked. A fixed item stays in
+Worth Reviewing, greyed, with **Fixed** beside its name, until the list needs
+room for a new finding.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
@@ -250,33 +265,23 @@ changes, works through the whole home folder in short slices at low priority,
 repeats that pass weekly, and marks an item fixed when its file no longer
 matches. Closing the window quits the app, unless it is in the menu bar, and
 quitting the app does not stop the helper. **Pause Scanning** in Settings
-stops its checks; turning **Scan Automatically** off, on the Overview or in
-Settings, also removes the launchd job. Settings shows when the helper last
-checked a file and last finished a full pass.
+stops its checks and alerts; turning **Scan Automatically** off, on the
+Overview or in Settings, also removes the launchd job. Settings shows when
+the helper last checked a file and last finished a full pass.
 
-If automatic scanning could not read some places, **Show Places Not Checked** on
-the Overview lists the saved paths and reasons. Opening this list does not run
-another scan. It is dated to the last completed
-automatic full pass; later file or permission changes do not rewrite that
-result. Manual-scan details are listed separately, and saved reports still
-contain only the manual scan. The automatic list keeps up to 4096 paths with
-their reasons, within 512 KiB, and says when it is incomplete. It leaves out
-work limits (`scan-limit`), so a place every automatic pass stops short of is
-not listed there; **Scan Now** lists the work limits it reaches. Older versions
-saved only the count; their details become available after the next automatic
-full pass. A scan in the app keeps up to 4096 places not checked; when there
-are more, the last of them is `~/` with the reason `scan-limit`. **Show Places
-Not Checked** lists up to 20 of them under each reason, then how many more; a
-saved report has them all.
-
-The build signs ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
-code-signing identity. An ad-hoc identity changes with every build; an Apple
-Development identity stays the same, so sign with one from the first install
-if you will rebuild. `security find-identity -v -p codesigning` lists yours:
-
-```sh
-LOOSE_KEYS_SIGN_IDENTITY="Apple Development" sh gui/build-macos.sh
-```
+For places automatic scanning could not read, **Show Places Not Checked**
+lists what it saved and does not run another scan. That list is dated to the
+last completed automatic full pass; later file or permission changes do not
+rewrite that result. Manual-scan details are listed separately, and saved
+reports still contain only the manual scan. The automatic list keeps up to
+4096 paths with their reasons, within 512 KiB, and says when it is incomplete.
+It leaves out work limits (`scan-limit`), so a place every automatic pass
+stops short of is not listed there; **Scan Now** lists the work limits it
+reaches. Older versions saved only the count; their details become available
+after the next automatic full pass. A scan in the app keeps up to 4096 places
+not checked; when there are more, the last of them is `~/` with the reason
+`scan-limit`. **Show Places Not Checked** lists up to 20 of them under each
+reason, then how many more; a saved report has them all.
 
 If registering the helper fails, the app shows an error and keeps your
 consent, and the status still says whether the helper is running. While it
@@ -284,8 +289,17 @@ is not running, Settings offers **Restart Helper** to try again.
 
 A new finding worth reviewing, or one whose credential changed or whose file
 became readable by others, can produce one grouped alert. Stored sign-ins and
-scan gaps do not alert, an unresolved item does not alert again across scans
-or restarts, and nothing is sent while the app is in front.
+scan gaps do not alert, and an unresolved item does not alert again across
+scans or restarts. While the app is in front, the alert is held; within a
+minute after you switch away, it is sent for the items still open that you
+have not set aside, including ones you already saw in the window. An item
+**Scan Now** found while **Scan Automatically** was off can also alert once
+after you turn it on.
+
+The alert, or its **Review** button, opens Worth Reviewing. If macOS does not
+take it, it is tried again after a minute, then after five. Settings lists an
+alert not sent yet under **Pending Notification**, with **Try Again** after
+three failed tries.
 
 ### Menu bar
 
@@ -293,11 +307,11 @@ or restarts, and nothing is sent while the app is in front.
 has a dot while items are open in Worth Reviewing or the list is full, and is
 a warning triangle when the list cannot be read. A key with no dot means
 nothing is open in what was checked, or the list is still being read, not
-that nothing is exposed. Its menu shows the count and the state of automatic
-scanning, and opens the window or Settings; it changes nothing. Before any
-check, with nothing on the list, the menu says **No scan this session**, or
-**Checking existing files…** while automatic scanning makes its first pass,
-instead of a count.
+that nothing is exposed. Its menu shows the count, and the state of automatic
+scanning unless it is running, and opens the window or Settings; it changes
+nothing. Before any check, with nothing on the list, the menu says **No scan
+this session**, or **Checking existing files…** while automatic scanning
+makes its first pass, instead of a count.
 
 While it is on, closing the window leaves the app in the menu bar, with no Dock icon
 until a window opens. With automatic scanning also on, the app is in Login
@@ -307,20 +321,20 @@ Quit lasts until the next login.
 ### Updates
 
 After your first scan, or automatic scanning's first full pass, Loose Keys
-asks, at the bottom of the Overview, whether it may check for updates. If
-you allow it, the app asks GitHub for the latest release when it starts and
-once a day while it is open. GitHub sees your IP address and that
-Loose Keys checked; nothing about your files or findings is sent. A newer
-version appears at the bottom of Overview, and **Download** opens its release
-page. Loose Keys never installs anything: download and replace the app
-yourself. With **Scan Automatically** on, the old version's helper can keep
-running after that (unverified); to start the new one, turn **Scan
-Automatically** off and on again in Settings.
+asks, at the bottom of the Overview, whether it may check for updates. If you
+choose **Check Automatically** rather than **Don’t Check**, the app asks
+GitHub for the latest release when it starts and once a day while it is open.
+GitHub sees your IP address and that Loose Keys checked; nothing about your
+files or findings is sent. A newer version appears at the bottom of Overview,
+and **Download** opens its release page. Loose Keys never installs anything:
+download and replace the app yourself. With **Scan Automatically** on, the old
+version's helper can keep running after that (unverified); to start the new
+one, turn **Scan Automatically** off and on again in Settings.
 
 **Check for Updates…**, in the Loose Keys menu, checks once whatever the
 setting and shows the answer in the main window, opening it if it is closed.
-Turn automatic checks on or off in Settings. The `loose-keys`
-command and the background helper never go online.
+Turn **Check for Updates Automatically** on or off in Settings. The
+`loose-keys` command and the background helper never go online.
 
 ### Removing Loose Keys
 
@@ -343,29 +357,37 @@ helper refused.
 ## Supported checks
 
 - possible password-export CSV and private-key headers recursively across your
-  home directory, regardless of extension (including renamed files). This
-  check finds a private key only near the start of a file, within its first
-  4 KiB and after nothing but blank lines, certificates or openssl's
-  attributes; one pasted under other text in a note, or written into code, is
-  not;
+  home directory, regardless of extension (including renamed files). A CSV
+  export is found only when its header is the file's first line. This check
+  finds a PEM or OpenSSH private key only near the start of a file, within
+  its first 4 KiB and after nothing but blank lines, certificates or
+  openssl's attributes, and a PuTTY `.ppk` key only by its first line; one
+  pasted under other text in a note, or written into code, is not. A key with
+  a passphrase, and a PGP private-key block, whose armor doesn't show whether
+  it has one, are listed, not flagged;
 - unencrypted Bitwarden JSON exports of a personal vault that hold login
-  passwords;
+  passwords, and 1Password export files (`.1pux`);
 - Docker registry passwords and tokens stored in `~/.docker/config.json`
   (`auth`, `identitytoken` and `registrytoken` fields); the same fields in
   `~/.config/containers/auth.json` and
   `~/Library/Preferences/helm/registry/config.json` are also checked;
-- AWS access keys in `~/.aws/credentials`;
-- HTTP(S) username/password URLs in `~/.git-credentials`;
-- `user:password` pairs, and tokens in a known issuer format, inside remote
-  URLs in each repository's `.git/config` (nothing else in a `.git` folder is
-  read);
+- AWS access keys in `~/.aws/credentials` and `~/.aws/config`;
+- HTTP(S) username/password URLs in `~/.git-credentials` and
+  `~/.config/git/credentials`;
+- `user:password` pairs inside URLs, and tokens in a known issuer format
+  anywhere, in each repository's `.git/config` (nothing else in a `.git`
+  folder is read);
 - GitHub CLI `oauth_token` fields in `~/.config/gh/hosts.yml`;
 - npm auth, token and password fields in `~/.npmrc`;
-- service tokens in about 140 known issuer formats (AWS, GitHub, GitLab, OpenAI,
+- service tokens in about 130 known issuer formats (AWS, GitHub, GitLab, OpenAI,
   Anthropic, Google Gemini, Stripe, Slack, npm, PyPI, Cloudflare, Vercel and
-  more) and Slack and Discord webhook URLs, in the first 4 KiB of any file,
-  and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars`, `secrets.toml`,
-  `*.tfvars`, shell startup and history files. Stripe test-mode keys are listed
+  more) and Slack and Discord webhook URLs, in the first 4 KiB of any file up
+  to 1 MiB, and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars*`, `secrets.toml`,
+  `*.tfvars`, shell startup and history files, the history files of psql,
+  MySQL, redis-cli, Python, Node.js and irb, Aider's `.aider.chat.history.md`
+  and `.aider.input.history`, `~/.cache/huggingface/token`,
+  `~/.gradle/gradle.properties`, `~/.codex/config.toml` and
+  `~/.config/goose/secrets.yaml`. Stripe test-mode keys are listed
   at low risk. Keys whose prefix does not name the service, such as Google API
   keys starting `AIza` (including Gemini keys in that form), Notion keys
   starting `secret_`, and Twilio, Dropbox and ElevenLabs keys, are found only
@@ -378,20 +400,24 @@ helper refused.
   them that hold programs or caches (`extensions`, `plugins`, `packages`, `bin`,
   `Cache`, `Code Cache`, `GPUCache`) are not: their files are checked like any
   other file;
-- variables named like secrets and set to a value in `.env*` and shell files;
+- variables named like secrets and set to a value in `.env*`, `*.env`,
+  `.envrc`, `.dev.vars*`, `secrets.toml`, `*.tfvars`, shell files,
+  `~/.gradle/gradle.properties`, `~/.codex/config.toml` and
+  `~/.config/goose/secrets.yaml`;
 - cloud and infrastructure: Google service-account key files anywhere, kubeconfig
   credentials in `~/.kube` and in a kubeconfig saved anywhere else, secrets in
-  Terraform state files (`*.tfstate`), passwords in dbt and Snowflake client
-  configs, rclone's saved passwords and keys, 1Password export files (`.1pux`),
-  Terraform and Vault tokens, Azure service principal secrets, and
-  the stored sign-ins of gcloud, the Azure CLI and the AWS CLI (listed, not flagged);
+  Terraform state files (`*.tfstate`, `terraform.tfstate*`), passwords in dbt
+  and Snowflake client configs, rclone's saved passwords and keys, Terraform
+  and Vault tokens, Azure service principal secrets, and the stored sign-ins
+  of rclone, gcloud, the Azure CLI and the AWS CLI (listed, not flagged);
 - package registries and build tools: project and home `.npmrc`, Yarn, pnpm,
   `.pypirc`, Poetry, Cargo, RubyGems, Bundler, Composer, Maven, Gradle, and
-  passwords inside URLs in Git and pip config;
-- other developer files: `.netrc`, `.pgpass`, `.my.cnf`, GnuPG private keys,
-  FileZilla and DBeaver saved passwords, OpenVPN profiles (`.ovpn`) with a
-  private key inside, and the stored sign-ins of about thirty deploy and AI
-  command-line tools (listed, not flagged);
+  passwords inside URLs in Git and pip config and `~/.curlrc`;
+- other developer files: `.netrc`, `.pgpass`, `.my.cnf`, GnuPG private keys
+  (one with a passphrase is listed, not flagged), FileZilla and DBeaver saved
+  passwords, OpenVPN profiles (`.ovpn`) with a private key inside, and the
+  stored sign-ins of about thirty deploy and AI command-line tools (listed,
+  not flagged);
 - literal secrets in MCP server configs and AI tool settings files, including
   ones written with comments (Zed, VS Code, opencode), and OAuth token files
   such as mcp-remote keeps in `~/.mcp-auth` (listed, not flagged);
@@ -409,10 +435,11 @@ helper refused.
 - crypto wallets: listed wallet extensions in those Chromium browsers' profiles
   and desktop wallet folders (reported by presence, without reading their
   contents), and recovery phrases from the English BIP-39 word list written
-  into files. The phrase heuristic skips sorted word lists, repetitive
-  phrases and two common public 12-word BIP-39 test vectors; it does not
-  validate checksums or wallet use;
-- Telegram Desktop's session folder, KeePass databases, and password-looking
+  into the first 4 KiB of a file. The phrase heuristic skips sorted word
+  lists, repetitive phrases and two common public 12-word BIP-39 test
+  vectors; it does not validate checksums or wallet use;
+- Telegram Desktop's session folder, KeePass 2 databases (listed, not
+  flagged; KeePass 1 `.kdb` files are not recognised), and password-looking
   lines in `.txt` and `.rtf` notes.
 
 `loose-keys --list-rules` prints every rule and where it looks.
@@ -429,9 +456,11 @@ Safari, Notes, the Keychain, images and password-manager vaults. The rules for
 known files read simple literal fields at the listed paths: not full YAML or
 INI syntax, not a config kept somewhere else, and not a reference or an
 environment placeholder. In `.env*`, shell, MCP and AI tool settings files, a
-value that only its name marks as secret is not reported when it is short or
-looks like a sample or placeholder; neither is a note password that is a single
-lowercase word.
+value that only its name marks as secret is not reported when it is shorter
+than 8 characters (12 in MCP server configs and JSON settings files, 16 in
+OAuth token files) or looks like a sample or placeholder; neither is a note
+password that is a single lowercase word. JSON MCP server configs and
+settings files are read 6 levels deep.
 
 The scanner does not execute credential helpers, contact services or show
 secret values. It does not follow symlinks, with one exception: when a known
@@ -461,7 +490,9 @@ settings files (`Library/Preferences/com.apple.AddressBook.plist`,
 one macOS would ask you for your calendar, contacts, reminders, photos,
 media library or other apps' data in the scanner's name. A known sign-in
 location inside them, such as Telegram's App Store copy, is still read, and
-macOS may ask then. Where a repository's
+macOS may ask then. Links and special files that discovery meets are passed
+over without a gap, as is macOS's `.com.apple.containermanagerd.metadata.plist`.
+Where a repository's
 `.git` is a file pointing elsewhere (a worktree or submodule) or a link, it is
 not followed. Repeat `--select DIR` to add folders or mounted drives;
 explicitly selecting an excluded directory scans that root, while exclusions
@@ -470,15 +501,18 @@ is refused, and a folder reached through a link is listed as not checked: give
 its real path. Where your home folder is reached through a link, a path through
 that link, as the shell writes `~/notes`, names the folder in your home.
 
-Both text and JSON reports state the requested roots, exclusions and detection
-limits. A place the scan could not check appears under `not_checked` with one
-of these reasons, and makes the scan partial:
+Both text and JSON reports state the requested roots and exclusions. The JSON
+report also states the detection limits, which the command's text summary
+prints only with `--limits`; **Copy Summary** always includes them. A place
+the scan could not check appears under `not_checked` with one of these
+reasons, and makes the scan partial:
 
 - `permission-denied`: file permissions or macOS privacy settings blocked it.
   Allow access, then scan again;
 - `unreadable`: reading failed, the file changed while it was read, or it is a
-  known file in a form the scanner does not read. A browser database with
-  pending changes is listed this way: quit the browser and scan again. So is a
+  known file in a form the scanner does not read. A browser database, or
+  gcloud's `credentials.db`, with pending changes is listed this way: quit the
+  browser, or wait for gcloud to finish (unverified), and scan again. So is a
   selected folder that is missing or reached through a link;
 - `too-large`: the file is over a read limit below;
 - `cloud-only-file`: the folder holds files kept only in the cloud, which are
@@ -497,24 +531,31 @@ The limits:
   config, shell history, note, Terraform state or browser database. A larger
   one is a `too-large` gap, except that a `.txt`, `.rtf` or `*_tokens.json`
   file over 1 MiB with nothing matching in its first 4 KiB is passed over, not
-  listed as not checked;
-- matches: some rules list a fixed number of matches per file. When more are
-  omitted, the listed findings stay and a `scan-limit` gap makes the scan
-  partial;
+  listed as not checked. A token, Bitwarden export, Google service-account key
+  or kubeconfig is confirmed by reading the whole file, so in a file over
+  1 MiB, one in the first 4 KiB gives that gap, not a finding;
+- matches: some rules list only the first 100 matches in a file, and the
+  notes rule the first 20 lines. Past its first 100, the service-token rule
+  lists only new tokens, up to 100 different ones. When more are omitted, the
+  listed findings stay and a `scan-limit` gap makes the scan partial;
 - findings: a scan in the app stops at 4096 findings, and a `scan-limit` gap
   makes it partial. The command line has no such limit;
 - agent records: 16 levels deep, 50,000 entries per tree, 256 MiB per file
   and 50 different tokens listed per file. A larger file is a `too-large`
   gap, and a record with more tokens a `scan-limit` gap. A deeper folder is
-  reported once; added as its own root, only the first 4 KiB of its files are
-  read;
+  reported once. Discovery still reaches it, unless it is in a skipped folder
+  such as `Library/Caches`, and checks its files as it checks any other file;
 - time: the app stops a scan after 30 seconds, once the file it is reading is
   finished, or when you press **Stop Scan**, and gives one agent record at most
   60 seconds. The command line has no time limit: stop it with Control-C.
 
 These are work limits: a slow filesystem call can still hold a scan. Known
-credential locations are checked before discovery and keep their own limits.
-If results show a work limit, add an omitted subfolder as another root, with
+credential locations are checked before discovery and keep their own limits:
+each known folder is listed to 10,000 entries. If results show the entry or
+depth limit of a root, add an omitted subfolder as another root, with
 `--select` or **Add Folder or Drive…** in Settings: each root gets its own
-budget and depth start. `scan --limits` prints what is not detected.
+budget and depth start. That doesn't help a folder with more than 10,000
+entries: the limit applies whichever root it is reached from, and which
+entries are kept depends on the order the filesystem lists them.
+`scan --limits` prints what is not detected.
 

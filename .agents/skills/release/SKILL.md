@@ -56,8 +56,9 @@ requested, preserving the reusable bases.
 
 When requested, announce the Tart window and run
 `sh .agents/skills/release/walkthrough.sh "<candidate directory>"`.
-It opens the tested ZIP in a fresh guest with decoys. Setup excludes protected
-folders, the login keychain and Notes; clipboard and audio sharing are off.
+It clones `lk-sip-base`, which must be present and stopped, and opens the
+tested ZIP in that clone with decoys. Setup excludes protected folders, the
+login keychain and Notes; clipboard and audio sharing are off.
 
 Check results and inspectors, Settings, the menu bar, closing and reopening,
 login after a reboot, and Spanish (`es` and `es-419`). Record what was checked.

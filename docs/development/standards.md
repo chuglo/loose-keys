@@ -807,6 +807,25 @@ checker does not catch either. [8]
   at run time (`security-tests/synthetic_home.rs`, `security-tests/fixtures.rs`).
   Generated fixture folders are git-ignored. Never commit one.
 
+## Read-only, offline, runs nothing
+
+The scanner reads the most sensitive files a person has, so the ways out of
+the process stay closed or in one place.
+
+- No network code except the update check ([Update check](#update-check)):
+  a connection is a way for a secret to leave the Mac. The scanner gate
+  watches the `loose-keys` command for network attempts, and
+  `network_code_lives_only_in_updates_swift` fails when a known network
+  call appears elsewhere in `src/`, `gui/src/` or `gui/app/`.
+- No process started: files the scanner reads name programs to run, and
+  whoever can write such a file would choose what a scanner that ran it
+  starts. [Tests](#tests) has what the scanner gate checks and what it
+  misses.
+- No write into a scanned folder: Loose Keys never changes the files it
+  scans (`README.md`). The scanner gate fails when a scanned or outside tree
+  changed during a run. Loose Keys writes only a requested export and its
+  own state, as [Files](#files) says.
+
 ## Finding text and remediation
 
 Describe what the matcher established: a header, a field, a known location or
@@ -1071,6 +1090,16 @@ deployment credential remain unverified. No Binance-specific matcher is added.
   `README.md` and `gui/macos/Info.plist`; the release skill's `bump.sh` sets
   all five. The bundle's version keys in `Info.plist` take numbers and dots
   only.
+- A component and its tests keep the language and toolchain they have.
+  Building the app needs only Rust and Apple's command-line tools
+  ([README](../../README.md#build-the-app)), and testers build it that way.
+  Another language or runtime in a component is one more toolchain for
+  everyone who builds or checks it, and in what ships, more code running
+  beside a person's credentials, as an added crate is.
+- macOS only. The file access relies on macOS calls and flags
+  (`SF_DATALESS`, `acl_get_fd_np`), and every check runs on macOS, so a branch
+  for another system would be code no check runs, and a claim for one would
+  be unverified.
 
 ## The window and running the app
 
@@ -1083,10 +1112,10 @@ never writes to Applications. A private temporary staging directory is
 removed on exit; an existing output image is refused. The release candidate
 includes both this image and the existing ZIP in its checksum manifest.
 Candidate verification requires both packages at fixed paths and rejects
-a missing or modified one; candidates from the ZIP-only workflow must be
-rebuilt. The offline script regression checks each package independently.
-The ZIP remains the input to the guest scripts; that does not verify the
-Finder installation flow. See [disk image checks](../testing/local-verification.md#installer-disk-image)
+a missing or modified one. The offline script regression checks each
+package independently. The ZIP remains the input to the guest scripts; that
+does not verify the Finder installation flow.
+See [disk image checks](../testing/local-verification.md#installer-disk-image)
 for verification and remaining unverified behavior. Packaging does not add
 notarization or change signing.
 
@@ -1130,12 +1159,9 @@ urgent, and as an alert it came over what the first scan had just found
 [27, 28]. It stays until answered there or in Settings. The model keeps
 what the last status read that worked said, so a read that fails for a
 moment neither asks nor takes the row away (the model check's `updates:`
-cases). Quit leaves consent unanswered. The guest-only
-`check-update-quit.sh` launches three times on the same synthetic home;
-each time it scans, then quits with the row still unanswered: by a native
-request, the Quit menu item, then Command-Q. It checks that the window has
-the line about checking GitHub once a day and no mention of the IP address,
-which is in [usage](../usage.md), not the question.
+cases). Quit leaves consent unanswered. The IP address GitHub sees is a
+caveat, so it is in [usage](../usage.md), not the question's line
+([the shipped bundle](../testing/guest.md#the-shipped-bundle) has the check).
 
 What Check for Updates… found uses a native `NSAlert` sheet with
 `preventsApplicationTerminationWhenModal` disabled on that alert alone.
@@ -1159,11 +1185,11 @@ is replaced (macOS behaviour).
 
 - `sh gui/build-macos.sh` builds the engine with cargo, links the window to
   it with `swiftc`, and signs the bundle ad hoc, or with the identity named
-  in `LOOSE_KEYS_SIGN_IDENTITY` ([usage](../usage.md)). It has to work with Apple's
-  command-line tools alone, because that is how testers build it
-  (`README.md`). `@State` needs a compiler plug-in that comes only with
-  Xcode ("plugin for module 'SwiftUIMacros' not found"), which is why view
-  state lives in `AppModel`.
+  in `LOOSE_KEYS_SIGN_IDENTITY` ([README](../../README.md#build-the-app)). It
+  has to work with Apple's command-line tools alone, because that is how
+  testers build it (`README.md`). `@State` needs a compiler plug-in that
+  comes only with Xcode ("plugin for module 'SwiftUIMacros' not found"),
+  which is why view state lives in `AppModel`.
 - `AppModel` is `@MainActor` and owns all state. Views read it through
   `@EnvironmentObject`. Engine calls block (`start_scan` until the scan ends),
   so they go through `Engine.request` and `send`, which run off the main
@@ -1177,9 +1203,11 @@ is replaced (macOS behaviour).
   own command read, not a shared copy another call can replace. If a read
   fails while another is already queued, the window keeps what it shows until
   that one answers; otherwise the review list reports the failure and the
-  helper status shows as unavailable. Folder answers are applied in the order
-  they were requested, not the order the engine ran them, so two folder
-  changes that overlap may need another refresh to show the result. Scans and
+  helper status shows as unavailable. Folder answers go through
+  `RequestOrder`, which numbers each request and uses an answer only when no
+  later request's answer has been used, so neither an older list nor an older
+  failure replaces what a newer answer showed. Two folder changes that
+  overlap may need another refresh to show the result. Scans and
   cancelling are not ordered with these reads.
 - While the window is in front, one task refreshes the review list and helper
   status, waiting five seconds after each pair of reads. Leaving the front
@@ -1267,8 +1295,10 @@ is replaced (macOS behaviour).
   run in English whatever the Mac's language.
 - Every toolbar button, and what the inspector and a row's context menu do
   to the chosen item, is also a command in the menu bar (`Commands.swift`),
-  since the toolbar can be hidden. The Item menu acts on one chosen row as the
-  inspector does, never on an arbitrary one of several.
+  since the toolbar can be hidden. The Item menu acts as the inspector does:
+  Show in Finder and Copy Path need exactly one chosen row, never an
+  arbitrary one of several (`chosenFile`), and Set Aside and Move to Worth
+  Reviewing act on every chosen finding.
 - The controls are the system's: `NavigationSplitView`, `Table`, `List`, the
   toolbar, `.inspector`, `Form` in a `Settings` scene, `MenuBarExtra`,
   `NSOpenPanel` and `NSSavePanel`. Add a feature with one of these before
@@ -1431,46 +1461,20 @@ is replaced (macOS behaviour).
 
 Starting the app. Run these commands only inside an approved disposable macOS
 guest containing synthetic data, when the task needs the app. Generate a new
-synthetic home first (`sh security-tests/harness.sh generate-home`, as in
-[local checks](../testing/local-verification.md)):
+synthetic home first (`sh security-tests/harness.sh generate-home "$synth"`,
+as in [local checks](../testing/local-verification.md#a-scan-by-hand)):
 
 ```sh
-open --env HOME="$TMPDIR/synth/home" "target/release/bundle/macos/Loose Keys.app"
+open --env HOME="$synth/home" "target/release/bundle/macos/Loose Keys.app"
 ```
 
 Confirm the process has that synthetic `HOME`. Do not collect a full process
 environment from the host.
 
-Looking at the window without a screen. Two development builds, defined in
-`gui/app/Preview.swift`, save a picture of each page into `SNAPSHOT_DIR` and
-quit. Both run in a disposable macOS guest; the first runs on this Mac only
-when the person explicitly asks, since its window appears on their screen.
-The first build uses sample data and no engine; the second uses the real
-engine and needs `sh gui/build-macos.sh` to have run there:
-
-```sh
-swiftc -parse-as-library -D PREVIEW -target "$(uname -m)-apple-macosx14.0" \
-    gui/app/*.swift -framework AppKit -o "$TMPDIR/window-preview"
-swiftc -parse-as-library -D SNAPSHOTS -target "$(uname -m)-apple-macosx14.0" \
-    -import-objc-header gui/app/Bridge.h gui/app/*.swift \
-    target/release/libloose_keys_gui.a \
-    -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices \
-    -o "$TMPDIR/window-snapshots"
-mkdir -p "$TMPDIR/pictures"
-SNAPSHOT_DIR="$TMPDIR/pictures" "$TMPDIR/window-preview"
-HOME="$TMPDIR/synth/home" SNAPSHOT_DIR="$TMPDIR/pictures" "$TMPDIR/window-snapshots"
-```
-
-For the window in Spanish, copy the built bundle's
-`Contents/Resources/*.lproj` beside `window-preview` and add
-`-AppleLanguages '(es)'` to its command, or `'(es-MX)'` for Latin American
-Spanish. Sample text that no rule has stays English.
-
-`SNAPSHOT_LOOK=light` or `dark` picks the appearance. `SNAPSHOT_ACTIONS=1`
-also sends the decision and export commands through the engine. With
-`CHECK_REPORT=<file>` set instead of `SNAPSHOT_DIR`, either build runs the
-window check and writes its result to that file; on the second build that is
-the check against the real engine.
+Pictures of each page, and the window check against the real engine, come
+from two development builds in `gui/app/Preview.swift`:
+[the macOS guest](../testing/guest.md#pictures-and-the-engine-window-check)
+has how to run them.
 
 ## Sources
 

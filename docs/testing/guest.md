@@ -56,6 +56,12 @@ deletes it, by the name on its `VM:` line, after reporting the result.
 
 ## The shipped bundle
 
+The test driver needs Accessibility, given in the guest's System Settings to
+the process macOS holds responsible for it: Terminal, or the Tart guest agent
+under `tart exec` (unverified). Without it the check stops with
+`Accessibility is not granted to the driver responsible client`. Whether the
+base image already grants it is unverified.
+
 In the guest, from `~/work`, with a new work folder and the screen awake and
 unlocked:
 
@@ -86,6 +92,49 @@ the account's own. The guest's language must be English: the driver finds
 controls, macOS's save panel included, by their English names.
 
 When done, run `sync` in the guest, then `tart stop "$VM"` on this Mac.
+
+## Pictures and the engine window check
+
+Two development builds, defined in `gui/app/Preview.swift`, save a picture of
+each page into `SNAPSHOT_DIR` and quit. The `PREVIEW` build uses sample data
+and no engine; it runs on this Mac only when the person explicitly asks,
+since its window appears on their screen. The `SNAPSHOTS` build uses the real
+engine and needs `sh gui/build-macos.sh` to have run in the guest, which
+needs Rust and Apple's command-line tools there. In the guest, from `~/work`,
+with `TMPDIR` set as in [local checks](local-verification.md) and a new
+synthetic home in `synth`, made as in
+[A scan by hand](local-verification.md#a-scan-by-hand):
+
+```sh
+MINIMUM=$(plutil -extract LSMinimumSystemVersion raw -o - gui/macos/Info.plist)
+swiftc -parse-as-library -D PREVIEW -target "$(uname -m)-apple-macosx$MINIMUM" \
+    gui/app/*.swift -framework AppKit -o "$TMPDIR/window-preview"
+swiftc -parse-as-library -D SNAPSHOTS -target "$(uname -m)-apple-macosx$MINIMUM" \
+    -import-objc-header gui/app/Bridge.h gui/app/*.swift \
+    target/release/libloose_keys_gui.a \
+    -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices \
+    -o "$TMPDIR/window-snapshots"
+mkdir -p "$TMPDIR/pictures"
+SNAPSHOT_DIR="$TMPDIR/pictures" "$TMPDIR/window-preview"
+HOME="$synth/home" SNAPSHOT_DIR="$TMPDIR/pictures" "$TMPDIR/window-snapshots"
+```
+
+`SNAPSHOT_LOOK=light` or `dark` picks the appearance. `SNAPSHOT_ACTIONS=1`
+also sends the decision and export commands through the engine and writes what
+came back to `actions.txt` beside the pictures.
+
+With `CHECK_REPORT=<file>` set instead of `SNAPSHOT_DIR`, either build runs
+the window check and writes its result to that file. On the `SNAPSHOTS`
+build, with its synthetic `HOME`, that is the check against the real engine.
+It needs the screen awake and unlocked, as the sample check does.
+
+For the window in Spanish, copy the built bundle's
+`Contents/Resources/*.lproj` beside `window-preview` and add
+`-AppleLanguages '(es)'` to its command, or `'(es-MX)'` for Latin American
+Spanish. Sample text that no rule has stays English.
+
+Neither build is the shipped bundle, and the `SNAPSHOTS` build checks for no
+update. Nothing compares the pictures with earlier ones.
 
 ## Managed settings
 

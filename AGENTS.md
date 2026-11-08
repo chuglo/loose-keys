@@ -66,10 +66,13 @@ command, what it needs and what it does not cover:
 | `security-tests/`, `schema/` | the whole security harness, self-test included |
 | rules, scan/report code, the engine's scan/export commands, the detection corpus | `sh security-tests/check_detection.sh` |
 | `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, the C interface | the bundle build and its contract test |
-| `gui/app/` | also the window check and the model check |
+| `gui/app/`, `gui/macos/en.lproj/`, `gui/macos/Info.plist` | also the window check and the model check |
 | `gui/package-dmg.sh` | the installer disk image commands |
 | the helper runner or its Settings driver | the native helper check and its negative control, when asked |
 | `gui/src/notifications.m` | the bridge checks |
+| a check script or test under `gui/tests/` | that check (the shipped-bundle and helper ones when asked) |
+| `tests/check-all.sh`, `gui/tests/check-window-guest.sh` | their self-tests, which `cargo test` runs (`security_harness`) |
+| a dependency or `Cargo.lock` | the dependency advisories |
 | a script under `.agents/skills/` | the checks in its skill's `SKILL.md`, or `sh -n` where it has none |
 
 The shipped-bundle and native-helper checks run only in the disposable macOS

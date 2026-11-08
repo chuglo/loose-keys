@@ -18,6 +18,9 @@ helper. Both link the engine, which links the scanner crate in `src/`.
 - `src/monitor.rs`: the helper's schedule, cancellation and the gate for
   manual scans.
 - `src/review.rs`: the review store, shared by the app and the helper.
+- `src/release.rs`: reads GitHub's reply for `check_release` (the window
+  fetches it in `app/Updates.swift`), and holds the test that keeps network
+  code inside `Updates.swift`.
 - `src/notifications.m`: the macOS side: notifications, the helper's and the
   app's login items, sleep and wake, and file events.
   `build.rs` compiles it with `clang` and archives it with `ar`. Subprocesses
@@ -40,8 +43,8 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   no check notices. `en.lproj` has only plural forms. `es-419.lproj` has
   only what differs from `es.lproj`; `build-macos.sh` lays it over
   `es.lproj` in the bundle.
-- `tests/`: the window, model, bundle, notification and power checks, and the
-  guest-only drivers `app-check.swift`, `helper-control.swift`,
+- `tests/`: the window, model, bundle, login, notification and power checks,
+  and the guest-only drivers `app-check.swift`, `helper-control.swift`,
   `install-profile.swift` and `update-quit.swift`.
 
 ## Commands
