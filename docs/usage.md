@@ -140,9 +140,9 @@ organization's list changes.
 Setting an item aside moves it out of Worth Reviewing into **Set Aside**, under
 Findings in the sidebar. You stay in Worth Reviewing. The inspector of a
 set-aside finding shows your reason under **Set Aside**, with **Move to Worth
-Reviewing** to undo it later. **Show Details** explains which copies the reason
-covers and when the finding needs review again. If you keep just one copy of a
-credential, the other copies remain in Worth Reviewing.
+Reviewing** to undo it later. **Show Details** says when the finding needs review
+again. If you keep just one copy of a credential, the other copies remain in
+Worth Reviewing.
 
 Setting an item aside never stops it being found or counted in scan results,
 saved reports or copied summaries. The counts under the window's title still

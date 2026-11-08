@@ -384,8 +384,8 @@
 /* Inspector, Set Aside section: the reason the person gave for setting the finding aside. [Models.swift:287] */
 "Not a password or key" = "No es una contraseña ni una clave";
 
-/* Inspector details for a finding set aside as not a password or key: what the choice covers and when the finding comes back. [Models.swift:289] */
-"Covers every copy of this text. If the text changes, it comes back to Worth Reviewing." = "Se aplica a todas las copias de este texto. Si el texto cambia, vuelve a Para revisar.";
+/* Inspector details for a finding set aside as not a password or key: when the finding comes back. [Models.swift:289] */
+"If this text changes, it comes back to Worth Reviewing." = "Si este texto cambia, vuelve a Para revisar.";
 
 /* Menu item under Set Aside…: why the person sets the finding aside. The password or key found is only used for testing. [Models.swift:292] */
 "Used Only for Testing" = "Solo se usa para pruebas";
@@ -393,8 +393,8 @@
 /* Inspector, Set Aside section: the reason the person gave for setting the finding aside (the password or key). [Models.swift:294] */
 "Used only for testing" = "Solo se usa para pruebas";
 
-/* Inspector details for a finding set aside as a test credential, or as one that no longer works: what the choice covers and when it comes back. [Models.swift:296, Models.swift:303, Models.swift:322] */
-"Covers every copy of this password or key. If you replace it, the new one shows up in Worth Reviewing." = "Se aplica a todas las copias de esta contraseña o clave. Si la sustituyes, la nueva aparecerá en Para revisar.";
+/* Inspector details for a finding set aside as a test credential, or as one that no longer works: when it comes back. [Models.swift:296, Models.swift:303, Models.swift:322] */
+"If you replace this password or key, the new one shows up in Worth Reviewing." = "Si sustituyes esta contraseña o clave, la nueva aparecerá en Para revisar.";
 
 /* Menu item under Set Aside…: why the person sets the finding aside. The password or key found no longer works. [Models.swift:299] */
 "No Longer Works" = "Ya no funciona";
