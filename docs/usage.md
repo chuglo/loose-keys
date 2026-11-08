@@ -355,8 +355,9 @@ helper refused.
   pasted under other text in a note, or written into code, is not. A key with
   a passphrase, and a PGP private-key block, whose armor doesn't show whether
   it has one, are listed, not flagged;
-- unencrypted Bitwarden JSON exports of a personal vault that hold login
-  passwords, and 1Password export files (`.1pux`);
+- unencrypted Bitwarden JSON exports of a personal vault or an organization
+  that hold login passwords, and 1Password export files (`.1pux`, and the
+  `.1pif` of 1Password 7 and earlier, by its first item);
 - Docker registry passwords and tokens stored in `~/.docker/config.json`
   (`auth`, `identitytoken` and `registrytoken` fields); the same fields in
   `~/.config/containers/auth.json` and
@@ -399,13 +400,15 @@ helper refused.
   Terraform state files (`*.tfstate`, `terraform.tfstate*`), passwords in dbt
   and Snowflake client configs, rclone's saved passwords and keys, Terraform
   and Vault tokens, Azure service principal secrets, and the stored sign-ins
-  of rclone, gcloud, the Azure CLI and the AWS CLI (listed, not flagged);
+  of rclone, gcloud, the Azure CLI (including the `~/.azure/accessTokens.json`
+  of older versions) and the AWS CLI (listed, not flagged);
 - package registries and build tools: project and home `.npmrc`, Yarn, pnpm,
   `.pypirc`, Poetry, Cargo, RubyGems, Bundler, Composer, Maven, Gradle, and
   passwords inside URLs in Git and pip config and `~/.curlrc`;
 - other developer files: `.netrc`, `.pgpass`, `.my.cnf`, GnuPG private keys
   (one with a passphrase is listed, not flagged), FileZilla and DBeaver saved
-  passwords, OpenVPN profiles (`.ovpn`) with a private key inside, and the
+  passwords, OpenVPN profiles (`.ovpn`) with a private key inside, WireGuard
+  configs (`.conf`) with a private key in their `[Interface]` section, and the
   stored sign-ins of about thirty deploy and AI command-line tools (listed,
   not flagged);
 - literal secrets in MCP server configs and AI tool settings files, including
@@ -528,11 +531,12 @@ The limits:
   rest is seen;
 - reads: 4 KiB for a header, and 1 MiB for a file read whole, such as a
   config, shell history, note, Terraform state or browser database. A larger
-  one is a `too-large` gap, except that a `.txt`, `.rtf` or `*_tokens.json`
-  file over 1 MiB with nothing matching in its first 4 KiB is passed over, not
-  listed as not checked. A token, Bitwarden export, Google service-account key
-  or kubeconfig is confirmed by reading the whole file, so in a file over
-  1 MiB, one in the first 4 KiB gives that gap, not a finding;
+  one is a `too-large` gap, except that a `.txt`, `.rtf`, `.conf` or
+  `*_tokens.json` file over 1 MiB with nothing matching in its first 4 KiB
+  is passed over, not listed as not checked. A token, Bitwarden export,
+  Google service-account key, kubeconfig or WireGuard config is confirmed by
+  reading the whole file, so in a file over 1 MiB, one in the first 4 KiB
+  gives that gap, not a finding;
 - matches: some rules list only the first 100 matches in a file, and the
   notes rule the first 20 lines. Past its first 100, the service-token rule
   lists only new tokens, up to 100 different ones. When more are omitted, the

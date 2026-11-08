@@ -1,4 +1,5 @@
-//! Browser and password-manager CSV exports, and plaintext Bitwarden JSON exports.
+//! Browser and password-manager CSV exports, plaintext Bitwarden JSON exports
+//! and 1Password export files.
 
 use super::*;
 
@@ -71,15 +72,42 @@ fn is_zip(head: &[u8]) -> bool {
     head.starts_with(b"PK\x03\x04")
 }
 
+/// The export of 1Password 7 and earlier: a folder named *.1pif whose
+/// data.1pif holds one unencrypted JSON item per line. Named by its extension
+/// and recognised by its first item.
+pub const ONEPASSWORD_1PIF_EXPORT: Rule = Rule {
+    id: "export.password-1pif",
+    title: "1Password export file",
+    explanation: "This file has the name and format of a 1Password export (1PIF). These exports hold every item unencrypted. Loose Keys checked only the start of the file.",
+    targets: &[Target::Name("*.1pif")],
+    matcher: Matcher::Head(is_1pif),
+    samples: &[
+        (br#"{"uuid":"FIXTURE","title":"fixture","secureContents":{"fields":[]},"typeName":"webforms.WebForm"}"#, true),
+        (b"***5642bee8-a5ff-11dc-8314-0800200c9a66***\n", false),
+        (br#"{"uuid":"FIXTURE","title":"fixture"}"#, false),
+    ],
+    ..PASSWORD_EXPORT
+};
+
+/// A JSON item as 1Password writes it, with a uuid and its contents or type.
+fn is_1pif(head: &[u8]) -> bool {
+    let has = |key: &[u8]| head.windows(key.len()).any(|w| w == key);
+    let start = head.strip_prefix(b"\xef\xbb\xbf").unwrap_or(head);
+    start.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')
+        && has(b"\"uuid\"")
+        && (has(b"\"secureContents\"") || has(b"\"typeName\""))
+}
+
 fn bitwarden_hits(bytes: &[u8]) -> Hits {
     json_hits(bytes, is_bitwarden_export)
 }
 
-/// Deliberately limited to plaintext personal exports, not arbitrary password
-/// fields, encrypted exports, organization exports or other JSON formats.
+/// Deliberately limited to plaintext exports of a personal vault, which list
+/// folders, or of an organization, which list collections: not arbitrary
+/// password fields, encrypted exports or other JSON formats.
 fn is_bitwarden_export(v: &serde_json::Value) -> bool {
     v["encrypted"].as_bool() == Some(false)
-        && v["folders"].is_array()
+        && (v["folders"].is_array() || v["collections"].is_array())
         && v["items"].as_array().is_some_and(|items| {
             items.iter().any(|item| {
                 item["type"].as_u64() == Some(1)
@@ -166,6 +194,17 @@ mod tests {
         assert!(!is_bitwarden_export(
             &serde_json::json!({"encrypted": false, "folders": [], "items": []})
         ));
+    }
+
+    #[test]
+    fn bitwarden_organization_exports_have_collections_in_place_of_folders() {
+        let organization = serde_json::json!({"encrypted": false, "collections": [], "items": [
+            {"id": "synthetic-id", "name": "fixture", "type": 1, "collectionIds": [], "login": {"password": "synthetic-only"}}
+        ]});
+        assert!(is_bitwarden_export(&organization));
+        let mut value = organization.clone();
+        value["collections"] = serde_json::json!({});
+        assert!(!is_bitwarden_export(&value));
     }
 
     #[test]

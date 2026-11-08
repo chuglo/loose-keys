@@ -608,6 +608,83 @@ fn discovers_structural_plaintext_bitwarden_exports_without_leaking_fields() {
 }
 
 #[test]
+fn wireguard_keys_are_found_in_conf_files_only() {
+    let f = Fixture::new();
+    let key = concat!("c3ludGhldGljLW9ub", "Hktd2lyZWd1YXJkLWZpeHR1cmU", "=");
+    let config = format!("[Interface]\nPrivateKey = {key}\n");
+    for (name, bytes) in [
+        // A byte order mark, a comment after the header, and a header past
+        // the first 4 KiB of comments are still a WireGuard config.
+        (
+            "Downloads/home.conf",
+            format!("\u{feff}[Interface] # home\nPrivateKey = {key}\n").into_bytes(),
+        ),
+        (
+            "Downloads/padded.conf",
+            format!("{}{config}", "# padding\n".repeat(500)).into_bytes(),
+        ),
+        // Tutorials and notes with an example config are not a VPN download.
+        (
+            "dev/proj/README.md",
+            format!("```\n{config}```\n").into_bytes(),
+        ),
+        ("Documents/vpn-notes", config.clone().into_bytes()),
+        // Neither is another program's config, in whatever encoding.
+        ("Downloads/legacy.conf", b"name=caf\xe9\n".to_vec()),
+        (
+            "Documents/tutorial.data",
+            [b"[Interface]\n".as_slice(), b"\xff\n"].concat(),
+        ),
+    ] {
+        let path = f.home().join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+    }
+    let mut large = format!("[Interface]\n{}", " ".repeat(1024 * 1024)).into_bytes();
+    large.push(b'\n');
+    fs::write(f.home().join("Documents/huge-notes.md"), large).unwrap();
+    let r = f.json(&[]);
+    let mut found: Vec<_> = r["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| (x["rule"].as_str().unwrap(), x["path"].as_str().unwrap()))
+        .collect();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            ("app.wireguard.private-key", "~/Downloads/home.conf"),
+            ("app.wireguard.private-key", "~/Downloads/padded.conf"),
+        ]
+    );
+    assert_eq!(r["not_checked"], serde_json::json!([]));
+    assert_eq!(r["status"], "complete");
+    assert!(!r.to_string().contains(key));
+}
+
+#[test]
+fn a_conf_file_over_1_mib_is_a_gap_only_with_an_interface_head() {
+    let f = Fixture::new();
+    let padding = " ".repeat(1024 * 1024);
+    fs::write(f.home().join("other.conf"), format!("name=x\n{padding}\n")).unwrap();
+    fs::write(
+        f.home().join("vpn.conf"),
+        format!("[Interface]\n{padding}\n"),
+    )
+    .unwrap();
+    let r = f.json(&[]);
+    assert_eq!(r["findings"], serde_json::json!([]));
+    let gaps: Vec<_> = r["not_checked"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| (g["path"].as_str().unwrap(), g["reason"].as_str().unwrap()))
+        .collect();
+    assert_eq!(gaps, [("~/vpn.conf", "too-large")]);
+}
+
+#[test]
 fn git_plaintext_credentials_are_detected_without_reporting_accounts() {
     let f = Fixture::new();
     fs::write(f.home().join(".git-credentials"), "# synthetic fixture\nhttps://synthetic-account:synthetic-only@example.invalid\nhttps://user:${TOKEN}@example.invalid\nhttps://user@example.invalid\n").unwrap();

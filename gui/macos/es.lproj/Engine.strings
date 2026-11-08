@@ -33,6 +33,9 @@
 "1Password export file" = "Archivo de exportación de 1Password";
 "This file has the name and format of a 1Password export (1PUX). These exports hold every item unencrypted. Loose Keys didn't read the items inside." = "Este archivo tiene el nombre y el formato de una exportación de 1Password (1PUX). Estas exportaciones contienen todos los elementos sin cifrar. Loose Keys no leyó los elementos que contiene.";
 
+/* rule export.password-1pif */
+"This file has the name and format of a 1Password export (1PIF). These exports hold every item unencrypted. Loose Keys checked only the start of the file." = "Este archivo tiene el nombre y el formato de una exportación de 1Password (1PIF). Estas exportaciones contienen todos los elementos sin cifrar. Loose Keys solo comprobó el principio del archivo.";
+
 /* rule secret.service-token */
 "Service token stored in a file" = "Token de servicio guardado en un archivo";
 "This file has text in the format of a service's access token. Loose Keys didn't check whether it still works or what it can access." = "Este archivo tiene texto con el formato de un token de acceso de un servicio. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
@@ -152,6 +155,10 @@
 "Sign out when you stop using the Azure CLI." = "Cierra sesión cuando dejes de usar la CLI de Azure.";
 "When you no longer need it, sign out and clear the stored tokens: run 'az logout', then 'az account clear'." = "Cuando ya no lo necesites, cierra sesión y borra los tokens guardados: ejecuta 'az logout' y, después, 'az account clear'.";
 "If the file may have been copied, ask your Azure admin to revoke your sessions. 'az logout' clears only this Mac." = "Si el archivo puede haberse copiado, pide a tu administrador de Azure que revoque tus sesiones. 'az logout' solo borra lo que hay en tu Mac.";
+"Older versions of the Azure CLI kept sign-in tokens in this file as plain text. Loose Keys didn't check whether the tokens still work or what they can access." = "Las versiones anteriores de la CLI de Azure guardaban tokens de inicio de sesión sin cifrar en este archivo. Loose Keys no comprobó si los tokens siguen funcionando ni a qué dan acceso.";
+"Delete this file, which current versions of the Azure CLI don't use." = "Elimina este archivo, que las versiones actuales de la CLI de Azure no usan.";
+"Delete this file, then empty the Trash. Current versions of the Azure CLI don't use it." = "Elimina este archivo y luego vacía la papelera. Las versiones actuales de la CLI de Azure no lo usan.";
+"If the file may have been copied, ask your Azure admin to revoke your sessions. Deleting the file clears only this Mac." = "Si el archivo puede haberse copiado, pide a tu administrador de Azure que revoque tus sesiones. Eliminar el archivo solo borra lo que hay en tu Mac.";
 
 /* rule dev.terraform.inline-token */
 "Terraform token stored in a file" = "Token de Terraform guardado en un archivo";
@@ -208,6 +215,8 @@
 "Sign out and clear the stored entries: run 'az logout', then 'az account clear'." = "Cierra sesión y borra las entradas guardadas: ejecuta 'az logout' y, después, 'az account clear'.";
 "In Microsoft Entra, open App registrations, choose the app, and under Certificates & secrets delete this client secret. If something still needs a secret, create a new one." = "En Microsoft Entra, abre Registros de aplicaciones, elige la aplicación y, en Certificados y secretos, elimina este secreto de cliente. Si algo todavía necesita un secreto, crea uno nuevo.";
 "For automation, prefer workload identity federation or a managed identity, which need no stored secret." = "Para la automatización, es preferible la federación de identidades de carga de trabajo o una identidad administrada, que no necesitan ningún secreto guardado.";
+"An older version of the Azure CLI signed in as a service principal and kept its secret in this file as plain text. Loose Keys didn't check whether it still works or what it can access." = "Una versión anterior de la CLI de Azure inició sesión como una entidad de servicio y guardó su secreto sin cifrar en este archivo. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
+"Replace the secret in Microsoft Entra, then delete this file. Deleting the file doesn't revoke the secret." = "Sustituye el secreto en Microsoft Entra y luego elimina este archivo. Eliminar el archivo no revoca el secreto.";
 
 /* rule dev.composer.auth */
 "Tokens stored in Composer's auth file" = "Tokens guardados en el archivo de autenticación de Composer";
@@ -438,6 +447,14 @@
 "If this is a work VPN, tell IT the profile was stored unprotected and ask for it to be reissued." = "Si es una VPN del trabajo, dile al departamento de TI que el perfil estaba guardado sin protección y pide que lo vuelvan a emitir.";
 "Import the new profile into the VPN app, then delete the .ovpn file and empty the Trash. The app keeps what it needs." = "Importa el nuevo perfil en la app de VPN y después elimina el archivo .ovpn y vacía la papelera. La app guarda lo que necesita.";
 "Ask for the VPN to require a second factor, so a copied profile isn't enough on its own." = "Pide que la VPN exija un segundo factor, para que un perfil copiado no baste por sí solo.";
+
+/* rule app.wireguard.private-key */
+"WireGuard config with its private key inside" = "Configuración de WireGuard con su clave privada dentro";
+"This WireGuard config has a private key in its [Interface] section. Loose Keys didn't check whether the VPN server still accepts the key." = "Esta configuración de WireGuard tiene una clave privada en su sección [Interface]. Loose Keys no comprobó si el servidor de VPN sigue aceptando la clave.";
+"WireGuard doesn't ask for a password or code, so a copy of this file can connect as this device until the server stops accepting its key." = "WireGuard no pide ninguna contraseña ni código, así que una copia de este archivo puede conectarse como este dispositivo hasta que el servidor deje de aceptar su clave.";
+"Remove this device in your VPN account, or ask whoever runs the VPN to remove its key. Deleting the file doesn't revoke the key." = "Quita este dispositivo en tu cuenta de VPN o pide a quien administre la VPN que quite su clave. Eliminar el archivo no revoca la clave.";
+"If a VPN service gave you this file, remove the device or key in your account on its website. If it's a work VPN, ask IT to replace the key." = "Si un servicio de VPN te dio este archivo, quita el dispositivo o la clave en tu cuenta de su sitio web. Si es una VPN del trabajo, pide al departamento de TI que sustituya la clave.";
+"If you still use this VPN, import a new config into the WireGuard app. Then delete the .conf file and empty the Trash." = "Si sigues usando esta VPN, importa una configuración nueva en la app WireGuard. Después elimina el archivo .conf y vacía la papelera.";
 
 /* rule export.password-note */
 "Possible passwords in a text note" = "Posibles contraseñas en una nota de texto";

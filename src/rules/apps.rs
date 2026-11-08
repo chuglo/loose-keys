@@ -197,6 +197,85 @@ fn ovpn_hits(bytes: &[u8]) -> Hits {
     )
 }
 
+/// A WireGuard config, as VPN services hand them out: a .conf file with an
+/// [Interface] section.
+pub const WIREGUARD_KEY: Rule = Rule {
+    id: "app.wireguard.private-key",
+    title: "WireGuard config with its private key inside",
+    explanation: "This WireGuard config has a private key in its [Interface] section. Loose Keys didn't check whether the VPN server still accepts the key.",
+    reason: Some("WireGuard doesn't ask for a password or code, so a copy of this file can connect as this device until the server stops accepting its key."),
+    next_step: Some("Remove this device in your VPN account, or ask whoever runs the VPN to remove its key. Deleting the file doesn't revoke the key."),
+    advice: Advice {
+        steps: &[
+            "If a VPN service gave you this file, remove the device or key in your account on its website. If it's a work VPN, ask IT to replace the key.",
+            "If you still use this VPN, import a new config into the WireGuard app. Then delete the .conf file and empty the Trash.",
+        ],
+        link: None,
+    },
+    targets: &[Target::Name("*.conf")],
+    matcher: Matcher::Whole {
+        candidate: wireguard_head,
+        test: wireguard_hits,
+    },
+    samples: &[
+        (concat!("[Interface]\nPrivateKey = c3ludGhldGljLW9ub", "Hktd2lyZWd1YXJkLWZpeHR1cmU", "=\nAddress = 10.0.0.2/32\n").as_bytes(), true),
+        (concat!("# fixture\n[interface]\nprivatekey=c3ludGhldGljLW9ub", "Hktd2lyZWd1YXJkLWZpeHR1cmU", "= # comment\n").as_bytes(), true),
+        (concat!("\u{feff}[Interface] # home\nPrivateKey = c3ludGhldGljLW9ub", "Hktd2lyZWd1YXJkLWZpeHR1cmU", "=\n").as_bytes(), true),
+        (b"[Interface]\nPrivateKey = <your private key>\n", false),
+        (concat!("[Peer]\nPrivateKey = c3ludGhldGljLW9ub", "Hktd2lyZWd1YXJkLWZpeHR1cmU", "=\n").as_bytes(), false),
+        (b"[Interface]\nPrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n", false),
+    ],
+    ..VPN_PROFILE_KEY
+};
+
+/// An [Interface] section header, read as `wireguard_keys` reads one: after
+/// a byte order mark, and without a '#' comment.
+fn wireguard_head(head: &[u8]) -> bool {
+    String::from_utf8_lossy(head).lines().any(|raw| {
+        let line = raw.trim_start_matches('\u{feff}');
+        let line = line.split('#').next().unwrap_or_default().trim();
+        line.eq_ignore_ascii_case("[Interface]")
+    })
+}
+
+/// Another program's .conf, in whatever encoding, is not a WireGuard config,
+/// so only a file with an [Interface] section must be UTF-8.
+fn wireguard_hits(bytes: &[u8]) -> Hits {
+    if !wireguard_head(bytes) {
+        return Ok(Vec::new());
+    }
+    utf8_lines(bytes, wireguard_keys)
+}
+
+/// Each PrivateKey line in an [Interface] section whose value has the form
+/// of a WireGuard key: 32 bytes in base64. WireGuard ignores the case of
+/// names and anything after a '#'.
+fn wireguard_keys(text: &str) -> Vec<Hit> {
+    let mut interface = false;
+    let mut out = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.split('#').next().unwrap_or_default().trim();
+        if line.starts_with('[') {
+            interface = line.eq_ignore_ascii_case("[Interface]");
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim();
+        let key = value.strip_suffix('=').is_some_and(|body| {
+            body.len() == 43
+                && body
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+        });
+        if interface && name.trim().eq_ignore_ascii_case("PrivateKey") && key && plausible(value) {
+            out.push(Hit::line(i + 1).at(text, value));
+        }
+    }
+    out
+}
+
 pub const PASSWORD_NOTE: Rule = Rule {
     id: "export.password-note",
     category: "password-export",

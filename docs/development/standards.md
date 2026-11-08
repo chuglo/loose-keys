@@ -975,11 +975,12 @@ exception, for device-management checks that ask for it. The usage text in
   passed over with no gap when it is over 1 MiB and its rule's `candidate`
   rejects its 4 KiB head (`check_head` in `src/scan/read.rs`). Such names are
   common, and large logs under them would fill `not_checked` and make nearly
-  every scan partial. In practice this is `*.txt`, `*.rtf` and
+  every scan partial. In practice this is `*.txt`, `*.rtf`, `*.conf` and
   `*_tokens.json`: the other patterns read whole (`*.env`, `*.tfvars`,
   `*.ovpn`, `*.tfstate`) are also named by a rule that accepts any head, which
-  reads the file and reports `too-large`. No test covers it. A change updates
-  the reads limit in `docs/usage.md`.
+  reads the file and reports `too-large`. Only `*.conf` is tested:
+  `a_conf_file_over_1_mib_is_a_gap_only_with_an_interface_head` in
+  `tests/scan_scope.rs`. A change updates the reads limit in `docs/usage.md`.
 - Text configs read through `utf8_text` drop a leading byte order mark, and
   the value positions they give stay ones in the file. Maven and FileZilla
   XML that stops inside a tag, comment or declaration is an `unreadable` gap
@@ -993,6 +994,15 @@ exception, for device-management checks that ask for it. The usage text in
   limited subset of TOML: a multiline string, array or table, or a server
   written as one inline table, can hide a header. The field names were not
   checked against Codex's current documentation or code (unverified).
+- The WireGuard, 1PIF and old Azure CLI `accessTokens.json` rules were
+  written from the formats as remembered, not from real files or the tools'
+  code (unverified): how WireGuard parses a config, that a 1PIF export's
+  `uuid`, and its `secureContents` or `typeName`, fall in its first 4 KiB, the field names in
+  `accessTokens.json`, and that Azure CLI 2.30 stopped using it. A `.conf`
+  file's text must be UTF-8 only when it has an `[Interface]` section, so
+  another program's config in another encoding is not a gap.
+  Test: `wireguard_keys_are_found_in_conf_files_only` in
+  `tests/scan_scope.rs`.
 - Matcher caps: 100 matches per file for the line-based configs that go
   through `utf8_lines` and for Maven, FileZilla, AWS and `.netrc`, 100
   assignments per environment or shell file, 100 MCP holders, 100 Codex MCP

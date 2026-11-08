@@ -225,6 +225,52 @@ fn azure_hits(bytes: &[u8]) -> Hits {
     json_hits(bytes, |v| json_has_secret(&v["RefreshToken"], &["secret"]))
 }
 
+/// The Azure CLI before 2.30 kept its tokens in accessTokens.json: one
+/// entry per sign-in. A user's entry holds its refresh and access tokens.
+pub const AZURE_LEGACY_LOGIN: Rule = Rule {
+    explanation: "Older versions of the Azure CLI kept sign-in tokens in this file as plain text. Loose Keys didn't check whether the tokens still work or what they can access.",
+    next_step: Some("Delete this file, which current versions of the Azure CLI don't use."),
+    advice: Advice {
+        steps: &[
+            "Delete this file, then empty the Trash. Current versions of the Azure CLI don't use it.",
+            "If the file may have been copied, ask your Azure admin to revoke your sessions. Deleting the file clears only this Mac.",
+        ],
+        link: None,
+    },
+    targets: &[Target::File(".azure/accessTokens.json")],
+    matcher: Matcher::Whole {
+        candidate: any,
+        test: |bytes| azure_legacy_hits(bytes, false),
+    },
+    samples: &[
+        (br#"[{"tokenType": "Bearer", "userId": "fixture@example.invalid", "refreshToken": "synthetic-only-value"}]"#, true),
+        (br#"[{"servicePrincipalId": "fixture", "servicePrincipalTenant": "fixture", "accessToken": "synthetic-only-value"}]"#, false),
+        (br#"[]"#, false),
+    ],
+    ..AZURE_LOGIN
+};
+
+/// Whether accessTokens.json holds a service principal's secret when
+/// `principals`, or a user's sign-in tokens otherwise.
+pub(super) fn azure_legacy_hits(bytes: &[u8], principals: bool) -> Hits {
+    if principals {
+        json_hits(bytes, |v| azure_legacy_entries(v, true))
+    } else {
+        json_hits(bytes, |v| azure_legacy_entries(v, false))
+    }
+}
+
+fn azure_legacy_entries(v: &serde_json::Value, principals: bool) -> bool {
+    v.as_array().into_iter().flatten().any(|entry| {
+        let principal = entry["servicePrincipalId"].is_string();
+        if principals {
+            principal && json_has_secret(entry, &["accessToken"])
+        } else {
+            !principal && json_has_secret(entry, &["refreshToken", "accessToken"])
+        }
+    })
+}
+
 pub const TERRAFORM_TOKEN: Rule = Rule {
     id: "dev.terraform.inline-token",
     title: "Terraform token stored in a file",

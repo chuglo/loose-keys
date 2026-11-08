@@ -15,6 +15,10 @@
 
 "Import the new profile into the VPN app, then delete the .ovpn file and empty the Trash. The app keeps what it needs." = "Importa el nuevo perfil en la app de VPN y después elimina el archivo .ovpn y vacía el basurero. La app guarda lo que necesita.";
 
+"Delete this file, then empty the Trash. Current versions of the Azure CLI don't use it." = "Elimina este archivo y luego vacía el basurero. Las versiones actuales de la CLI de Azure no lo usan.";
+
+"If you still use this VPN, import a new config into the WireGuard app. Then delete the .conf file and empty the Trash." = "Si sigues usando esta VPN, importa una configuración nueva en la app WireGuard. Después elimina el archivo .conf y vacía el basurero.";
+
 "Delete the file and empty the Trash. Look for other copies in iCloud Drive and other synced folders." = "Elimina el archivo y vacía el basurero. Busca otras copias en iCloud Drive y en otras carpetas sincronizadas.";
 
 "Cannot add that folder: %@." = "No se puede agregar esa carpeta: %@.";

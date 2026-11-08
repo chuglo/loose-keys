@@ -178,6 +178,31 @@ fn azure_principal_hits(bytes: &[u8]) -> Hits {
     json_hits(bytes, |v| json_has_secret(v, &["client_secret"]))
 }
 
+/// What older versions of the Azure CLI kept for a service principal.
+pub const AZURE_LEGACY_PRINCIPAL: Rule = Rule {
+    explanation: "An older version of the Azure CLI signed in as a service principal and kept its secret in this file as plain text. Loose Keys didn't check whether it still works or what it can access.",
+    next_step: Some("Replace the secret in Microsoft Entra, then delete this file. Deleting the file doesn't revoke the secret."),
+    advice: Advice {
+        steps: &[
+            "In Microsoft Entra, open App registrations, choose the app, and under Certificates & secrets delete this client secret. If something still needs a secret, create a new one.",
+            "Delete this file, then empty the Trash. Current versions of the Azure CLI don't use it.",
+            "For automation, prefer workload identity federation or a managed identity, which need no stored secret.",
+        ],
+        link: AZURE_SERVICE_PRINCIPAL.advice.link,
+    },
+    targets: &[Target::File(".azure/accessTokens.json")],
+    matcher: Matcher::Whole {
+        candidate: any,
+        test: |bytes| super::cloud::azure_legacy_hits(bytes, true),
+    },
+    samples: &[
+        (br#"[{"servicePrincipalId": "fixture", "servicePrincipalTenant": "fixture", "accessToken": "synthetic-only-value"}]"#, true),
+        (br#"[{"servicePrincipalId": "fixture", "servicePrincipalTenant": "fixture", "certificateFile": "/path/to/cert.pem"}]"#, false),
+        (br#"[{"userId": "fixture@example.invalid", "refreshToken": "synthetic-only-value"}]"#, false),
+    ],
+    ..AZURE_SERVICE_PRINCIPAL
+};
+
 pub const COMPOSER_AUTH: Rule = Rule {
     id: "dev.composer.auth",
     kind: "review",
