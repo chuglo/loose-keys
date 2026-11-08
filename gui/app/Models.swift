@@ -470,7 +470,7 @@ enum LoginItemsText {
 
 enum FolderScopeText {
     static var exceptions: String {
-        String(localized: "Known sign-in files and files directly in AI tools' folders are still read by full scans. Existing findings are rechecked.",
+        String(localized: "Known sign-in files and files directly in AI tools' folders are still read by full scans.",
                comment: "Explains the exceptions when a folder is left out of discovery. Full scans include manual scans and the helper's full passes.")
     }
 }

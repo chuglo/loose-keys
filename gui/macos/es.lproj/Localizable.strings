@@ -302,7 +302,7 @@
 "Skipped" = "Omitida";
 
 /* Exceptions to excluding a folder from discovery. */
-"Known sign-in files and files directly in AI tools' folders are still read by full scans. Existing findings are rechecked." = "Los archivos de inicio de sesión conocidos y los archivos directamente en las carpetas de herramientas de IA se siguen leyendo en los análisis completos. Los hallazgos existentes se vuelven a comprobar.";
+"Known sign-in files and files directly in AI tools' folders are still read by full scans." = "Los archivos de inicio de sesión conocidos y los archivos directamente en las carpetas de herramientas de IA se siguen leyendo en los análisis completos.";
 
 /* [MainView.swift:21] */
 "Filter" = "Filtrar";
