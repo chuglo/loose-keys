@@ -36,10 +36,11 @@ hostile host. These clones run macOS 26 and boot with SIP off. The
 
 ## Sample window check
 
-Run from the repository root, with `tart` on `PATH`, fewer than two VMs
-running (`tart list`: the check starts its own, and macOS runs at most two),
-and the `ghcr.io/cirruslabs/macos-tahoe-base:latest` image already cached.
-The wrapper does not download it:
+Run from the repository root, with `tart` on `PATH` or Tart's app at
+`~/.local/share/tart/tart.app`, fewer than two VMs running (`tart list`: the
+check starts its own, and macOS runs at most two), and the
+`ghcr.io/cirruslabs/macos-tahoe-base:latest` image already cached. The
+wrapper does not download it:
 
 ```sh
 sh gui/tests/check-window-guest.sh "$TMPDIR/window-check"

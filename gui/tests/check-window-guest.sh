@@ -4,7 +4,8 @@
 set -eu
 umask 077
 [ -f gui/app/Preview.swift ] || { echo 'Run from the repository root.' >&2; exit 1; }
-TART=$(command -v tart) || { echo 'Tart is required.' >&2; exit 1; }
+TART=$(command -v tart || printf '%s' "$HOME/.local/share/tart/tart.app/Contents/MacOS/tart")
+[ -x "$TART" ] || { echo 'Tart is required.' >&2; exit 1; }
 # Infrastructure deadlines are separate from the window check's own assertions.
 ACTIVE_PID=
 bounded() {

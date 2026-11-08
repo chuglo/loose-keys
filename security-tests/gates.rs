@@ -348,5 +348,32 @@ exit 0
             return Err("guest checksum stall did not reach its infrastructure deadline".into());
         }
     }
+    // With no tart on PATH, the wrapper uses Tart's app inside HOME.
+    let home = root.join("home");
+    let fallback = home.join(".local/share/tart/tart.app/Contents/MacOS");
+    private_dir(&fallback)?;
+    fs::copy(&tart, fallback.join("tart")).map_err(|e| e.to_string())?;
+    let output = root.join("out-fallback");
+    let calls = root.join("calls-fallback");
+    let result = run_capture(
+        Command::new("/bin/sh")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/tests/check-window-guest.sh"))
+            .arg(&output)
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+            .env("HOME", &home)
+            .env("CALLS", &calls)
+            .env("MODE", "0")
+            .env("OUT", &output),
+        &root,
+        Duration::from_secs(55),
+    )?;
+    let calls = fs::read_to_string(calls).unwrap_or_default();
+    if result.status != Some(0) || !calls.lines().any(|line| line.starts_with("clone ")) {
+        return Err(format!(
+            "guest wrapper did not use Tart's app in HOME: {:?}",
+            result.status
+        ));
+    }
     Ok(())
 }
