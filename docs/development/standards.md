@@ -371,10 +371,35 @@ The threats are a local user racing a root run with links, and hostile files
   a file and follows a link. A path whose lookup fails, such as one with
   nothing there or in a folder that cannot be opened, is taken, as nothing at
   it can be read. Test:
-  `an_excluded_path_that_is_not_a_folder_is_refused`. Not covered: a path
-  through a link in a folder above it, such as `~/docs-link/notes`, names a
-  folder the walk does not reach by that path, so the folder is read where
-  the link leads while the report lists the path as left out.
+  `an_excluded_path_that_is_not_a_folder_is_refused`.
+- The walk compares paths byte for byte and reaches no folder through a
+  link, but a disk that ignores case and Unicode normalisation takes
+  `~/documents` for `~/Documents`. So `scan::on_disk` looks up each folder
+  on the way with `symlink_metadata`: `--exclude` refuses a path with a link
+  in it, such as `~/docs-link/notes`, and both `--exclude` and `--select`
+  keep the part that can be looked up as `fs::canonicalize` spells it, which
+  with no link in it changes only the spelling. `realpath` keeps a path
+  under `/System/Volumes/Data`, which reaches the same folders with no link
+  on the way, so the longest part that is the home folder or a folder above
+  it, compared by device and inode, is then spelled as the home is, and the
+  home-folder guard sees it. `/System/Volumes/Data` and the folders above it
+  are none of the home's folders by inode, yet a walk from one reaches the
+  home, so `skipped_folder` also refuses a folder that the home's spelling
+  under `/System/Volumes/Data` begins with, when that spelling has the
+  home's device and inode. Without this, an excluded folder would be read
+  while the report listed it as left out, and a selected one would be walked
+  a second time. Tests: `an_excluded_folder_is_the_one_the_scan_would_read`,
+  `a_folder_selected_in_another_spelling_is_scanned_once`,
+  `a_folder_named_through_the_data_volume_is_the_one_the_scan_reads`. Not
+  covered: a link put on the way after the lookup, another name for a folder
+  that the home folder's own path does not pass through, and places added or
+  folders skipped in the app, which come from the folder panel or the scan's
+  own report. `--select` takes `/System/Volumes/Data` or a folder above it,
+  as it takes `/`, and the walk from there can reach the home again under
+  `/System/Volumes/Data`, where a folder excluded by its usual path is read.
+  `--exclude` also takes macOS's lookup prefixes themselves, such as
+  `/.nofollow/` or `/.resolve/1/`, which name `/`, and lists them as left
+  out while the home is read.
 - An export's folder is not a scanned file. Run as the person, `write_export`
   resolves it with `fs::canonicalize`, through links and `..` as any program
   writing to that path would, and opens the real folder without following
@@ -383,10 +408,13 @@ The threats are a local user racing a root run with links, and hostile files
   overwritten. A link someone else put on the way can only lead the export
   into a folder the person can write to, as a new file of theirs. So
   `--export /tmp/r.json` (on macOS `/tmp` is a link), a path through a linked
-  home and `../r.json` all work. As root the folder is still walked to from
-  `/` without following links, and a link or `..` on its path is refused by
+  home and `../r.json` all work. A path as given that does not end in its
+  file name, as `out/r.json/` and `out/r.json/.` do not, is refused rather
+  than created as `r.json`. As root the folder is still walked to from `/`
+  without following links, and a link or `..` on its path is refused by
   name. Tests:
-  `export_reaches_its_folder_through_links_but_never_follows_its_name` in
+  `export_reaches_its_folder_through_links_but_never_follows_its_name` and
+  `an_export_path_ending_in_a_slash_is_refused` in
   `tests/scan_scope.rs` and
   `as_root_a_link_or_dot_dot_before_the_export_folder_is_refused_by_name` in
   `src/fsutil.rs`, which passes `root` to `write_export`: no test runs as

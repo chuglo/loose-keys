@@ -29,9 +29,10 @@ Loose Keys works offline, changes nothing and never shows secret values.
                   letters, digits, '.', '_', ':' or '-'.
   --select DIR    also scan this folder or mounted drive (repeatable)
   --exclude DIR   skip this folder (repeatable, up to 32): not the home folder or
-                  a folder above it, and not a file or a link. The report always
-                  lists it, and it does not make the scan partial. Known sign-in
-                  files such as ~/.aws/credentials are still checked.
+                  a folder above it, and not a file, a link or a path through
+                  one. The report always lists it, and it does not make the scan
+                  partial. Known sign-in files such as ~/.aws/credentials are
+                  still checked.
   --limits        also print what this scan cannot detect, after the summary
                   (--export - and --feedback - print no summary)
   --fail-on-open LEVEL
@@ -50,22 +51,29 @@ findings at or above that level are open. 2 takes precedence over 3, and 3 over 
 fn main() -> ExitCode {
     let mut args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 1 && args[0] == "--version" {
-        println!("loose-keys {}", env!("CARGO_PKG_VERSION"));
-        return ExitCode::SUCCESS;
+        return print(&format!("loose-keys {}\n", env!("CARGO_PKG_VERSION")));
     }
     if args.len() == 1 && args[0] == "--list-rules" {
-        print!("{}", rules::rule_list());
-        return ExitCode::SUCCESS;
+        return print(&rules::rule_list());
     }
     if args.is_empty()
         || (args.len() == 1 && (args[0] == "--help" || args[0] == "-h"))
         || (args.len() == 2 && args[0] == "scan" && (args[1] == "--help" || args[1] == "-h"))
     {
-        println!("{}", USAGE);
-        return ExitCode::SUCCESS;
+        return print(&format!("{}\n", USAGE));
     }
-    let limits = args.iter().any(|a| a == "--limits");
-    args.retain(|a| a != "--limits");
+    // `--limits` stands alone, before the command or between pairs: as the
+    // value of another option, it is that value.
+    let mut limits = false;
+    let mut at = 0;
+    while at < args.len() {
+        if args[at] == "--limits" {
+            limits = true;
+            args.remove(at);
+        } else {
+            at += if at == 0 { 1 } else { 2 };
+        }
+    }
     if args.first().is_none_or(|a| a != "scan") || args.len() % 2 == 0 {
         eprintln!("{}", USAGE);
         return ExitCode::from(2);
@@ -92,20 +100,18 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             }
-            Some("--exclude") if !pair[1].is_empty() => {
-                if excluded.len() == 32 {
+            Some("--exclude") if !pair[1].is_empty() => match excluded_folder(&pair[1], &home) {
+                Ok(path) if excluded.contains(&path) => {}
+                Ok(_) if excluded.len() == 32 => {
                     eprintln!("error: --exclude takes at most 32 folders");
                     return ExitCode::from(2);
                 }
-                match excluded_folder(&pair[1], &home) {
-                    Ok(path) if !excluded.contains(&path) => excluded.push(path),
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return ExitCode::from(2);
-                    }
+                Ok(path) => excluded.push(path),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::from(2);
                 }
-            }
+            },
             Some("--export" | "--feedback") if export.is_none() && !pair[1].is_empty() => {
                 feedback = pair[0] == "--feedback";
                 export = Some(PathBuf::from(&pair[1]));
@@ -127,7 +133,12 @@ fn main() -> ExitCode {
                 device = Some(name.to_owned());
             }
             Some("--select") if !pair[1].is_empty() => {
-                match scan::selected_root(scan::named_folder(&pair[1], &home).as_os_str()) {
+                // Spelled as on disk, so a folder named twice is scanned once.
+                // One reached through a link stays as given: the scan lists
+                // it as not checked.
+                match scan::selected_root(scan::named_folder(&pair[1], &home).as_os_str())
+                    .map(|path| scan::on_disk(&path, &home).unwrap_or(path))
+                {
                     Ok(path) if !selected.contains(&path) => selected.push(path),
                     Ok(_) => {}
                     Err(e) => {
@@ -177,7 +188,11 @@ fn main() -> ExitCode {
     // what a person has set aside in the app.
     let open = fail_on.is_some_and(|level| {
         r.findings.iter().any(|f| {
-            f.kind == "review" && LEVELS.iter().position(|l| *l == f.severity) <= Some(level)
+            f.kind == "review"
+                && LEVELS
+                    .iter()
+                    .position(|l| *l == f.severity)
+                    .is_some_and(|at| at <= level)
         })
     });
     ExitCode::from(match (open, r.status) {
@@ -195,23 +210,36 @@ fn output(text: &str) -> std::io::Result<()> {
     out.flush()
 }
 
-/// A folder `--exclude` names. Discovery passes over folders only, so a
-/// file or a link there would be read while the report said it was left
-/// out. A path whose lookup fails is taken: nothing at it can be read.
-/// The lookup is made without a trailing slash: with one, it fails on a
-/// file and follows a link.
+/// Write text that is all a command prints, as `output` does for a scan.
+fn print(text: &str) -> ExitCode {
+    match output(text) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: could not write the output: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// A folder `--exclude` names. Discovery passes over folders only, and
+/// compares paths as the disk spells them, so a file or a link there, a
+/// folder reached through a link, or one in another spelling would be read
+/// while the report said it was left out. A path whose lookup fails is
+/// taken: nothing at it can be read. The lookup is made without a trailing
+/// slash: with one, it fails on a file and follows a link.
 fn excluded_folder(arg: &OsStr, home: &Path) -> Result<PathBuf, &'static str> {
     let named = scan::named_folder(arg, home);
     if named.components().any(|c| c == Component::ParentDir) {
         return Err("--exclude takes a path without '..'");
     }
-    let path: PathBuf = scan::skipped_folder(named.as_os_str(), home)?
+    let path: PathBuf = scan::selected_root(named.as_os_str())?
         .components()
         .collect();
-    match std::fs::symlink_metadata(&path) {
-        Ok(meta) if !meta.is_dir() => Err("--exclude takes a folder, not a file or a link"),
-        _ => Ok(path),
+    if std::fs::symlink_metadata(&path).is_ok_and(|meta| !meta.is_dir()) {
+        return Err("--exclude takes a folder, not a file or a link");
     }
+    let path = scan::on_disk(&path, home).ok_or("--exclude takes a path with no link in it")?;
+    scan::skipped_folder(path.as_os_str(), home)
 }
 
 /// Risk levels, most serious first.

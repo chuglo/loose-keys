@@ -506,9 +506,12 @@ still skipped below it. Relative paths are accepted, but a path containing `..`
 is refused, and a folder reached through a link is listed as not checked: give
 its real path. Repeat `--exclude DIR` to leave out up to 32 folders. It takes
 a path relative to the current folder too, refuses one containing `..`, the
-home folder or a folder above it, and a file or a link, and accepts a path
-it cannot look up, such as a folder that is not there or one inside a folder
-you cannot open. Leaving a folder out does not make the scan partial, and a
+home folder or a folder above it (also as spelled under
+`/System/Volumes/Data`), a file, a link and a path through a link,
+and accepts a path it cannot look up, such as a folder that is not there or
+one inside a folder you cannot open. A folder given in another case, such as
+`~/documents` for `~/Documents`, is taken as the disk spells it, for
+`--select` too. Leaving a folder out does not make the scan partial, and a
 folder selected inside it, or selected as well, is left out with it: the JSON
 report still lists it in `roots`, and the text summary leaves it out. A scan
 still reads known sign-in files in a folder left out, such as

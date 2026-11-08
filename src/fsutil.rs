@@ -361,6 +361,15 @@ pub fn checked_or_absent(path: &Path, mount: Option<u32>, home: &Path) -> bool {
 /// As root, the destination directory must be root-owned and not group/other-writable,
 /// by its mode or its access list.
 pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
+    // `out/r.json/` and `out/r.json/.` name a folder, yet its last name would
+    // be created as a file. Checked as given: `absolute` drops a final '.'.
+    let ends_in_name = |last| match last {
+        Component::Normal(name) => path.as_os_str().as_bytes().ends_with(name.as_bytes()),
+        _ => false,
+    };
+    if !path.components().next_back().is_some_and(ends_in_name) {
+        return Err("export needs a filename".into());
+    }
     let path = std::path::absolute(path).map_err(|e| e.to_string())?;
     let dir = path.parent().ok_or("export needs a filename")?;
     // Run as the person, the folder is where its path leads, through links

@@ -4,6 +4,7 @@
 use super::EXCLUDED;
 use crate::rules::{Target, RULES};
 use std::ffi::OsStr;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
 pub fn is_root() -> bool {
@@ -48,6 +49,66 @@ pub fn selected_root(path: &OsStr) -> Result<PathBuf, &'static str> {
         return Err("selected paths must not contain '..'");
     }
     Ok(path)
+}
+
+/// An absolute path as the disk spells it, or `None` if a folder on the way
+/// or the path itself is a link. Scans compare paths byte for byte and
+/// follow no link, but a volume that ignores case and Unicode normalisation,
+/// as macOS's default does, takes `~/documents` for `~/Documents`. Only the
+/// part that can be looked up is spelled again: nothing past it can be read.
+/// The part that is the home folder or a folder above it is spelled as
+/// `home` is, as `home_spelling` says.
+pub fn on_disk(path: &Path, home: &Path) -> Option<PathBuf> {
+    let parts: Vec<Component> = path.components().collect();
+    let mut found = 0;
+    for n in 1..=parts.len() {
+        let prefix: PathBuf = parts[..n].iter().collect();
+        match std::fs::symlink_metadata(&prefix) {
+            Ok(meta) if meta.is_symlink() => return None,
+            Ok(_) => found = n,
+            Err(_) => break,
+        }
+    }
+    let there: PathBuf = parts[..found].iter().collect();
+    // With no link in it, `realpath` changes only the spelling.
+    let mut spelled = std::fs::canonicalize(&there).unwrap_or(there);
+    spelled.extend(&parts[found..]);
+    Some(home_spelling(spelled, home))
+}
+
+/// `path` with its longest leading part that is the home folder or a folder
+/// above it, compared by device and inode, spelled as `home` is. macOS
+/// reaches each folder of its data volume under `/System/Volumes/Data` as
+/// well, with no link on the way, and `realpath` keeps either spelling.
+fn home_spelling(path: PathBuf, home: &Path) -> PathBuf {
+    let homes: Vec<_> = home
+        .ancestors()
+        .filter_map(|at| Some((at, id(at)?)))
+        .collect();
+    for at in path.ancestors() {
+        let Some(found) = id(at) else { continue };
+        if let Some((spelled, _)) = homes.iter().find(|(_, h)| *h == found) {
+            let mut respelled = spelled.to_path_buf();
+            respelled.extend(path.strip_prefix(at).unwrap_or(Path::new("")));
+            return respelled;
+        }
+    }
+    path
+}
+
+/// The device and inode of what `p` names, without following a link.
+fn id(p: &Path) -> Option<(u64, u64)> {
+    std::fs::symlink_metadata(p)
+        .ok()
+        .map(|meta| (meta.dev(), meta.ino()))
+}
+
+/// The home folder spelled under `/System/Volumes/Data`, where that is the
+/// same folder. The data volume's root and the folders above it are none of
+/// the home's folders by inode, yet a walk from one reaches the home.
+fn data_volume_home(home: &Path) -> Option<PathBuf> {
+    let alias = Path::new("/System/Volumes/Data").join(home.strip_prefix("/").ok()?);
+    (id(&alias)? == id(home)?).then_some(alias)
 }
 
 /// What to check for a change at `p`. Inside a folder that discovery passes
@@ -96,10 +157,10 @@ pub fn change_at(home: &Path, p: &Path) -> PathBuf {
 }
 
 /// A folder the person asks not to be checked: absolute, with no "..", and
-/// never the home folder or a folder above it.
+/// never the home folder or a folder above it, in either spelling.
 pub fn skipped_folder(path: &OsStr, home: &Path) -> Result<PathBuf, &'static str> {
     let path = selected_root(path)?;
-    if home.starts_with(&path) {
+    if home.starts_with(&path) || data_volume_home(home).is_some_and(|h| h.starts_with(&path)) {
         return Err("the home folder, or a folder above it, cannot be skipped");
     }
     Ok(path)

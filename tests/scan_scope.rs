@@ -1325,22 +1325,14 @@ fn a_deep_path_fits_the_report_format() {
 /// usage does not list.
 #[test]
 fn output_no_one_reads_is_an_error() {
-    use std::os::fd::{FromRawFd, OwnedFd};
     let f = Fixture::new();
     f.csv(&f.home().join("export.csv"));
     for args in [&[][..], &["--export", "-"], &["--feedback", "-"]] {
-        let mut ends = [0; 2];
-        // SAFETY: `ends` has room for the two descriptors pipe writes.
-        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
-        // SAFETY: pipe returned two new descriptors that nothing else owns.
-        let (read, write) =
-            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-        drop(read);
         let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
             .env("HOME", f.home())
             .arg("scan")
             .args(args)
-            .stdout(std::process::Stdio::from(write))
+            .stdout(reader_gone())
             .output()
             .unwrap();
         let said = String::from_utf8_lossy(&out.stderr);
@@ -1350,6 +1342,43 @@ fn output_no_one_reads_is_an_error() {
             "{said}"
         );
     }
+}
+
+/// The help, the version and the rule list are output too.
+#[test]
+fn output_no_one_reads_is_an_error_without_a_scan() {
+    for args in [
+        &[][..],
+        &["--help"],
+        &["scan", "-h"],
+        &["--version"],
+        &["--list-rules"],
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env_remove("HOME")
+            .args(args)
+            .stdout(reader_gone())
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {said}");
+        assert!(
+            said.contains("error: ") && !said.contains("panicked"),
+            "{said}"
+        );
+    }
+}
+
+/// The writing end of a pipe whose reader has gone.
+fn reader_gone() -> std::process::Stdio {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let mut ends = [0; 2];
+    // SAFETY: `ends` has room for the two descriptors pipe writes.
+    assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+    // SAFETY: pipe returned two new descriptors that nothing else owns.
+    let (read, write) = unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+    drop(read);
+    std::process::Stdio::from(write)
 }
 
 #[test]
@@ -2084,6 +2113,192 @@ fn folders_named_through_a_linked_home_are_the_ones_in_it() {
     ] {
         let out = run(&["--exclude", home]);
         assert_eq!(out.status.code(), Some(2), "{out:?}");
+    }
+}
+
+/// The scan compares folders byte for byte and does not follow links, so a
+/// folder given to --exclude through a link, or spelled as the disk does
+/// not spell it, was read in full while the report said it was left out.
+#[test]
+fn an_excluded_folder_is_the_one_the_scan_would_read() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    f.csv(&f.home().join("real/sub/export.csv"));
+    symlink(f.home().join("real"), f.home().join("link")).unwrap();
+    let out = f.run(&["--exclude", f.home().join("link/sub").to_str().unwrap()]);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{said}");
+    assert_eq!(said, "error: --exclude takes a path with no link in it\n");
+
+    // A volume that ignores case and Unicode normalisation, as macOS's
+    // default does, names the folder on disk.
+    let nfc = "Caf\u{e9}";
+    let nfd = "Cafe\u{301}";
+    f.csv(&f.home().join("Documents/export.csv"));
+    f.csv(&f.home().join(nfc).join("export.csv"));
+    if fs::symlink_metadata(f.home().join("documents")).is_err()
+        || fs::symlink_metadata(f.home().join(nfd)).is_err()
+    {
+        return;
+    }
+    let r = f.json(&[
+        "--exclude",
+        f.home().join("documents").to_str().unwrap(),
+        "--exclude",
+        f.home().join(nfd).to_str().unwrap(),
+        "--exclude",
+        f.home().join("documents/later").to_str().unwrap(),
+    ]);
+    assert_eq!(r["findings"].as_array().unwrap().len(), 1, "{r}");
+    assert_eq!(r["findings"][0]["path"], "~/real/sub/export.csv");
+    assert_eq!(
+        r["coverage"]["excluded_by_user"],
+        serde_json::json!(["~/Documents", format!("~/{nfc}"), "~/Documents/later"])
+    );
+    // The home folder in another spelling is still the home folder.
+    let home = f.home().to_str().unwrap().to_uppercase();
+    for path in [home.clone(), format!("{home}/")] {
+        let out = f.run(&["--exclude", &path]);
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{path}: {said}");
+        assert_eq!(said, HOME_REFUSED, "{path}");
+    }
+}
+
+const HOME_REFUSED: &str = "error: the home folder, or a folder above it, cannot be skipped\n";
+
+/// macOS reaches the same folder through `/System/Volumes/Data` as well,
+/// with no link on the way, and `realpath` keeps whichever spelling it is
+/// given. The fixture is under `/private`, which is spelled both ways.
+#[test]
+fn a_folder_named_through_the_data_volume_is_the_one_the_scan_reads() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    f.csv(&f.home().join("Documents/deep/export.csv"));
+    let alias = |path: &Path| {
+        let mut alias = PathBuf::from("/System/Volumes/Data");
+        alias.extend(path.strip_prefix("/").unwrap());
+        alias
+    };
+    let same = |a: &Path, b: &Path| match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
+        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+        _ => false,
+    };
+    let home = alias(&f.home());
+    if home == f.home() || !same(&home, &f.home()) {
+        return;
+    }
+    let r = f.json(&["--exclude", home.join("Documents").to_str().unwrap()]);
+    assert_eq!(r["findings"].as_array().unwrap().len(), 0, "{r}");
+    assert_eq!(
+        r["coverage"]["excluded_by_user"],
+        serde_json::json!(["~/Documents"])
+    );
+    // The data volume's own root and the folders above it hold the home
+    // under that spelling, though none is a folder above it by inode.
+    let above = ["/System", "/System/Volumes", "/System/Volumes/Data"].map(PathBuf::from);
+    for path in [home.clone(), alias(&f.0)].into_iter().chain(above) {
+        let out = f.run(&["--exclude", path.to_str().unwrap()]);
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{path:?}: {said}");
+        assert_eq!(said, HOME_REFUSED, "{path:?}");
+    }
+    let r = f.json(&["--select", home.join("Documents").to_str().unwrap()]);
+    assert_eq!(r["findings"].as_array().unwrap().len(), 1, "{r}");
+    assert_eq!(
+        r["coverage"]["roots"],
+        serde_json::json!(["~/", "~/Documents"])
+    );
+}
+
+/// A folder selected in another spelling was walked again, and every file
+/// in it listed twice.
+#[test]
+fn a_folder_selected_in_another_spelling_is_scanned_once() {
+    let f = Fixture::new();
+    f.csv(&f.home().join("Documents/export.csv"));
+    if fs::symlink_metadata(f.home().join("documents")).is_err() {
+        return;
+    }
+    let r = f.json(&[
+        "--select",
+        f.home().join("documents").to_str().unwrap(),
+        "--select",
+        f.home().join("Documents").to_str().unwrap(),
+    ]);
+    assert_eq!(r["findings"].as_array().unwrap().len(), 1, "{r}");
+    assert_eq!(
+        r["coverage"]["roots"],
+        serde_json::json!(["~/", "~/Documents"])
+    );
+}
+
+/// The limit is on folders, so a repeated one is not counted again.
+#[test]
+fn a_repeated_excluded_folder_does_not_count_toward_the_limit() {
+    let f = Fixture::new();
+    let mut args = Vec::new();
+    for n in 0..32 {
+        args.push("--exclude".to_owned());
+        args.push(
+            f.home()
+                .join(format!("skip-{n}"))
+                .to_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    args.extend(["--exclude".to_owned(), args[1].clone()]);
+    let one_more = f.home().join("skip-32");
+    let mut args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = f.run(&args);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    args.extend(["--exclude", one_more.to_str().unwrap()]);
+    let out = f.run(&args);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+}
+
+/// --limits stands alone: as the value of another option, it is that value.
+#[test]
+fn limits_given_as_an_options_value_is_that_value() {
+    let f = Fixture::new();
+    f.csv(&f.home().join("--limits/export.csv"));
+    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+        .env("HOME", f.home())
+        .current_dir(f.home())
+        .args(["scan", "--select", "--limits", "--export", "-"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let r: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        r["coverage"]["roots"],
+        serde_json::json!(["~/", "~/--limits"])
+    );
+    let out = f.run(&["--select", "--limits", f.home().to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    // Before the command, as anywhere else on its own, it still asks for the limits.
+    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+        .env("HOME", f.home())
+        .args(["--limits", "scan"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("No archives"));
+}
+
+/// A name ending in a slash is a folder's, so it was no file to create.
+#[test]
+fn an_export_path_ending_in_a_slash_is_refused() {
+    let f = Fixture::new();
+    fs::create_dir(f.0.join("out")).unwrap();
+    for option in ["--export", "--feedback"] {
+        for end in ["/", "/.", "/./"] {
+            let path = format!("{}{end}", f.0.join("out/r.json").to_str().unwrap());
+            let out = f.run(&[option, &path]);
+            assert_eq!(out.status.code(), Some(2), "{path}: {out:?}");
+            assert!(fs::symlink_metadata(f.0.join("out/r.json")).is_err());
+        }
     }
 }
 
