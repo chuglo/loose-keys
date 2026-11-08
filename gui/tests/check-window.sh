@@ -6,10 +6,17 @@
 # screen for about a minute. It does not come to the front; leave it alone.
 # It needs the screen awake: with the screen locked or its saver on it stops
 # with status 2 and one line saying so, having checked nothing.
+# Guest only (gui/tests/check-window-guest.sh runs it there), unless
+# LOOSE_KEYS_WINDOW_CHECK=host is set for a host run someone asked for.
 set -eu
 if [ ! -f gui/app/Preview.swift ]; then
     printf '%s\n' 'Run this script from the repository root.' >&2
     exit 1
+fi
+if [ "${LOOSE_KEYS_WINDOW_CHECK:-}" != host ] &&
+   ! /usr/sbin/sysctl -n hw.model | /usr/bin/grep -q '^VirtualMac'; then
+    printf '%s\n' 'This puts a window on this Mac. Run gui/tests/check-window-guest.sh, or set LOOSE_KEYS_WINDOW_CHECK=host for a host run someone asked for.' >&2
+    exit 2
 fi
 OUT=${1:-target/window-check}
 mkdir -p "$OUT"

@@ -23,12 +23,16 @@ verify_candidate() {
 }
 
 # Stop only the clone created by this invocation, even if startup or unpacking
-# fails. A failed stop must not be reported as successful cleanup.
+# fails, and delete one whose cloning did not finish. A failed stop must not
+# be reported as successful cleanup.
 OWNED_VM=
+CLONING_VM=
 cleanup_guest() {
     code=$?
     trap - EXIT HUP INT TERM
-    if [ -n "$OWNED_VM" ]; then
+    if [ -n "$CLONING_VM" ]; then
+        discard_clone || code=1
+    elif [ -n "$OWNED_VM" ]; then
         stop_guest || code=1
     fi
     exit "$code"
@@ -41,12 +45,40 @@ own_guest() {
     trap 'exit 143' TERM
 }
 
+# Clone $1 as $VM, a name no VM has yet, so that an unfinished clone of that
+# name is this invocation's to delete.
+clone_guest() {
+    listing=$("$TART" list) || fail 'tart list failed'
+    if printf '%s\n' "$listing" | awk -v vm="$VM" '$2 == vm { found = 1 } END { exit !found }'; then
+        fail "a VM named $VM already exists"
+    fi
+    CLONING_VM=$VM
+    own_guest
+    "$TART" clone "$1" "$VM" > "$WORK/clone.log" 2>&1 || fail "clone; see $WORK/clone.log"
+    CLONING_VM=
+}
+
+# It never ran, so it holds nothing worth keeping.
+discard_clone() {
+    listing=$("$TART" list) || {
+        printf 'FAILED: could not list VMs to delete the unfinished clone %s; inspect it\n' "$VM" >&2
+        return 1
+    }
+    if printf '%s\n' "$listing" | awk -v vm="$VM" '$2 == vm { found = 1 } END { exit !found }'; then
+        if ! "$TART" delete "$VM" > /dev/null 2>&1; then
+            printf 'FAILED: could not delete the unfinished clone %s; inspect it\n' "$VM" >&2
+            return 1
+        fi
+    fi
+    CLONING_VM=
+    OWNED_VM=
+}
+
 # Clone $1 as $VM, start it headless with the candidate's share folder, and
 # wait until it answers.
 start_guest() {
     step "Starting a new VM, $VM, from $1"
-    "$TART" clone "$1" "$VM" > "$WORK/clone.log" 2>&1 || fail "clone; see $WORK/clone.log"
-    own_guest
+    clone_guest "$1"
     nohup "$TART" run "$VM" --no-graphics --dir="share:$CAND/share:ro" > "$WORK/run.log" 2>&1 &
     GUEST_PID=$!
     tries=0

@@ -22,7 +22,10 @@ interactive desktop agent or VNC.
    with Tart on `PATH`. It runs `tests/check-all.sh` on the exact commit,
    then `candidate.sh` from it, prints every exit status and the candidate,
    and stops at a failed check or a changed tree. They do not run side by
-   side: the release build's load made a timed check fail. Record the
+   side: the release build's load made a timed check fail. It then writes
+   `check-all` (the commit and `passed`) and `check-all.log` into the
+   candidate; `publish.sh` refuses a candidate without that record, so a
+   candidate from `candidate.sh` alone cannot be published. Record the
    commit, each exit status, and any failed runs. `check-all.sh` skips the
    window check and the harness self-test when their files match
    `origin/main`.
@@ -46,8 +49,8 @@ sh .agents/skills/release/helper-check.sh "<candidate directory>"
 The helper check needs a stopped, pristine `lk-sip-base` with SIP and
 Gatekeeper on. Setup and permission rules are in `docs/testing/guest.md`.
 
-The scripts reject changed candidate files, check transfers and stop their
-clones. Logs and helper `results.json` files stay in the candidate directory.
+The scripts reject changed candidate files, check transfers, stop their
+clones and delete a clone whose cloning did not finish. Logs and helper `results.json` files stay in the candidate directory.
 Report each helper case and exit status. A negative control must fail at its
 intended assertion. Failed cleanup leaves the helper's state unknown: stop
 that guest and use a fresh clone. Keep failed logs. Delete test VMs when
@@ -99,7 +102,10 @@ sh .agents/skills/release/publish.sh "<candidate directory>" "<notes file>"
 ```
 
 In this order, stopping at the first failure, it rechecks the candidate's
-`SHA256SUMS` and the notes' checksums; requires immutable releases (if they
+`SHA256SUMS`, its record of a passing `check-all.sh` on the commit, and the
+notes' checksums; checks with `git verify-commit` that the key in
+`user.signingkey` (with `gpg.format` `ssh`) signed the commit; requires
+immutable releases (if they
 are off, stop and ask the person directing the session, and leave repository
 settings to them); requires that the tested commit fast-forwards main and
 that no `v0.y.z` tag names another commit; pushes main; creates and pushes
@@ -120,5 +126,7 @@ Run `python3 -I .agents/skills/release/check-scripts.py` for the offline
 regressions and `sh -n` on each shell script. Check that this skill has valid
 `name` and `description` frontmatter and that its referenced files exist.
 The regressions start no VM and reach no remote: `publish.sh` runs against
-stand-ins for `git` and `gh`. Candidate, guest and publish runs check the real
-tools.
+stand-ins for `git` and `gh`, with the real `git` only for the signature
+check on a fixture repository, and `prepare.sh` against stand-ins for
+`check-all.sh` and `candidate.sh`. Candidate, guest and publish runs check the
+real tools.

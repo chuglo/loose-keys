@@ -79,6 +79,7 @@ pub(crate) fn self_tests() -> Result<()> {
     }
     runner_self_test(&work)?;
     window_guest_self_test(&work)?;
+    window_host_guard_self_test(&work)?;
     fs::remove_dir_all(&work).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -282,7 +283,11 @@ fn window_guest_self_test(work: &Path) -> Result<()> {
         br#"#!/bin/sh
 printf '%s\n' "$*" >> "$CALLS"
 case "$1" in
-    list) printf '%s\n' 'OCI ghcr.io/cirruslabs/macos-tahoe-base:latest 50 33 today stopped' ;;
+    list)
+        printf '%s\n' 'OCI ghcr.io/cirruslabs/macos-tahoe-base:latest 50 33 today stopped'
+        if [ -f "$CALLS.partial" ]; then printf 'local %s 50 0 today stopped\n' "$(cat "$CALLS.partial")"; fi ;;
+    clone) if [ "$MODE" = clonefail ]; then printf '%s\n' "$3" > "$CALLS.partial"; exit 1; fi ;;
+    delete) rm -f "$CALLS.partial" ;;
     run) exec sleep 120 ;;
     exec)
         case "$3" in
@@ -348,6 +353,44 @@ exit 0
             return Err("guest checksum stall did not reach its infrastructure deadline".into());
         }
     }
+    // A clone that fails partway is deleted, and nothing else is.
+    let output = root.join("out-clonefail");
+    let calls = root.join("calls-clonefail");
+    let result = run_capture(
+        Command::new("/bin/sh")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/tests/check-window-guest.sh"))
+            .arg(&output)
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("CALLS", &calls)
+            .env("MODE", "clonefail")
+            .env("OUT", &output),
+        &root,
+        Duration::from_secs(55),
+    )?;
+    let calls = fs::read_to_string(calls).map_err(|e| e.to_string())?;
+    let partial = calls
+        .lines()
+        .find(|line| line.starts_with("clone "))
+        .and_then(|line| line.split_whitespace().last())
+        .ok_or("guest wrapper made no clone")?;
+    let deleted: Vec<&str> = calls.lines().filter(|l| l.starts_with("delete ")).collect();
+    if result.status == Some(0)
+        || deleted != [format!("delete {partial}")]
+        || calls.lines().any(|line| line.starts_with("run "))
+    {
+        return Err(format!(
+            "guest wrapper did not delete only its unfinished clone: {:?}",
+            result.status
+        ));
+    }
     // With no tart on PATH, the wrapper uses Tart's app inside HOME.
     let home = root.join("home");
     let fallback = home.join(".local/share/tart/tart.app/Contents/MacOS");
@@ -374,6 +417,55 @@ exit 0
             "guest wrapper did not use Tart's app in HOME: {:?}",
             result.status
         ));
+    }
+    Ok(())
+}
+
+/// The window check refuses a host run unless one is asked for. A stand-in
+/// swiftc stops it before any window is built.
+fn window_host_guard_self_test(work: &Path) -> Result<()> {
+    let root = work.join("window-host-guard");
+    let bin = root.join("bin");
+    private_dir(&bin)?;
+    let swiftc = bin.join("swiftc");
+    write_private(&swiftc, b"#!/bin/sh\necho swiftc >> \"$CALLS\"\nexit 1\n")?;
+    fs::set_permissions(&swiftc, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+    let model = Command::new("/usr/sbin/sysctl")
+        .args(["-n", "hw.model"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let guest = String::from_utf8_lossy(&model.stdout).starts_with("VirtualMac");
+    for opt_in in [None, Some("host")] {
+        let case = root.join(format!("case-{}", opt_in.unwrap_or("none")));
+        let calls = case.join("calls");
+        private_dir(&case)?;
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/tests/check-window.sh"))
+            .arg(case.join("out"))
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("CALLS", &calls)
+            .env_remove("LOOSE_KEYS_WINDOW_CHECK");
+        if let Some(value) = opt_in {
+            command.env("LOOSE_KEYS_WINDOW_CHECK", value);
+        }
+        let result = run_capture(&mut command, &case, Duration::from_secs(20))?;
+        let built = calls.exists();
+        let refused = result.status == Some(2) && !built;
+        if refused != (opt_in.is_none() && !guest) || (!refused && !built) {
+            return Err(format!(
+                "window check guard wrong (guest {guest}, opt-in {opt_in:?}): {:?}",
+                result.status
+            ));
+        }
     }
     Ok(())
 }

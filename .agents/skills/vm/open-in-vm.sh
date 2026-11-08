@@ -192,7 +192,9 @@ else
         tar -cf "$WORK/share/decoys.tar" -C "$WORK/decoys/home" \
             --exclude 'login.keychain-db' --exclude 'NoteStore.sqlite*' .
     fi
-    if tar -tf "$WORK/share/decoys.tar" | grep -q -e 'login.keychain-db' -e 'NoteStore.sqlite'; then
+    # Listed first, so that a listing that fails is not read as one without them.
+    listing=$(tar -tf "$WORK/share/decoys.tar") || fail 'the decoy archive could not be listed'
+    if printf '%s\n' "$listing" | grep -q -e 'login.keychain-db' -e 'NoteStore.sqlite'; then
         fail 'the decoy archive still holds the keychain or the Notes store'
     fi
     [ -z "$EXTRA" ] || tar -cf "$WORK/share/extra.tar" -C "$EXTRA" .

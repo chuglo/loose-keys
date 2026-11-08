@@ -10,6 +10,8 @@ The [root](../../AGENTS.md), [GUI](../AGENTS.md) and
   target from `gui/macos/Info.plist`.
 - When the window check fails, read `report.txt` and `report.txt.log` in its
   work folder.
+- `check-window.sh` runs only in a guest. Set `LOOSE_KEYS_WINDOW_CHECK=host`
+  only when the person asks for a run on the host.
 - `refresh-order.swift` runs the real model against a stand-in engine that
   controls response order. A pass says nothing about the running bundle or
   the orders macOS produces.

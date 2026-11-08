@@ -4,7 +4,8 @@
 # the same commit. One after the other: the release build's load made a
 # timed check in check-all fail when they ran together. Each writes its own
 # log; a failed check stops before the build, and the tree must still be
-# clean afterwards.
+# clean afterwards. The candidate then gets the record of the passing
+# check-all run that publish.sh requires.
 # Usage, from the root of a worktree whose HEAD is the release commit:
 #   sh .agents/skills/release/prepare.sh
 set -u
@@ -38,4 +39,8 @@ if sh "$(dirname "$0")/candidate.sh" "$COMMIT" > "$LOGS/candidate.log" 2>&1; the
 printf 'candidate: exit %s (%s)\n' "$build" "$LOGS/candidate.log"
 unchanged
 [ "$build" -eq 0 ] || fail 'the candidate build failed'
+CAND=$(sed -n 's/^Candidate: //p' "$LOGS/candidate.log")
+read -r built _ < "$CAND/commit" && [ "$built" = "$COMMIT" ] || fail "the candidate is not of $COMMIT"
+cp "$LOGS/check-all.log" "$CAND/check-all.log" || fail 'could not copy the check-all log into the candidate'
+printf '%s passed\n' "$COMMIT" > "$CAND/check-all" || fail 'could not record the check-all run in the candidate'
 grep -E '^(Candidate|Commit|Disk image|Zip|SHA-256|DMG SHA-256):' "$LOGS/candidate.log"

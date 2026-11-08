@@ -30,13 +30,14 @@ step 'Making a decoy home'
 tar -cf "$WORK/share/decoys.tar" -C "$WORK/decoys/home" \
     --exclude 'login.keychain-db' --exclude 'NoteStore.sqlite*' --exclude 'Group Containers' \
     --exclude './Desktop' --exclude './Documents' --exclude './Downloads' .
-if tar -tf "$WORK/share/decoys.tar" | grep -q -e 'login.keychain-db' -e 'NoteStore.sqlite'; then
+# Listed first, so that a listing that fails is not read as one without them.
+listing=$(tar -tf "$WORK/share/decoys.tar") || fail 'the decoy archive could not be listed'
+if printf '%s\n' "$listing" | grep -q -e 'login.keychain-db' -e 'NoteStore.sqlite'; then
     fail 'the decoy archive still holds the keychain or the Notes store'
 fi
 
 step "Starting a new VM, $VM, from $BASE"
-"$TART" clone "$BASE" "$VM" > "$WORK/clone.log" 2>&1 || fail "clone; see $WORK/clone.log"
-own_guest
+clone_guest "$BASE"
 nohup "$TART" run "$VM" --no-clipboard --no-audio --dir="share:$WORK/share:ro" > "$WORK/run.log" 2>&1 &
 GUEST_PID=$!
 tries=0

@@ -54,8 +54,9 @@ window appears and no host privacy grants are needed. This checks sample
 window behavior, not the real bundle, helper, or visual appearance.
 
 Each run keeps its logs and report in a new `run.*` folder beneath the output
-path. The wrapper never deletes the clone; the session that ran the check
-deletes it, by the name on its `VM:` line, after reporting the result.
+path. The wrapper deletes a clone only when cloning failed or ran out of
+time; otherwise the session that ran the check deletes it, by the name on
+its `VM:` line, after reporting the result.
 
 ## The shipped bundle
 

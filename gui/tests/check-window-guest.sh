@@ -40,6 +40,12 @@ WORK=$(mktemp -d "$OUT/run.XXXXXX")
 WORK=$(cd "$WORK" && pwd -P)
 mkdir "$WORK/share"
 VM="lk-window-$(date +%Y%m%d-%H%M%S)-$$"
+# An unfinished clone of this name is then this run's to delete.
+printf '%s\n' "$available" | awk -v vm="$VM" '$2 == vm { found=1 } END { exit found }' || {
+    echo "A VM named $VM already exists." >&2
+    exit 1
+}
+CLONING=
 OWNED=
 RUN_PID=
 READY_PID=
@@ -55,6 +61,22 @@ cleanup() {
     if [ -n "$READY_PID" ]; then
         kill -KILL "$READY_PID" 2>/dev/null || true
         wait "$READY_PID" 2>/dev/null || true
+    fi
+    # A clone that failed or ran out of time never ran; it holds nothing to keep.
+    if [ -n "$CLONING" ]; then
+        if listing=$(bounded 15 "$TART" list); then
+            if printf '%s\n' "$listing" | awk -v vm="$VM" '$2 == vm { found=1 } END { exit !found }'; then
+                if bounded 60 "$TART" delete "$VM" > "$WORK/delete.log" 2>&1; then
+                    printf 'Deleted the unfinished clone %s\n' "$VM"
+                else
+                    printf 'FAILED: could not delete the unfinished clone %s; see %s/delete.log\n' "$VM" "$WORK" >&2
+                    code=1
+                fi
+            fi
+        else
+            printf 'FAILED: could not list VMs to delete the unfinished clone %s\n' "$VM" >&2
+            code=1
+        fi
     fi
     if [ -n "$OWNED" ]; then
         if [ -n "$READY" ]; then
@@ -84,7 +106,9 @@ trap 'exit 143' TERM
 tar -cf "$WORK/share/source.tar" gui/app gui/macos/Info.plist \
     gui/macos/en.lproj gui/tests/check-window.sh
 shasum -a 256 "$WORK/share/source.tar" > "$WORK/source.sha256"
+CLONING=$VM
 bounded 120 "$TART" clone "$BASE" "$VM" > "$WORK/clone.log" 2>&1
+CLONING=
 OWNED=$VM
 "$TART" run "$VM" --no-graphics --no-audio --no-clipboard \
     --dir="share:$WORK/share:ro" > "$WORK/run.log" 2>&1 &
