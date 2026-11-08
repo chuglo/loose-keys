@@ -68,13 +68,16 @@ Also run the first-run quit regression against the same bundle:
 LOOSE_KEYS_APP_CHECK=synthetic-home sh gui/tests/check-update-quit.sh "$HOME/update-quit-1"
 ```
 
-It leaves update consent unanswered and checks normal native termination,
-menu Quit and Command-Q, relaunching against the same synthetic home between
-them. It also checks that the question says in one line that the app checks
-GitHub once a day. It sends no update request.
+On each launch it scans the empty synthetic home, since the update question
+waits for a scan. It leaves update consent unanswered and checks normal
+native termination, menu Quit and Command-Q, relaunching against the same
+synthetic home between them. It also checks that the window says Loose Keys
+can check GitHub once a day and does not mention the IP address. It sends no
+update request.
 
-The negative control adds `LOOSE_KEYS_APP_CHECK_OMIT_AWS=1`, with another new
-work folder. It must fail with `timeout: specific fixture findings in window`.
+`check-app.sh`'s negative control adds `LOOSE_KEYS_APP_CHECK_OMIT_AWS=1`, with
+another new work folder. It must fail with
+`timeout: specific fixture findings in window`.
 
 The check does not cover appearance or the helper. The guest's language
 must be English: the driver finds controls, macOS's save panel included,
@@ -108,9 +111,10 @@ guest with SIP on are not checked either.
 
 ## Repeatable release checks
 
-The [release skill](../../.agents/skills/release/SKILL.md) runs the
-shipped-bundle and helper checks on a release candidate, each in a fresh
-clone.
+The [release skill](../../.agents/skills/release/SKILL.md) runs
+`check-app.sh` and the native helper checks, each with its negative control,
+on a release candidate in fresh clones. It does not run the first-run quit
+regression; run that by hand as in [The shipped bundle](#the-shipped-bundle).
 
 The helper's reusable image is named `lk-sip-base`. It must be stopped,
 contain synthetic data only, have SIP and Gatekeeper enabled, and have no

@@ -76,6 +76,30 @@ func launch(_ name: String) throws -> (Process, AXUIElement) {
     child = process
     let app = AXUIElementCreateApplication(process.processIdentifier)
     AXUIElementSetMessagingTimeout(app, 2)
+    func menuItem(_ name: String) -> AXUIElement? {
+        guard let bar = attribute(app, kAXMenuBarAttribute) else { return nil }
+        return descendants(bar as! AXUIElement).first {
+            attribute($0, kAXRoleAttribute) as? String == kAXMenuItemRole && texts($0).contains(name)
+        }
+    }
+    // The question waits for a scan's answer, and a scan's results last only
+    // until the app quits, so every launch scans the empty home first.
+    try wait("home ready for scan") {
+        guard process.isRunning else { try fail("app exited before scan") }
+        let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
+        return windows.flatMap { descendants($0) }.contains {
+            attribute($0, kAXRoleAttribute) as? String == kAXButtonRole && texts($0).contains("Scan Now")
+                && attribute($0, kAXEnabledAttribute) as? Bool == true
+        }
+    }
+    try wait("Scan Now menu item") { menuItem("Scan Now") != nil }
+    guard let scan = menuItem("Scan Now"), AXUIElementPerformAction(scan, kAXPressAction as CFString) == .success else {
+        try fail("AX press: Scan Now")
+    }
+    try wait("scan completion") {
+        guard process.isRunning else { try fail("app exited during scan") }
+        return menuItem("Save Report…").map { attribute($0, kAXEnabledAttribute) as? Bool == true } ?? false
+    }
     try wait("unanswered update question") {
         guard process.isRunning else { try fail("app exited before update question") }
         return descendants(app).flatMap { texts($0) }.contains("Check for Updates Automatically?")

@@ -1109,10 +1109,11 @@ urgent, and as an alert it came over what the first scan had just found
 what the last status read that worked said, so a read that fails for a
 moment neither asks nor takes the row away (the model check's `updates:`
 cases). Quit leaves consent unanswered. The guest-only
-`check-update-quit.sh` checks native, menu and keyboard Quit, relaunches
-against the same synthetic home, and checks that the question is one line;
-what GitHub sees is in [usage](../usage.md), not the question. It was
-written for the alert and has not been run against the row.
+`check-update-quit.sh` launches three times on the same synthetic home;
+each time it scans, then quits with the row still unanswered: by a native
+request, the Quit menu item, then Command-Q. It checks that the window has
+the line about checking GitHub once a day and no mention of the IP address,
+which is in [usage](../usage.md), not the question.
 
 What Check for Updates… found uses a native `NSAlert` sheet with
 `preventsApplicationTerminationWhenModal` disabled on that alert alone.
