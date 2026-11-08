@@ -74,6 +74,8 @@ test("local bundle holds only what the build makes", { skip: process.platform !=
     "Contents/MacOS/loose-keys",
     "Contents/MacOS/loose-keys-gui",
     "Contents/Resources/AppIcon.icns",
+    "Contents/Resources/LICENSE",
+    "Contents/Resources/THIRD_PARTY_NOTICES",
     "Contents/Resources/en.lproj/Localizable.stringsdict",
     "Contents/Resources/es-419.lproj/Engine.strings",
     "Contents/Resources/es-419.lproj/InfoPlist.strings",

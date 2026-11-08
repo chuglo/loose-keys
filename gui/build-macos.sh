@@ -82,6 +82,9 @@ done
 for name in InfoPlist.strings Localizable.stringsdict; do
     table "gui/macos/es.lproj/$name" "es-419.lproj/$name"
 done
+# The licence and the notices for code built into the binaries, which the zip
+# and the disk image carry inside the bundle.
+cp LICENSE THIRD_PARTY_NOTICES "$RESOURCES/"
 # The background agent's launchd job, which the app registers with macOS.
 mkdir -p "$APP/Contents/Library/LaunchAgents"
 cp gui/macos/dev.loosekeys.agent.plist "$APP/Contents/Library/LaunchAgents/dev.loosekeys.agent.plist"
