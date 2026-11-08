@@ -48,10 +48,11 @@ File names with unusual characters are shown escaped, and **Copy Path** and
 **Show in Finder** work only on plain names. A copied path stays on this Mac's
 clipboard.
 
-Worth Reviewing has one item for a credential, however many rules or files
-found it. The saved report and the copied summary list each finding, so their
-count can be higher. When the list is full, the Overview says so; save the
-report to see every finding.
+Worth Reviewing has one item for a password or token the app can pick out,
+however many files it is in. Other findings, such as a private key, are not
+matched across files: the same key in two files is two items. The saved report
+and the copied summary list each finding, so their count can be higher. When
+the list is full, the Overview says so; save the report to see every finding.
 
 **Filter** searches every listed copy's path, including fixed and set-aside
 copies. Matching secondary paths appear under the row's representative path;
@@ -86,7 +87,10 @@ and choose **Move to Worth Reviewing**. File actions need a single selection.
 Each choice is saved in turn. If one fails, the ones before it stay saved, the
 list refreshes and shows the error, and the rest are left as they were.
 
-The first three cover matching copies wherever they are stored. If a password
+When the app can pick out a password or token, the first three cover every
+copy it picks out, wherever it is stored. For other findings, such as a private
+key, a password export or a password in `~/.netrc`, they cover that finding in
+its file until the file changes or becomes readable by others. If a password
 or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
 or Key**, changed text appears there if it is flagged again. A finding set
 aside under the earlier combined reason, for testing or no longer working,
@@ -151,15 +155,19 @@ the files directly in an AI tool's own folder, are still read by a scan and by
 the weekly pass, though not when they change. Nothing inside a scanned folder
 can silence the scanner: there is no ignore file or inline comment, by design.
 
-Every check looks at each pending item's own file again. When the file is gone
-or no longer matches, the item is marked fixed, even if the rest of the scan was
-incomplete. A file on a drive, network share or disk image that is not connected
-is not gone: its item stays open until the volume is back and the file can be
-looked at. The app cannot tell one volume from another mounted at the same
-place, so a second drive mounted under the first one's name reads as the file
-being gone. Fixed does not mean other copies are gone or that the credential
-was revoked. A fixed item stays in Worth Reviewing, greyed, with **Fixed**
-beside its name.
+A scan in the app, and each automatic full pass as it ends, look at each
+pending item's own file again. When the file is gone or no longer matches, the
+item is marked fixed, even if the scan could not read everything else, but not
+by a scan you stop with **Stop Scan**. In a folder you stopped checking, an
+item is looked at again only when a scan still checks its file for it, so other
+items there stay open, even after you remove the credential, until you choose
+**Include Again** and scan. A file on a drive, network share or disk image that
+is not connected is not gone: its item stays open until the volume is back and
+the file can be looked at. The app cannot tell one volume from another mounted
+at the same place, so a second drive mounted under the first one's name reads
+as the file being gone. Fixed does not mean other copies are gone or that the
+credential was revoked. A fixed item stays in Worth Reviewing, greyed, with
+**Fixed** beside its name.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
