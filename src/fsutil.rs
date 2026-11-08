@@ -207,7 +207,9 @@ fn open_at(dir: &File, name: &OsStr, want_dir: bool) -> Result<Option<File>, Gap
 }
 
 /// Where a path under `home` really is, when it or a folder above it is a
-/// symbolic link. None: no link on the way, or nothing there. Some(Ok): the
+/// symbolic link. None: no link on the way, or nothing there, or a folder on
+/// the way that cannot be looked in, which reading the path as it is named,
+/// or asking with `presence` whether it is there, then reports. Some(Ok): the
 /// real location, which is inside `home` and is then opened without following
 /// links like any other path. Some(Err): the link is not followed, because it
 /// leads outside `home` ("symlink") or cannot be resolved, as when it loops
@@ -233,6 +235,17 @@ pub fn through_links(path: &Path, home: &Path) -> Option<Result<PathBuf, Gap>> {
         }
     }
     None
+}
+
+/// What is at `path`, a link there not followed. Ok(None): nothing, or a
+/// file where a folder would be on the way. Err: whether anything is there
+/// could not be told, as below a folder that cannot be looked in.
+pub fn presence(path: &Path) -> Result<Option<fs::Metadata>, Gap> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(e) if matches!(e.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) => Ok(None),
+        Err(e) => Err(gap(&e)),
+    }
 }
 
 pub fn open_directory(path: &Path) -> Result<File, Gap> {
@@ -585,9 +598,11 @@ pub struct Listing {
     pub handle: Option<File>,
 }
 
-fn entry_is_directory(fd: libc::c_int, name: &CStr, kind: u8) -> Result<bool, Gap> {
+/// Whether a listed entry is a folder. None: it has been removed since it
+/// was listed, so there is nothing of it to check.
+fn entry_is_directory(fd: libc::c_int, name: &CStr, kind: u8) -> Result<Option<bool>, Gap> {
     if kind != libc::DT_UNKNOWN {
-        return Ok(kind == libc::DT_DIR);
+        return Ok(Some(kind == libc::DT_DIR));
     }
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     // SAFETY: live parent descriptor, NUL-terminated name and writable stat.
@@ -600,9 +615,16 @@ fn entry_is_directory(fd: libc::c_int, name: &CStr, kind: u8) -> Result<bool, Ga
         )
     } != 0
     {
-        return Err(gap(&io::Error::last_os_error()));
+        let e = io::Error::last_os_error();
+        return if e.raw_os_error() == Some(libc::ENOENT) {
+            Ok(None)
+        } else {
+            Err(gap(&e))
+        };
     }
-    Ok(unsafe { stat.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFDIR)
+    // SAFETY: fstatat reported success, so it filled the stat.
+    let stat = unsafe { stat.assume_init() };
+    Ok(Some(stat.st_mode & libc::S_IFMT == libc::S_IFDIR))
 }
 
 pub fn list_dir(dir: &Path, required: bool, remaining: &mut usize) -> Result<Listing, Gap> {
@@ -740,7 +762,8 @@ fn listing(
         // handle types and cloud flags. Some filesystems omit this hint.
         let kind = unsafe { (*entry).d_type };
         let is_dir = match entry_is_directory(fd, name, kind) {
-            Ok(is_dir) => is_dir,
+            Ok(Some(is_dir)) => is_dir,
+            Ok(None) => continue,
             Err(g) => {
                 incomplete = Some(g);
                 break;
@@ -1232,17 +1255,24 @@ mod tests {
             let name = CString::new(name).unwrap();
             assert_eq!(
                 entry_is_directory(parent.as_raw_fd(), &name, libc::DT_UNKNOWN),
-                Ok(expected)
+                Ok(Some(expected))
             );
         }
         // Known hints avoid metadata calls, but cannot authorize a later read.
         let absent = CString::new("absent").unwrap();
         assert_eq!(
             entry_is_directory(parent.as_raw_fd(), &absent, libc::DT_DIR),
-            Ok(true)
+            Ok(Some(true))
         );
+        // An entry removed since it was listed is passed by, not a gap that
+        // would end the listing of the whole folder.
         assert_eq!(
             entry_is_directory(parent.as_raw_fd(), &absent, libc::DT_UNKNOWN),
+            Ok(None)
+        );
+        let below = CString::new("file/below").unwrap();
+        assert_eq!(
+            entry_is_directory(parent.as_raw_fd(), &below, libc::DT_UNKNOWN),
             Err("unreadable")
         );
         fs::remove_dir_all(path).unwrap();

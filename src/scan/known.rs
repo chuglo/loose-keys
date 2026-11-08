@@ -115,7 +115,7 @@ impl Scan {
     /// Report a file or folder that is there. Nothing in it is read.
     pub(super) fn present(&mut self, rule: &Rule, at: &Path, what: &str) {
         if let Some(real) = self.targeted(at) {
-            if std::fs::symlink_metadata(&real).is_ok() {
+            if self.there(&real).is_some() {
                 self.add(rule, &real, Hit::file().about(what), false, &[]);
             }
         }
@@ -166,7 +166,7 @@ impl Scan {
                 let Some(store) = self.targeted(&at) else {
                     continue;
                 };
-                if std::fs::symlink_metadata(&store).is_ok_and(|m| m.is_dir()) {
+                if self.there(&store).is_some_and(|m| m.is_dir()) {
                     self.add(rule, &store, Hit::file().about(what), false, &[]);
                 }
             }

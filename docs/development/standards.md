@@ -268,7 +268,11 @@ The threats are a local user racing a root run with links, and hostile files
   as listed, never behind the link. Tests:
   `entries_read_from_a_listed_folder_are_checked_as_paths_are` in
   `src/fsutil.rs`, and `special_files_links_and_large_headers_do_not_break_discovery`
-  through the CLI.
+  through the CLI. Where a listing gives no entry type, the entry is looked
+  at without following a link; one removed since it was listed is passed by,
+  and any other error ends the listing with a gap. Test:
+  `unknown_entry_types_use_nofollow_metadata`, which asks of one entry with
+  no type. Not covered: a scan of a volume that gives no types.
 - Discovery opens each folder it lists the same way from the folders above
   it that it opened for the last one (`fsutil::Folders`), not from `/`: in a
   walk breadth-first, consecutive folders share most of their path, and that
@@ -305,6 +309,16 @@ The threats are a local user racing a root run with links, and hostile files
 - A presence check outside `fsutil` uses `std::fs::symlink_metadata`.
   `Path::exists`, `is_file`, `is_dir` and `fs::metadata` follow links. Treat
   the answer as a hint: whatever is read next still goes through `fsutil`.
+  Where presence is all that is asked of a known location (a place whose
+  presence is the finding, a wallet extension's storage, a sweep's tree of
+  records), it goes through `fsutil::presence` and `Scan::there`: not there,
+  or below a file, is absence, and any other error is a gap, as a read of
+  that place would give, never absence. `through_links` gives None past a
+  folder it cannot look in, so the path is then read or asked about as it
+  is named, which reports it. Test:
+  `a_known_location_whose_presence_cannot_be_told_is_a_gap`. Not covered: a
+  macOS privacy denial, which the test stands in for with a folder of mode
+  000 (unverified).
 - `through_links` is the one deliberate exception to following no links in
   what is scanned. A known sign-in location that is a link is resolved once,
   used only if the real path is inside the home folder, and never as root. Do

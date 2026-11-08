@@ -60,15 +60,19 @@ pub enum Target {
 
 impl Target {
     pub fn names(&self, file: &std::ffi::OsStr) -> bool {
-        let (Target::Name(pattern), Some(file)) = (self, file.to_str()) else {
+        use std::os::unix::ffi::OsStrExt;
+        let Target::Name(pattern) = self else {
             return false;
         };
+        // By bytes: APFS takes only UTF-8 names, another volume may not
+        // (unverified).
+        let file = file.as_bytes();
         if let Some(suffix) = pattern.strip_prefix('*') {
-            return file.ends_with(suffix) && file.len() > suffix.len();
+            return file.ends_with(suffix.as_bytes()) && file.len() > suffix.len();
         }
         match pattern.strip_suffix('*') {
-            Some(prefix) => file.starts_with(prefix),
-            None => file == *pattern,
+            Some(prefix) => file.starts_with(prefix.as_bytes()),
+            None => file == pattern.as_bytes(),
         }
     }
 

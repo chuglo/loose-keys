@@ -1850,6 +1850,13 @@ fn rclone_remotes_with_stored_secrets_are_found() {
 fn dotenv_and_history_siblings_are_read_whole() {
     assert!(Target::Name("*.env").names("prod.env".as_ref()));
     assert!(!Target::Name("*.env").names(".env".as_ref()));
+    // A name that is not UTF-8, which APFS refuses but another volume may
+    // keep, is matched too.
+    use std::os::unix::ffi::OsStrExt;
+    let odd = std::ffi::OsStr::from_bytes(b"prod\xff.env");
+    assert!(Target::Name("*.env").names(odd));
+    assert!(Target::Name("*.env").names_loosely(odd));
+    assert!(Target::Name(".env*").names(std::ffi::OsStr::from_bytes(b".env.\xff")));
     let f = Fixture::new("env-siblings");
     // The secret sits past the first 4 KiB, and has no issuer format.
     let late = format!(
@@ -2150,6 +2157,70 @@ fn a_link_that_cannot_be_resolved_is_not_said_to_leave_the_home() {
     assert!(found.is_empty());
     said.sort();
     assert_eq!(said, gaps[..gaps.len() - 1]);
+}
+
+/// A known location below a folder that cannot be looked in was taken to
+/// be absent where only its presence is asked: a place whose presence is
+/// the finding, a browser extension's storage, or a sweep's tree of
+/// records. Each is now a gap, as a known file read there is.
+#[test]
+fn a_known_location_whose_presence_cannot_be_told_is_a_gap() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new("presence-denied");
+    let telegram = "Library/Containers/org.telegram.desktop/Data";
+    let chrome = "Library/Application Support/Google/Chrome";
+    let settings = format!("{chrome}/Default/Local Extension Settings");
+    let locked = [f.0.join(telegram), f.0.join(&settings), f.0.join(".cursor")];
+    let lock = |mode| {
+        for dir in &locked {
+            fs::create_dir_all(dir).unwrap();
+            fs::set_permissions(dir, fs::Permissions::from_mode(mode)).unwrap();
+        }
+    };
+    // Left out of discovery, which would say so of the folders themselves.
+    let skip = [f.0.join(chrome), f.0.join(".cursor")];
+    let cancel = || Arc::new(AtomicBool::new(false));
+    lock(0o000);
+    let scanned = Scan::report_controlled(&f.0, &[], &skip, cancel(), digest, |_| {});
+    let (_, scanned) = seen(scanned);
+    let (_, changed) = change(&f.0, &[], &settings);
+    let mut swept = Vec::new();
+    let mut resume = None;
+    loop {
+        let (r, pending) = Scan::sweep(&f.0, &skip, resume, limits(100_000), cancel(), digest);
+        swept.extend(seen(r).1);
+        if pending.is_empty() {
+            break;
+        }
+        resume = Some(pending);
+    }
+    lock(0o700);
+    let denied = |p: &str| (format!("~/{p}"), "permission-denied");
+    let present = denied(&format!(
+        "{telegram}/Library/Application Support/Telegram Desktop/tdata/key_datas"
+    ));
+    let stores: Vec<_> = RULES
+        .iter()
+        .flat_map(|r| r.targets)
+        .filter_map(|t| match *t {
+            Target::Extension(id, _) => Some(denied(&format!("{settings}/{id}"))),
+            _ => None,
+        })
+        .collect();
+    assert!(!stores.is_empty());
+    for (gaps, check) in [(&scanned, "scan"), (&swept, "sweep")] {
+        assert!(gaps.contains(&present), "{check}: {gaps:?}");
+        for store in &stores {
+            assert!(gaps.contains(store), "{check}: {store:?} in {gaps:?}");
+        }
+    }
+    for store in &stores {
+        assert!(changed.contains(store), "change: {store:?} in {changed:?}");
+    }
+    // A full scan lists the tree's root and says why; so does a sweep.
+    let records = denied(".cursor/projects");
+    assert!(scanned.contains(&records), "{scanned:?}");
+    assert!(swept.contains(&records), "{swept:?}");
 }
 
 /// Nothing can be below a link to a file, as an entry of a browser's folder

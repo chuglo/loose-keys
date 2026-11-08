@@ -17,7 +17,7 @@ pub use recheck::{recheck, recheck_identities, recheck_values};
 use recheck::scope_digest;
 use traversal::Traversal;
 
-use crate::fsutil::{through_links, Gap};
+use crate::fsutil::{presence, through_links, Gap};
 use crate::report::{self, Finding, NotChecked, Report};
 use crate::rules::{Hit, Rule, Target, RULES};
 use std::collections::{HashMap, HashSet};
@@ -407,8 +407,7 @@ impl Scan {
                     for (rule, dir) in trees() {
                         let root = s.targeted(&home.join(dir));
                         // One that is not there is not left for later.
-                        let there = |root: &PathBuf| std::fs::symlink_metadata(root).is_ok();
-                        if let Some(root) = root.filter(there) {
+                        if let Some(root) = root.filter(|root| s.there(root).is_some()) {
                             left.extend(s.records(rule, root, 0, None));
                         }
                     }
@@ -648,6 +647,15 @@ impl Scan {
         };
         self.links.insert(p.to_path_buf(), real.clone());
         real
+    }
+
+    /// What is at `p`, a known location whose presence is asked. One whose
+    /// presence cannot be told is a gap, not taken to be absent.
+    fn there(&mut self, p: &Path) -> Option<std::fs::Metadata> {
+        presence(p).unwrap_or_else(|g| {
+            self.gap(p, g);
+            None
+        })
     }
 
     /// `bytes` is the file's material for its fingerprint, and what `hit.span`

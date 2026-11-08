@@ -415,7 +415,7 @@ impl Scan {
                         // The storage itself, or the folder it is in or the
                         // profile that is in: a folder moved into place.
                         let folder =
-                            |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+                            |s: &mut Scan, p: &Path| s.there(p).is_some_and(|m| m.is_dir());
                         let settings = "Local Extension Settings";
                         for at in [p.to_path_buf(), p.join(id), p.join(settings).join(id)] {
                             if !self.extension_store(&at, id) {
@@ -423,12 +423,13 @@ impl Scan {
                             }
                             // In a profile that is a folder or leads to one.
                             let profile = at.parent().and_then(Path::parent);
-                            if !profile.is_some_and(|p| folder(p) || self.leads_to_folder(p)) {
+                            if !profile.is_some_and(|p| folder(self, p) || self.leads_to_folder(p))
+                            {
                                 continue;
                             }
                             // A link on the way, the changed path too, is
                             // followed as a scan follows it.
-                            if let Some(store) = self.targeted(&at).filter(|s| folder(s)) {
+                            if let Some(store) = self.targeted(&at).filter(|s| folder(self, s)) {
                                 self.add(rule, &store, Hit::file().about(what), false, &[]);
                             }
                         }
@@ -446,7 +447,8 @@ impl Scan {
                                 }
                             }
                             for at in stores {
-                                if let Some(store) = self.targeted(&at).filter(|s| folder(s)) {
+                                if let Some(store) = self.targeted(&at).filter(|s| folder(self, s))
+                                {
                                     self.add(rule, &store, Hit::file().about(what), false, &[]);
                                 }
                             }
