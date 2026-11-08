@@ -8,6 +8,7 @@ const USAGE: &str = "usage: loose-keys scan [--select DIR ...] [--exclude DIR ..
                                [--export PATH | --feedback PATH [--device-id NAME]]
                                [--fail-on-open LEVEL]
        loose-keys --list-rules
+       loose-keys --version
 
 Looks through your home folder for passwords, keys and tokens that
 password-stealing malware could take. That includes password exports and notes,
@@ -24,7 +25,7 @@ Loose Keys works offline, changes nothing and never shows secret values.
                   with --feedback: also record this name for the Mac (such as its
                   serial number) and the time of the scan, for device management.
                   Without it, the counts include neither.
-  --select DIR    also scan this folder or mounted drive and everything in it (repeatable)
+  --select DIR    also scan this folder or mounted drive (repeatable)
   --exclude DIR   skip this folder (repeatable). The report always lists it, and
                   known sign-in files such as ~/.aws/credentials are still checked.
   --limits        also print what this scan cannot detect
@@ -85,7 +86,11 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             }
-            Some("--exclude") if !pair[1].is_empty() && excluded.len() < 32 => {
+            Some("--exclude") if !pair[1].is_empty() => {
+                if excluded.len() == 32 {
+                    eprintln!("error: --exclude takes at most 32 folders");
+                    return ExitCode::from(2);
+                }
                 let named = scan::named_folder(&pair[1], &home);
                 match scan::skipped_folder(named.as_os_str(), &home) {
                     Ok(path) if !excluded.contains(&path) => excluded.push(path),

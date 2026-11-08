@@ -1795,6 +1795,29 @@ fn a_skipped_folder_is_not_read_and_is_always_listed() {
     assert_eq!(out.status.code(), Some(2));
 }
 
+/// The report holds at most 32 skipped folders, so a 33rd is refused with
+/// the reason, not just the usage text.
+#[test]
+fn a_33rd_skipped_folder_is_refused_with_the_reason() {
+    let f = Fixture::new();
+    let home = f.home();
+    let folders: Vec<String> = (0..33)
+        .map(|n| home.join(format!("skip-{n}")).to_str().unwrap().to_owned())
+        .collect();
+    let args = |count: usize| -> Vec<&str> {
+        folders[..count]
+            .iter()
+            .flat_map(|folder| ["--exclude", folder.as_str()])
+            .collect()
+    };
+    let skipped = &f.json(&args(32))["coverage"]["excluded_by_user"];
+    assert_eq!(skipped.as_array().unwrap().len(), 32);
+    let out = f.run(&args(33));
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{said}");
+    assert_eq!(said, "error: --exclude takes at most 32 folders\n");
+}
+
 /// The shell writes `~/corpus` with HOME as it is set. A home reached
 /// through a link is scanned at its real location, so a folder named
 /// through the link has to be the same folder there: excluded, it was read
