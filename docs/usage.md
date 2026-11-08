@@ -44,9 +44,9 @@ the app writes the new file beside it and then moves the old one to the Trash.
 The app and `--export`/`--feedback` refuse a folder that gives its new files
 an access list, as some shared folders do; save the file somewhere only you
 can read.
-File names with unusual characters are shown escaped, and **Copy Path** and
-**Show in Finder** work only on plain names. A copied path stays on this Mac's
-clipboard.
+A path with any character outside plain ASCII, such as an accented letter, is
+shown escaped, and **Copy Path** and **Show in Finder** do not work on it. A
+copied path or summary stays on this Mac's clipboard.
 
 Worth Reviewing has one item for a password or token the app can pick out,
 however many files it is in. Other findings, such as a private key, are not
@@ -54,8 +54,9 @@ matched across files: the same key in two files is two items. The saved report
 and the copied summary list each finding, so their count can be higher. When
 the list is full, the Overview says so; save the report to see every finding.
 
-**Filter** searches every listed copy's path, including fixed and set-aside
-copies. Matching secondary paths appear under the row's representative path;
+**Filter** matches each row's name, what it concerns (such as a profile or
+host) and every listed copy's path, including fixed and set-aside copies.
+Matching secondary paths appear under the row's representative path;
 the row still identifies the same grouped finding. A copy-count hint counts
 the files it is listed in, including fixed and set-aside copies; two rules
 matching the same text in one file are one copy. Filtered lists say how many
@@ -64,8 +65,7 @@ brings all rows back. The inspector starts hidden to leave space for the list
 and opens when you select an item. Its toolbar button, or **View > Show
 Inspector** (Option-Command-I), can show or hide it at any time.
 
-Every toolbar button is also in the menu bar: **File > Stop Scan**
-(Command-Period) and **File > Copy Summary**. The **Item** menu has **Show in
+Every toolbar button is also in the menu bar. The **Item** menu has **Show in
 Finder**, **Copy Path** (Option-Command-C), **Set Aside** and **Move to Worth
 Reviewing** for the items selected in the list.
 
@@ -145,10 +145,14 @@ again. If you keep just one copy of a credential, the other copies remain in
 Worth Reviewing.
 
 Setting an item aside never stops it being found or counted in scan results,
-saved reports or copied summaries. The counts under the window's title still
-include it ("3 to review, 5 set aside"). To leave a folder out, choose **Stop
-Checking** followed by the folder's name. It then appears in every summary as
-not checked, and in Settings under Places to Check as Skipped, where
+saved reports or copied summaries, which list it like any other finding,
+without your reason. The counts under the window's title still include it ("3
+to review, 5 set aside"). To leave a folder out, select an open finding
+directly in it and choose **Stop Checking** followed by the folder's name,
+under Folder in the inspector. It is offered only for a folder inside your
+home folder with a plain ASCII path; to leave out part of an added folder or
+drive, remove it and add a narrower one. The folder then appears in every
+summary as not checked, and in Settings under Places to Check as Skipped, where
 **Include Again** brings it back. Known sign-in
 files in it, and
 the files directly in an AI tool's own folder, are still read by a scan and by
@@ -167,16 +171,25 @@ the file can be looked at. The app cannot tell one volume from another mounted
 at the same place, so a second drive mounted under the first one's name reads
 as the file being gone. Fixed does not mean other copies are gone or that the
 credential was revoked. A fixed item stays in Worth Reviewing, greyed, with
-**Fixed** beside its name.
+**Fixed** beside its name, until the list needs room for a new finding.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
-file paths, added scan folders, rule identifiers, keyed fingerprints, consent,
-and review choices, not credential values. Your answer about update checks is also kept in
-`update-check.json` beside it. The directory uses mode `0700`; the files use
-`0600`. The CLI does not use this review state. Earlier versions kept it in
-`~/.loose-keys-review`; the app moves it from there on first start, unless
-the new folder already holds state.
+file paths, added scan folders, rule identifiers, keyed fingerprints and their
+key, the names of profiles, hosts and variables that findings concern,
+consent, and review choices, not credential values. Do not share it: with the
+key, anyone can check a guessed password against it. Your answer about update
+checks is also kept in `update-check.json` beside it. The directory uses mode
+`0700`; the files use `0600`. The CLI does not use this review state. Earlier
+versions kept it in `~/.loose-keys-review`; the app moves it from there on
+first start, unless the new folder already holds state.
+
+If Worth Reviewing cannot be opened, nothing a scan or the helper finds is
+saved, and choices and settings cannot be changed. If the folder or a file in
+it is not private, set the modes above. If a newer version saved the list,
+open that version again. Otherwise, quit Loose Keys and move `state.json` out
+of the folder: the app then starts a new list and forgets what that file held,
+including your choices and folders.
 
 #### Expected findings set by MDM
 
@@ -216,7 +229,8 @@ Settings window, are kept for later launches and manual scans until you remove
 them. Up to eight are saved. Disconnected drives
 stay listed; their unavailable paths are listed under **Show Places Not
 Checked** rather than silently removed. An older app or helper can forget these saved folders
-when it writes its state, so check the folder list after downgrading.
+when it writes its state, so check the folder list after updating or
+downgrading.
 
 Automatic scanning is done by a separate helper with no window or Dock icon.
 Giving consent registers it with macOS as a launchd job, which starts it at
@@ -235,10 +249,14 @@ another scan. It is dated to the last completed
 automatic full pass; later file or permission changes do not rewrite that
 result. Manual-scan details are listed separately, and saved reports still
 contain only the manual scan. The automatic list keeps up to 4096 paths with
-their reasons, within 512 KiB, and says when it is incomplete. Older versions saved
-only the count; their details become available after the next automatic full
-pass. A scan in the app keeps up to 4096 places not checked; when there are more,
-the last of them is `~/` with the reason `scan-limit`.
+their reasons, within 512 KiB, and says when it is incomplete. It leaves out
+work limits (`scan-limit`), so a place every automatic pass stops short of is
+not listed there; **Scan Now** lists the work limits it reaches. Older versions
+saved only the count; their details become available after the next automatic
+full pass. A scan in the app keeps up to 4096 places not checked; when there
+are more, the last of them is `~/` with the reason `scan-limit`. **Show Places
+Not Checked** lists up to 20 of them under each reason, then how many more; a
+saved report has them all.
 
 The build signs ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
 code-signing identity. An ad-hoc identity changes with every build; an Apple
@@ -284,7 +302,9 @@ once a day while it is open. GitHub sees your IP address and that
 Loose Keys checked; nothing about your files or findings is sent. A newer
 version appears at the bottom of Overview, and **Download** opens its release
 page. Loose Keys never installs anything: download and replace the app
-yourself.
+yourself. With **Scan Automatically** on, the old version's helper can keep
+running after that (unverified); to start the new one, turn **Scan
+Automatically** off and on again in Settings.
 
 **Check for Updates…**, in the Loose Keys menu, checks once whatever the
 setting and shows the answer in the main window, opening it if it is closed.
