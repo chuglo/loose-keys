@@ -67,6 +67,9 @@ pub const MCP_SECRET: Rule = Rule {
         (br#"{"mcp": {"fixture": {"type": "local", "command": ["npx"], "environment": {"FIXTURE_API_KEY": "{env:FIXTURE_API_KEY}"}}}}"#, false),
         // Amp names its server map with its own prefix.
         (br#"{"amp.mcpServers": {"fixture": {"command": "npx", "env": {"FIXTURE_API_KEY": "synthetic-only-value"}}}}"#, true),
+        // A key that is public by design, and where a key file is.
+        (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"STRIPE_PUBLISHABLE_KEY": "synthetic-only-value", "SSH_KEY": "/Users/fixture/.ssh/id_ed25519"}}}}"#, false),
+        (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"SSH_KEY": "/app/.ssh/id_rsa", "TLS_KEY": "certs/server.key"}}}}"#, false),
     ],
 };
 
@@ -261,7 +264,8 @@ fn secret(name: &str, s: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     let named = ["KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "PAT"]
         .iter()
-        .any(|word| upper.ends_with(word));
+        .any(|word| upper.ends_with(word))
+        && !public_key_name(&upper);
     // "Bearer <value>", "Basic <value>" or "token <value>" is a literal after
     // its scheme; "${VAR}" and "$VAR" are references.
     let literal = after_scheme(s);
@@ -269,6 +273,7 @@ fn secret(name: &str, s: &str) -> bool {
         || (named
             && literal.len() >= 12
             && !reference(literal)
+            && !path_value(literal)
             && inline_literal(literal)
             && plausible(literal))
 }
@@ -688,6 +693,31 @@ mod tests {
             serde_json::json!({"models": [{"apiKey": "First synthetic-only-value"}]}).to_string();
         assert!(mcp_hits(config.as_bytes()).unwrap().is_empty());
         assert!(mcp_hits(br#"{"mcpServers": {"fixture": "#).is_err());
+    }
+
+    #[test]
+    fn public_keys_and_key_files_are_not_secrets() {
+        for env in [
+            serde_json::json!({"STRIPE_PUBLISHABLE_KEY": "synthetic-only-value"}),
+            serde_json::json!({"FIXTURE_PUBLIC_KEY": "synthetic-only-value"}),
+            serde_json::json!({"SSH_KEY": "/Users/fixture/.ssh/id_ed25519"}),
+            serde_json::json!({"SSH_KEY": "~/.ssh/id_ed25519"}),
+            serde_json::json!({"SSH_KEY": "/app/.ssh/id_rsa"}),
+            serde_json::json!({"TLS_KEY": "certs/server.key"}),
+        ] {
+            let config = serde_json::json!({"mcpServers": {"fixture": {"env": env}}}).to_string();
+            assert!(mcp_hits(config.as_bytes()).unwrap().is_empty(), "{config}");
+        }
+        let config = serde_json::json!({"mcpServers": {"fixture": {"env": {
+            "STRIPE_PUBLISHABLE_KEY": "synthetic-public-value",
+            "STRIPE_SECRET_KEY": "synthetic-only-value",
+        }}}})
+        .to_string();
+        let hits = mcp_hits(config.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        // The secret key is the server's one value, so it has a place.
+        let span = hits[0].span.clone().expect("one value");
+        assert_eq!(config.get(span), Some("synthetic-only-value"));
     }
 
     #[test]

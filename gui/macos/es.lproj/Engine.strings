@@ -57,7 +57,7 @@
 
 /* rule secret.env-assignment */
 "Password or key in a plain-text settings file" = "Contraseña o clave en un archivo de configuración sin cifrar";
-"A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value." = "Una variable con nombre de contraseña, clave o token tiene un valor en este archivo. Loose Keys solo comprobó que el valor no es un marcador de posición. Puede ser un valor local o de prueba.";
+"A variable in this file is named like a password, key or token, or holds a private key or a URL with a password in it. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value." = "Una variable de este archivo tiene nombre de contraseña, clave o token, o contiene una clave privada o una URL con una contraseña. Loose Keys solo comprobó que el valor no es un marcador de posición. Puede ser un valor local o de prueba.";
 "Password-stealing malware collects .env and shell files, because they often hold working passwords and keys in plain text." = "El malware que roba contraseñas recopila archivos .env y de la shell, porque suelen contener contraseñas y claves válidas como texto sin cifrar.";
 "Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file." = "Decide si es una credencial real. Si lo es, revócala en el servicio y carga la nueva desde un gestor de contraseñas, no desde este archivo.";
 "Check what the variable is for. A value for a local test database needs nothing more." = "Comprueba para qué sirve la variable. Un valor para una base de datos de prueba local no necesita nada más.";

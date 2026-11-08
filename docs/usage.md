@@ -54,8 +54,8 @@ single quotes, so it can be pasted into Terminal. A copied path or summary
 stays on this Mac's clipboard.
 
 Worth Reviewing has one item for a password or token the app can pick out,
-however many files it is in. Other findings, such as a private key, are not
-matched across files: the same key in two files is two items. The saved report
+however many files it is in. Other findings, such as a private key file, are
+not matched across files: the same key in two key files is two items. The saved report
 and the copied summary list each finding, so their count can be higher.
 Worth Reviewing and Set Aside together hold up to 4096 items that aren't
 fixed, fewer when their saved details near 6 MiB. When the list is full,
@@ -391,7 +391,8 @@ helper refused.
   them that hold programs or caches (`extensions`, `plugins`, `packages`, `bin`,
   `Cache`, `Code Cache`, `GPUCache`) are not: their files are checked like any
   other file;
-- variables named like secrets and set to a value in `.env*`, `*.env`,
+- variables named like secrets and set to a value, and variables of any name
+  set to a private key or a URL with a password in it, in `.env*`, `*.env`,
   `.envrc`, `.dev.vars*`, `secrets.toml`, `*.tfvars`, shell files,
   `~/.gradle/gradle.properties`, `~/.codex/config.toml` and
   `~/.config/goose/secrets.yaml`;
@@ -451,9 +452,21 @@ INI syntax, not a config kept somewhere else, and not a reference or an
 environment placeholder. In `.env*`, shell, MCP and AI tool settings files, a
 value that only its name marks as secret is not reported when it is shorter
 than 8 characters (12 in MCP server configs and JSON settings files, 16 in
-OAuth token files) or looks like a sample or placeholder; neither is a note
-password that is a single lowercase word. JSON MCP server configs and
-settings files are read 6 levels deep.
+OAuth token files) or looks like a sample or placeholder. In the files listed
+above for variables, and in an MCP server's environment and headers, such a
+value is not reported either when its name says the key is public or
+publishable or when it looks like a file path: one that starts with `~/`, `./`, `../`, `$HOME/` or a folder
+at the root of a Mac such as `/Users/`; one through folders in small letters
+from `/`, such as `/app/.ssh/id_rsa`, or from a hidden folder or a `keys`,
+`certs`, `secrets`, `ssl` or `tls` folder, such as `.ssh/id_ed25519`; an SSH
+key's file name, such as `id_ed25519_work`; or one that ends in a key or
+credential file extension (`.json`, `.pem`, `.key`, `.p8`, `.p12`, `.pfx`,
+`.crt`, `.der`, `.jks`, `.keystore`, `.gpg`, `.asc`). In the files listed for
+variables, a value that names another variable named like a secret, such as
+`OPENAI_API_KEY`, is not reported either, and a password in a URL is held to
+the same length and placeholder limits. A note password that is a single
+lowercase word is not reported either. JSON MCP server configs and settings
+files are read 6 levels deep.
 
 The scanner does not execute credential helpers, contact services or show
 secret values. It does not follow symlinks, with one exception: when a known

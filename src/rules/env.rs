@@ -8,7 +8,7 @@ pub const ENV_SECRET: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Password or key in a plain-text settings file",
-    explanation: "A variable named like a password, key or token is set to a value in this file. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value.",
+    explanation: "A variable in this file is named like a password, key or token, or holds a private key or a URL with a password in it. Loose Keys only checked that the value isn't a placeholder. It may be a local or test value.",
     reason: Some("Password-stealing malware collects .env and shell files, because they often hold working passwords and keys in plain text."),
     next_step: Some("Decide whether this is a real credential. If it is, revoke it at the service and load the replacement from a password manager instead of this file."),
     advice: Advice {
@@ -54,6 +54,68 @@ pub const ENV_SECRET: Rule = Rule {
             b"DB_PASSWORD=\"synthetic$only-value\"\nGOOGLE_API_KEY: !synthetic-only-value\n",
             false,
         ),
+        // A password in a URL, and a private key, under any name.
+        (
+            b"DATABASE_URL=postgres://fixture:synthetic-only-value@db.example.invalid/app\n",
+            true,
+        ),
+        (
+            b"DATABASE_URL=postgres://fixture:${DB_PASSWORD}@db.example.invalid/app\nREDIS_URL=redis://cache.example.invalid:6379\n",
+            false,
+        ),
+        (
+            concat!(
+                "TLS_CERT_PEM=\"-----BEGIN ",
+                "PRIVATE KEY-----\\nc3ludGhldGljLW9ubHktdmFsdWU\\n-----END ",
+                "PRIVATE KEY-----\\n\"\n"
+            )
+            .as_bytes(),
+            true,
+        ),
+        (
+            concat!(
+                "JWT_PRIVATE_KEY=\"-----BEGIN ",
+                "PRIVATE KEY-----\nc3ludGhldGljLW9ubHktdmFsdWU\n-----END ",
+                "PRIVATE KEY-----\"\n"
+            )
+            .as_bytes(),
+            true,
+        ),
+        (
+            concat!(
+                "JWT_PRIVATE_KEY=\"-----BEGIN ",
+                "PRIVATE KEY-----\\nYOUR_KEY_HERE\\n-----END ",
+                "PRIVATE KEY-----\"\n"
+            )
+            .as_bytes(),
+            false,
+        ),
+        (b"SMTP_PASS=synthetic-only-value\nAPP_KEY=synthetic-only-value\n", true),
+        (
+            b"SSO_BYPASS=synthetic-only-value\nSTRIPE_PUBLISHABLE_KEY=synthetic-only-value\nSSH_KEY=~/.ssh/id_ed25519\n",
+            false,
+        ),
+        // Where a key file is, and the name of the variable a key is in.
+        (
+            b"GOOGLE_APPLICATION_CREDENTIALS=credentials.json\nSSH_KEY=/app/.ssh/id_rsa\nTLS_KEY=certs/server.key\nenv_key = \"AZURE_OPENAI_API_KEY\"\n",
+            false,
+        ),
+        (
+            b"REPO_URL=https://synthetic-only-value:x-oauth-basic@git.example.invalid/app\n",
+            true,
+        ),
+        // Keys that hold an ID or a setting, and key files from the current
+        // folder or by name.
+        (
+            b"GPG_KEY=0123456789ABCDEF\nSORT_KEY=created_at_desc\nVITE_STORAGE_KEY=app_state_v2\n",
+            false,
+        ),
+        (
+            b"SIGNING_KEY=keys/signing\nPRIVATE_KEY=.ssh/id_ed25519\nPRIVATE_KEY=id_ed25519_work\nPRIVATE_KEY='$HOME/.ssh/id_rsa'\n",
+            false,
+        ),
+        // A password in capitals is not another variable's name.
+        (b"DB_PASSWORD=HUNTER2_HUNTER2\n", true),
     ],
 };
 
@@ -109,6 +171,12 @@ pub const SHELL_SECRET: Rule = Rule {
             b"make deploy DEPLOY_TOKEN=synthetic-only-value\necho 'cd app && DB_PASSWORD=synthetic-only-value ./run'\n",
             false,
         ),
+        (b"MYSQL_PWD=synthetic-only-value mysql -h db.example.invalid\n", true),
+        (b"export OLDPWD=/Users/fixture/project\nPWD=synthetic-only-value ls\n", false),
+        (
+            b"DATABASE_URL=postgres://fixture:synthetic-only-value@db.example.invalid/app psql\n",
+            true,
+        ),
     ],
     ..ENV_SECRET
 };
@@ -139,7 +207,12 @@ fn assignments(bytes: &[u8], shell: bool) -> Hits {
             });
             let first = table
                 .is_none()
-                .then(|| secret_assignment(raw, shell))
+                .then(|| {
+                    secret_assignment(raw, shell).or_else(|| {
+                        let rest = &text[raw.as_ptr() as usize - start..];
+                        multiline_key(raw, rest, shell)
+                    })
+                })
                 .flatten();
             // A shell line can give a command several variables, or run
             // several commands. Each assignment after the first is read too.
@@ -173,9 +246,20 @@ fn assignments(bytes: &[u8], shell: bool) -> Hits {
 }
 
 /// The variable name and the value, if this line assigns a literal to a
-/// secret-named variable. In a `shell` file the value is one word and a
-/// command may follow it; in a settings file it runs to the end of the line.
+/// secret-named variable.
 fn secret_assignment(raw: &str, shell: bool) -> Option<(&str, &str)> {
+    let (name, value) = assignment(raw, shell)?;
+    // Codex writes a server's variables on one line: env = { "NAME" = "value" }
+    if let Some(table) = value.trim().strip_prefix('{') {
+        return inline_table_pairs(table).find_map(|(name, value)| secret(unquoted(name), value));
+    }
+    secret(name, value)
+}
+
+/// The variable name and the value as the line gives them. In a `shell`
+/// file the value is one word and a command may follow it; in a settings
+/// file it runs to the end of the line.
+fn assignment(raw: &str, shell: bool) -> Option<(&str, &str)> {
     let mut line = raw.trim();
     // zsh extended history: ": <time>:<duration>;command"
     if let Some(rest) = line.strip_prefix(": ") {
@@ -204,11 +288,7 @@ fn secret_assignment(raw: &str, shell: bool) -> Option<(&str, &str)> {
                     .map(|(name, v)| (unquoted(name), v))
             })?,
     };
-    // Codex writes a server's variables on one line: env = { "NAME" = "value" }
-    if let Some(table) = value.trim().strip_prefix('{') {
-        return inline_table_pairs(table).find_map(|(name, value)| secret(unquoted(name), value));
-    }
-    secret(name, value)
+    Some((name, value))
 }
 
 pub(super) fn inline_table_pairs(table: &str) -> impl Iterator<Item = (&str, &str)> {
@@ -263,13 +343,45 @@ fn is_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
 }
 
-/// The pair, if the name says it holds a secret and the value is a literal.
+/// The name and the secret, if the name says it holds one and the value is
+/// a literal, or the value is a URL with a password or a private key, which
+/// are secrets under any name. For a URL, the secret is its password.
 fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
     if !is_name(name) {
         return None;
     }
+    let literal = shell_literal(value);
+    if let Some(password) = literal.and_then(url_password) {
+        return Some((name, password));
+    }
+    if let Some(key) = scalar_literal_by(value, |value, _| private_key_value(value)) {
+        return Some((name, key));
+    }
+    let value = literal?;
+    (secret_name(name)
+        && value.len() >= 8
+        && plausible(value)
+        && !path_value(value)
+        && !variable_name(value))
+    .then_some((name, value))
+}
+
+/// A value that names another variable a secret is in, as "OPENAI_API_KEY"
+/// does: capitals, digits and an "_", in a name that says it holds a
+/// secret. A password in capitals, such as "HUNTER2_HUNTER2", is none.
+fn variable_name(value: &str) -> bool {
+    secret_name(value)
+        && value.starts_with(|c: char| c.is_ascii_uppercase())
+        && value.contains('_')
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// Whether the name says the variable holds a secret.
+fn secret_name(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    let secret_name = [
+    ([
         "PASSWORD",
         "PASSWD",
         "SECRET",
@@ -282,18 +394,115 @@ fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
         "PRIVATEKEY",
         "SECRETKEY",
         "CREDENTIAL",
+        "CREDENTIALS",
+        "SIGNING_KEY",
+        "SIGNINGKEY",
+        "ENCRYPTION_KEY",
+        "ENCRYPTIONKEY",
     ]
     .iter()
     .any(|word| upper.ends_with(word) || upper.contains(&format!("{word}_")))
+        // Laravel's key. Other names that end in "KEY", such as "GPG_KEY",
+        // "SORT_KEY" or "PUSHER_APP_KEY", often hold an ID or a setting.
+        || upper == "APP_KEY"
+        || ["PASS", "PWD"].iter().any(|word| last_word(name, word)))
+        && !public_key_name(&upper)
         // Settings about secrets, not secrets, and where a service is.
         && ![
             "_LENGTH", "_FILE", "_PATH", "_URL", "_URI", "_ENDPOINT", "_NAME", "_ID", "_TTL",
             "_EXPIRY", "_VAR",
         ]
         .iter()
-        .any(|suffix| upper.ends_with(suffix));
-    let value = shell_literal(value)?;
-    (secret_name && value.len() >= 8 && plausible(value)).then_some((name, value))
+        .any(|suffix| upper.ends_with(suffix))
+}
+
+/// Whether `word`, in capitals, is the last word of `name`: after "_" or
+/// ".", or as a capital after a small letter, as in "SMTP_PASS", "smtp.pass"
+/// and "smtpPass". "BYPASS", "MONKEY" and the shell's "OLDPWD" end in none.
+fn last_word(name: &str, word: &str) -> bool {
+    let at = name.len().saturating_sub(word.len());
+    let (Some(head), Some(tail)) = (name.get(..at), name.get(at..)) else {
+        return false;
+    };
+    tail.eq_ignore_ascii_case(word)
+        && (head.ends_with(['_', '.'])
+            || (tail.starts_with(|c: char| c.is_ascii_uppercase())
+                && head.ends_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())))
+}
+
+/// The password in a URL's "user:password@host", when it is written out:
+/// not a variable, a template or a placeholder. In GitHub's
+/// "token:x-oauth-basic@host" the token is where the user goes.
+fn url_password(value: &str) -> Option<&str> {
+    let (_, rest) = value.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let (userinfo, host) = authority.rsplit_once('@')?;
+    let (user, password) = userinfo.split_once(':')?;
+    let password = if password.eq_ignore_ascii_case("x-oauth-basic") {
+        user
+    } else {
+        password
+    };
+    // A URL has "<", ">", "{" and "}" only encoded, so these mark a template.
+    (!host.is_empty()
+        && !password.starts_with('$')
+        && !password.contains(['<', '>', '{', '}'])
+        && password.len() >= 8
+        && plausible(password))
+    .then_some(password)
+}
+
+/// A private key in PEM form, from its header on, where what follows the
+/// header is not a placeholder. Its line breaks may be written "\n".
+fn private_key_value(value: &str) -> bool {
+    let Some((label, body)) = value
+        .strip_prefix("-----BEGIN ")
+        .and_then(|rest| rest.split_once("-----"))
+    else {
+        return false;
+    };
+    let Some((body, _)) = body.split_once(&format!("-----END {label}-----")) else {
+        return false;
+    };
+    label.ends_with("PRIVATE KEY") && body.len() >= 16 && plausible(body)
+}
+
+/// A private key over several lines inside quotes, as a .env file can hold
+/// one, if `raw` opens it: the name, and the key up to where the quote
+/// closes. `rest` is the file from `raw` on. Only lines a key has are read
+/// past `raw`: base64, an encrypted key's header fields, a blank line and its
+/// last line. The line that opens the next key in the same quote ends the
+/// read, so a line is read for at most one key in each kind of quote.
+fn multiline_key<'a>(raw: &'a str, rest: &'a str, shell: bool) -> Option<(&'a str, &'a str)> {
+    let (name, value) = assignment(raw, shell)?;
+    let value = value.trim();
+    let quote = value.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
+    let opened = &value[1..];
+    if !is_name(name) || !opened.starts_with("-----BEGIN ") || opened.contains(quote) {
+        return None;
+    }
+    let start = (opened.as_ptr() as usize).checked_sub(rest.as_ptr() as usize)?;
+    let mut at = raw.len();
+    for line in rest.get(at..)?.split_inclusive('\n') {
+        if let Some(close) = line.find(quote) {
+            let after = line[close + 1..].trim();
+            let key = rest.get(start..at + close)?.trim_end();
+            return ((after.is_empty() || after.starts_with('#')) && private_key_value(key))
+                .then_some((name, key));
+        }
+        let text = line.trim();
+        let of_key = text.starts_with("Proc-Type: ")
+            || text.starts_with("DEK-Info: ")
+            || text.starts_with("-----END ")
+            || text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b));
+        if !of_key {
+            return None;
+        }
+        at += line.len();
+    }
+    None
 }
 
 /// A value as a shell or .env file holds it: "$" and "`" are expanded
@@ -805,5 +1014,214 @@ mod tests {
         }
         let whole = secret_assignment("API_TOKEN=synthetic-only-value", false);
         assert_eq!(whole.map(|found| found.1), Some("synthetic-only-value"));
+    }
+
+    #[test]
+    fn more_names_that_hold_a_secret_are_read() {
+        for (line, want) in [
+            ("SMTP_PASS=synthetic-only-value", Some("SMTP_PASS")),
+            ("smtp.pass=synthetic-only-value", Some("smtp.pass")),
+            ("smtpPass=synthetic-only-value", Some("smtpPass")),
+            ("MYSQL_PWD=synthetic-only-value", Some("MYSQL_PWD")),
+            (
+                "GOOGLE_CREDENTIALS=synthetic-only-value",
+                Some("GOOGLE_CREDENTIALS"),
+            ),
+            (
+                "JWT_SIGNING_KEY=synthetic-only-value",
+                Some("JWT_SIGNING_KEY"),
+            ),
+            (
+                "ENCRYPTION_KEY=synthetic-only-value",
+                Some("ENCRYPTION_KEY"),
+            ),
+            (
+                "APP_KEY=base64:c3ludGhldGljLW9ubHktdmFsdWU=",
+                Some("APP_KEY"),
+            ),
+            ("signingKey=synthetic-only-value", Some("signingKey")),
+            // Words that end in the same letters, and the shell's own
+            // variables for folders.
+            ("BYPASS=synthetic-only-value", None),
+            ("SSO_BYPASS=synthetic-only-value", None),
+            ("COMPASS=synthetic-only-value", None),
+            ("MONKEY=synthetic-only-value", None),
+            ("PWD=synthetic-only-value", None),
+            ("OLDPWD=synthetic-only-value", None),
+            ("export OLDPWD=/Users/fixture/project", None),
+            // Keys that are public by design, and where a key file is.
+            ("STRIPE_PUBLISHABLE_KEY=synthetic-only-value", None),
+            ("JWT_PUBLIC_KEY=synthetic-only-value", None),
+            ("SSH_KEY=~/.ssh/id_ed25519", None),
+            ("DEPLOY_KEY=/Users/fixture/.ssh/deploy_key", None),
+            (
+                "GOOGLE_APPLICATION_CREDENTIALS=/Users/fixture/service.json",
+                None,
+            ),
+            ("TLS_KEY=./certs/server.key", None),
+            ("GOOGLE_APPLICATION_CREDENTIALS=credentials.json", None),
+            ("GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json", None),
+            ("SSH_KEY=/app/.ssh/id_rsa", None),
+            ("TLS_KEY=certs/server.key", None),
+            ("SSL_KEY=/certs/tls.key", None),
+            ("JWT_KEY=/secrets/jwt.pem", None),
+            // A secret can have "/" in it, as base64 does.
+            (
+                "AWS_SECRET_ACCESS_KEY=fixture/Synthetic/OnlyValue",
+                Some("AWS_SECRET_ACCESS_KEY"),
+            ),
+            // Codex names the variable a provider's key is read from.
+            ("env_key = \"AZURE_OPENAI_API_KEY\"", None),
+            ("API_KEY_ENV=OPENAI_API_KEY", None),
+            // A password in capitals is not a variable's name.
+            ("DB_PASSWORD=HUNTER2_HUNTER2", Some("DB_PASSWORD")),
+            // Keys that are not secrets: an ID, a sort order, a storage name.
+            ("GPG_KEY=0123456789ABCDEF", None),
+            ("SORT_KEY=created_at_desc", None),
+            ("VITE_STORAGE_KEY=app_state_v2", None),
+            // A realtime service's app key is a public client ID.
+            ("PUSHER_APP_KEY=abcdefghij0123456789", None),
+            // Where a key file is, from the current folder or by its name.
+            ("SSH_KEY=.ssh/id_ed25519", None),
+            ("SSH_KEY=id_ed25519_work", None),
+            ("SSH_KEY='$HOME/.ssh/id_rsa'", None),
+            ("PRIVATE_KEY=.ssh/id_ed25519", None),
+            ("PRIVATE_KEY=id_ed25519_work", None),
+            ("PRIVATE_KEY='$HOME/.ssh/id_rsa'", None),
+            ("SIGNING_KEY=keys/signing", None),
+            // A password in small letters with a "/" is not a path.
+            ("DB_PASSWORD=synthetic/only-value", Some("DB_PASSWORD")),
+        ] {
+            assert_eq!(
+                secret_assignment(line, true).map(|found| found.0),
+                want,
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_password_in_a_url_is_found_under_any_name() {
+        for (line, name) in [
+            (
+                "DATABASE_URL=postgres://fixture:synthetic-only-value@db.example.invalid/app",
+                "DATABASE_URL",
+            ),
+            (
+                "DATABASE_URL=\"postgres://fixture:synthetic-only-value@db.example.invalid:5432/app?sslmode=require\"",
+                "DATABASE_URL",
+            ),
+            (
+                "REDIS_URL=redis://:synthetic-only-value@cache.example.invalid:6379",
+                "REDIS_URL",
+            ),
+            (
+                "database_url = \"postgres://fixture:synthetic-only-value@db.example.invalid/app\"",
+                "database_url",
+            ),
+            (
+                "export DATABASE_URL='postgres://fixture:synthetic-only-value@db.example.invalid/app'",
+                "DATABASE_URL",
+            ),
+        ] {
+            for hits in [env_hits(line.as_bytes()), shell_hits(line.as_bytes())] {
+                let hits = hits.unwrap();
+                assert_eq!(hits.len(), 1, "{line}");
+                assert_eq!(hits[0].subject.as_deref(), Some(name), "{line}");
+                let span = hits[0].span.clone().expect("a value span");
+                assert_eq!(line.get(span), Some("synthetic-only-value"), "{line}");
+            }
+        }
+        // A value given to one command, as shell history keeps it.
+        let line = ": 1700000000:0;DATABASE_URL=postgres://fixture:synthetic-only-value@db.example.invalid/app psql";
+        let hits = shell_hits(line.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            line.get(hits[0].span.clone().unwrap()),
+            Some("synthetic-only-value")
+        );
+        // GitHub's form puts the token where the user goes.
+        for line in [
+            "REPO_URL=https://synthetic-only-value:x-oauth-basic@git.example.invalid/app",
+            "REPO_URL=https://synthetic-only-value:X-OAuth-Basic@git.example.invalid/app",
+        ] {
+            let hits = env_hits(line.as_bytes()).unwrap();
+            assert_eq!(hits.len(), 1, "{line}");
+            assert_eq!(
+                line.get(hits[0].span.clone().unwrap()),
+                Some("synthetic-only-value"),
+                "{line}"
+            );
+        }
+        for line in [
+            "DATABASE_URL=postgres://db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:${DB_PASSWORD}@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:$DB_PASSWORD@db.example.invalid/app",
+            "DATABASE_URL='postgres://fixture:$DB_PASSWORD@db.example.invalid/app'",
+            "DATABASE_URL=postgres://fixture:<password>@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:{{password}}@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:changeme@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:your_password@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:short@db.example.invalid/app",
+            "DATABASE_URL=postgres://fixture:synthetic-only-value@/app",
+            "# DATABASE_URL=postgres://fixture:synthetic-only-value@db.example.invalid/app",
+            "HOMEPAGE=https://example.invalid/@fixture:synthetic-only-value",
+        ] {
+            assert!(env_hits(line.as_bytes()).unwrap().is_empty(), "{line}");
+            assert!(shell_hits(line.as_bytes()).unwrap().is_empty(), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_private_key_in_a_value_is_found_on_one_line_or_several() {
+        let begin = concat!("-----BEGIN ", "PRIVATE KEY-----");
+        let end = concat!("-----END ", "PRIVATE KEY-----");
+        let body = "c3ludGhldGljLW9ubHktdmFsdWU";
+        let several = format!("PORT=8080\nGITHUB_APP_PEM=\"{begin}\n{body}\n{body}\n{end}\"\nAPI_URL=https://api.example.invalid\n");
+        for file in [
+            format!("PORT=8080\nJWT_PRIVATE_KEY=\"{begin}\\n{body}\\n{body}\\n{end}\\n\"\n"),
+            format!("PORT=8080\nexport JWT_PRIVATE_KEY='{begin}\\n{body}\\n{end}'\n"),
+            several.clone(),
+            several.replace('\n', "\r\n"),
+            // The closing quote on a line of its own.
+            format!("PORT=8080\nTLS_KEY='{begin}\n{body}\n{end}\n'\n"),
+        ] {
+            for hits in [env_hits(file.as_bytes()), shell_hits(file.as_bytes())] {
+                let hits = hits.unwrap();
+                assert_eq!(hits.len(), 1, "{file}");
+                assert_eq!(hits[0].line, Some(2), "{file}");
+                let value = file
+                    .get(hits[0].span.clone().expect("a value span"))
+                    .unwrap();
+                assert!(value.starts_with(begin), "{file}");
+                assert!(value.contains(end), "{file}");
+                assert!(!value.contains(['"', '\'']), "{file}");
+            }
+        }
+        // An encrypted key has header fields and a blank line.
+        let file = format!(
+            "TLS_KEY=\"{}\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00112233\n\n{body}\n{}\"\n",
+            concat!("-----BEGIN RSA ", "PRIVATE KEY-----"),
+            concat!("-----END RSA ", "PRIVATE KEY-----"),
+        );
+        assert_eq!(env_hits(file.as_bytes()).unwrap().len(), 1, "{file}");
+        let public = concat!("-----BEGIN ", "PUBLIC KEY-----");
+        for file in [
+            format!("JWT_KEY=\"{public}\\n{body}\\n-----END PUBLIC KEY-----\"\n"),
+            format!("JWT_PRIVATE_KEY=\"{begin}\\nYOUR_KEY_HERE\\n{end}\"\n"),
+            format!("JWT_PRIVATE_KEY=\"{begin}\n...\n{end}\"\n"),
+            // A quote that never closes.
+            format!("JWT_PRIVATE_KEY=\"{begin}\n{body}\n{end}\nPORT=8080\n"),
+            // Prose in between is not a key.
+            format!("JWT_PRIVATE_KEY=\"{begin}\nsee the wiki for this one\n{body}\"\n"),
+            format!("JWT_PRIVATE_KEY=\"{begin}\nTODO: paste the key here\n{end}\"\n"),
+            // The end of something else, or no end at all.
+            format!("JWT_PRIVATE_KEY=\"{begin}\\n{body}\\n-----END CERTIFICATE-----\"\n"),
+            format!("JWT_PRIVATE_KEY=\"{begin}\\n{body}\\n\"\n"),
+        ] {
+            assert!(env_hits(file.as_bytes()).unwrap().is_empty(), "{file}");
+            assert!(shell_hits(file.as_bytes()).unwrap().is_empty(), "{file}");
+        }
     }
 }

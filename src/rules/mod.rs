@@ -505,7 +505,21 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
         }
         // The lines the hits are on, in the order of the file, each once: a
         // line can hold many hits, and is copied once for them all.
-        let mut found: Vec<usize> = hits.into_iter().filter_map(|h| h.line).collect();
+        let mut found: Vec<usize> = hits
+            .into_iter()
+            .filter_map(|h| {
+                // A key in a .env file can run over several lines, each of
+                // them part of it.
+                let more = match (rule, &h.span) {
+                    ("secret.env-assignment", Some(span)) => bytes
+                        .get(span.clone())
+                        .map_or(0, |value| value.iter().filter(|b| **b == b'\n').count()),
+                    _ => 0,
+                };
+                Some(h.line?..=h.line?.checked_add(more)?)
+            })
+            .flatten()
+            .collect();
         found.sort_unstable();
         found.dedup();
         for (nth, line) in found.iter().copied().enumerate() {
@@ -653,6 +667,94 @@ fn plausible(value: &str) -> bool {
         ]
         .iter()
         .any(|p| lower.contains(p))
+}
+
+/// A name, in capitals, for a key that is public by design: one half of a
+/// key pair, or a publishable key a web page carries.
+fn public_key_name(upper: &str) -> bool {
+    [
+        "PUBLIC_KEY",
+        "PUBLICKEY",
+        "PUB_KEY",
+        "PUBKEY",
+        "PUBLISHABLE_KEY",
+        "PUBLISHABLEKEY",
+    ]
+    .iter()
+    .any(|suffix| upper.ends_with(suffix))
+}
+
+/// Where a file is, not a secret: "~/.ssh/id_ed25519", "./server.key",
+/// "$HOME/.ssh/id_rsa", a path from a folder at the root of a Mac, a name
+/// with a key or credential file's extension, an SSH key's file name such as
+/// "id_ed25519_work", or a path through folders in small letters, as in
+/// "/app/.ssh/id_rsa", ".ssh/id_ed25519" or "keys/signing". A secret seldom
+/// starts with "/" and is in small letters alone; a password can have a "/"
+/// anywhere else.
+fn path_value(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let key_file = [
+        ".json",
+        ".pem",
+        ".key",
+        ".p8",
+        ".p12",
+        ".pfx",
+        ".crt",
+        ".der",
+        ".jks",
+        ".keystore",
+        ".gpg",
+        ".asc",
+    ]
+    .iter()
+    .any(|extension| lower.ends_with(extension));
+    let small = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
+    };
+    let small_path = |path: &str| path.contains('/') && path.split('/').all(small);
+    let rooted = value.strip_prefix('/').is_some_and(small_path);
+    // From the current folder, a path needs more than small letters to tell
+    // it from a password: a hidden folder, a folder keys are kept in, or an
+    // SSH key's file name.
+    let relative = small_path(value)
+        && value.split('/').next().is_some_and(|first| {
+            first.starts_with('.') || ["keys", "certs", "secrets", "ssl", "tls"].contains(&first)
+        });
+    let ssh_key_file = value.rsplit('/').next().is_some_and(|name| {
+        small(name)
+            && ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]
+                .iter()
+                .any(|key| name.starts_with(key))
+    }) && value.split('/').all(small);
+    key_file
+        || rooted
+        || relative
+        || ssh_key_file
+        || [
+            "~/",
+            "./",
+            "../",
+            "$HOME/",
+            "${HOME}/",
+            "/Users/",
+            "/Volumes/",
+            "/private/",
+            "/var/",
+            "/tmp/",
+            "/etc/",
+            "/opt/",
+            "/usr/",
+            "/Library/",
+            "/System/",
+            "/home/",
+            "/run/",
+        ]
+        .iter()
+        .any(|start| value.starts_with(start))
 }
 
 /// Lines "name: value" or "name = value" with a literal value, where the name
@@ -1317,6 +1419,24 @@ mod rule_samples {
             let expected = serde_json::to_vec(&[[line]]).unwrap();
             assert_eq!(material(rule, file.as_bytes()), expected, "{rule}");
         }
+    }
+
+    /// A key in a .env file can run over several lines inside quotes. Only
+    /// the line that opens it was material, and that line is the same for
+    /// every key.
+    #[test]
+    fn material_for_a_key_in_a_settings_file_takes_each_of_its_lines() {
+        let of = |body: &str| {
+            let file = format!(
+                "PORT=8080\nTLS_KEY=\"-----BEGIN {0}-----\n{body}\n-----END {0}-----\"\n",
+                "PRIVATE KEY"
+            );
+            material("secret.env-assignment", file.as_bytes())
+        };
+        assert_ne!(
+            of("c3ludGhldGljLWZpcnN0LXZhbHVl"),
+            of("c3ludGhldGljLXNlY29uZC12YWx1ZQ")
+        );
     }
 
     #[test]
