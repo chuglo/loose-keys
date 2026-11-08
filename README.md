@@ -69,7 +69,7 @@ loose-keys scan --limits                  # also print what the scan can't detec
 loose-keys scan --select /Volumes/Backup  # include another folder or drive
 loose-keys scan --export report.json      # full JSON report
 loose-keys scan --feedback counts.json    # counts only, no paths
-loose-keys --list-rules                   # every rule and its advice
+loose-keys --list-rules                   # every rule and where it looks
 ```
 
 Run `loose-keys --help` for the remaining options and exit codes.

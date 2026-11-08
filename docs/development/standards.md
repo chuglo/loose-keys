@@ -878,6 +878,15 @@ vendors change their settings.
   keys. Keys past the head and key validity remain unverified. Rule tests cover
   the matching and limits; the detection corpus checks the findings and that
   fixture values and fragments do not enter CLI or engine exports.
+- A file named only by a pattern that starts with `*` (`names_loosely`) is
+  passed over with no gap when it is over 1 MiB and its rule's `candidate`
+  rejects its 4 KiB head (`check_head` in `src/scan/read.rs`). Such names are
+  common, and large logs under them would fill `not_checked` and make nearly
+  every scan partial. In practice this is `*.txt`, `*.rtf` and
+  `*_tokens.json`: the other patterns read whole (`*.env`, `*.tfvars`,
+  `*.ovpn`, `*.tfstate`) are also named by a rule that accepts any head, which
+  reads the file and reports `too-large`. No test covers it. A change updates
+  the reads limit in `docs/usage.md`.
 - Codex's MCP servers in `~/.codex/config.toml` are read line by line for
   literal HTTP headers under `http_headers`, inline or as a table of their
   own, and judged as the JSON MCP configs' headers are. `env_http_headers`

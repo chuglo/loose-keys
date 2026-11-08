@@ -52,7 +52,8 @@ Worth Reviewing has one item for a password or token the app can pick out,
 however many files it is in. Other findings, such as a private key, are not
 matched across files: the same key in two files is two items. The saved report
 and the copied summary list each finding, so their count can be higher. When
-the list is full, the Overview says so; save the report to see every finding.
+the list is full, the Overview says so; save the report to see the rest, up to
+the findings limit below.
 
 **Filter** matches each row's name, what it concerns (such as a profile or
 host) and every listed copy's path, including fixed and set-aside copies.
@@ -332,7 +333,11 @@ helper refused.
 ## Supported checks
 
 - possible password-export CSV and private-key headers recursively across your
-  home directory, regardless of extension (including renamed files);
+  home directory, regardless of extension (including renamed files). This
+  check finds a private key only near the start of a file, within its first
+  4 KiB and after nothing but blank lines, certificates or openssl's
+  attributes; one pasted under other text in a note, or written into code, is
+  not;
 - unencrypted Bitwarden JSON exports of a personal vault that hold login
   passwords;
 - Docker registry passwords and tokens stored in `~/.docker/config.json`
@@ -351,11 +356,18 @@ helper refused.
   more) and Slack and Discord webhook URLs, in the first 4 KiB of any file,
   and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars`, `secrets.toml`,
   `*.tfvars`, shell startup and history files. Stripe test-mode keys are listed
-  at low risk;
+  at low risk. Keys whose prefix does not name the service, such as Google API
+  keys starting `AIza` (including Gemini keys in that form), Notion keys
+  starting `secret_`, and Twilio, Dropbox and ElevenLabs keys, are found only
+  under a variable or setting named like a secret, in the `.env*`, shell, MCP
+  and AI tool settings files below;
 - AI agent records: the folders where Claude Code, Codex, Gemini, Cursor,
   Continue, Copilot, Cline, Roo Code, Windsurf, OpenCode and Goose keep session
   transcripts and logs, and VS Code's workspace storage, are read in full for
-  tokens, up to 256 MiB per file (`--list-rules` has each folder);
+  tokens, up to 256 MiB per file (`--list-rules` has each folder). Folders in
+  them that hold programs or caches (`extensions`, `plugins`, `packages`, `bin`,
+  `Cache`, `Code Cache`, `GPUCache`) are not: their files are checked like any
+  other file;
 - variables named like secrets and set to a value in `.env*` and shell files;
 - cloud and infrastructure: Google service-account key files anywhere, kubeconfig
   credentials in `~/.kube` and in a kubeconfig saved anywhere else, secrets in
@@ -367,22 +379,26 @@ helper refused.
   `.pypirc`, Poetry, Cargo, RubyGems, Bundler, Composer, Maven, Gradle, and
   passwords inside URLs in Git and pip config;
 - other developer files: `.netrc`, `.pgpass`, `.my.cnf`, GnuPG private keys,
-  FileZilla and DBeaver saved passwords, VPN profiles with an embedded key, and
-  the stored sign-ins of about twenty deploy and AI command-line tools;
+  FileZilla and DBeaver saved passwords, OpenVPN profiles (`.ovpn`) with a
+  private key inside, and the stored sign-ins of about thirty deploy and AI
+  command-line tools (listed, not flagged);
 - literal secrets in MCP server configs and AI tool settings files, including
   ones written with comments (Zed, VS Code, opencode), and OAuth token files
   such as mcp-remote keeps in `~/.mcp-auth` (listed, not flagged);
-- browsers: whether Chromium-family and Firefox-family profiles hold saved
-  passwords or payment cards. Only a count is read from the database file,
-  and nothing is decrypted; a table longer than one page is counted as
-  "many". A database the scanner cannot read (truncated, UTF-16, WITHOUT
-  ROWID tables or overflow pages) is listed as not checked, as is one with
-  pending changes in its `-wal` or `-journal` file, which an open browser may
-  have. A leftover journal can keep it that way after the browser closes. A
-  crafted file, or damage in a part the reader skips, can still give a wrong
-  count;
-- crypto wallets: listed wallet extensions and desktop wallet folders (reported
-  by presence, without reading their contents), and recovery phrases written
+- browsers: whether profiles of Chrome (and Chrome Beta and Canary), Brave,
+  Edge, Arc, Chromium, Vivaldi, Opera, Opera GX and Yandex hold saved passwords
+  or payment cards, and whether Firefox, Waterfox, LibreWolf and Zen profiles
+  hold saved passwords. Other browsers and channels are not checked. Only a
+  count is read from the database file, and nothing is decrypted; a table
+  longer than one page is counted as "many". A database the scanner cannot
+  read (truncated, UTF-16, WITHOUT ROWID tables or overflow pages) is listed as
+  not checked, as is one with pending changes in its `-wal` or `-journal` file,
+  which an open browser may have. A leftover journal can keep it that way after
+  the browser closes. A crafted file, or damage in a part the reader skips, can
+  still give a wrong count;
+- crypto wallets: listed wallet extensions in those Chromium browsers' profiles
+  and desktop wallet folders (reported by presence, without reading their
+  contents), and recovery phrases from the English BIP-39 word list written
   into files. The phrase heuristic skips sorted word lists, repetitive
   phrases and two common public 12-word BIP-39 test vectors; it does not
   validate checksums or wallet use;
@@ -391,13 +407,21 @@ helper refused.
 
 `loose-keys --list-rules` prints every rule and where it looks.
 
-Each finding has a risk level and numbered steps for dealing with it. The
-summary also says what a finding concerns, such as the AWS profile or registry
-host; the JSON report leaves that out and names only the kind of token. Not
-covered: browser cookies and sessions, Safari, Notes, the Keychain, images and
-password-manager vaults. The rules for known files read simple literal fields
-at the listed paths: not full YAML or INI syntax, not a config kept somewhere
-else, and not a reference or an environment placeholder.
+Each finding has a risk level and numbered steps for dealing with it. High
+means the credential works from any computer until it is revoked, medium that
+it needs more to use or unlocks less, and low that it is protected, short-lived
+or for testing only. `--fail-on-open` counts only what is worth reviewing: a
+stored sign-in counts once its file's permissions let other users read it, and
+a test-mode key never counts. The summary also says what a finding concerns,
+such as the AWS profile or registry host; the JSON report leaves that out and
+names only the kind of token. Not covered: browser cookies and sessions,
+Safari, Notes, the Keychain, images and password-manager vaults. The rules for
+known files read simple literal fields at the listed paths: not full YAML or
+INI syntax, not a config kept somewhere else, and not a reference or an
+environment placeholder. In `.env*`, shell, MCP and AI tool settings files, a
+value that only its name marks as secret is not reported when it is short or
+looks like a sample or placeholder; neither is a note password that is a single
+lowercase word.
 
 The scanner does not execute credential helpers, contact services or show
 secret values. It does not follow symlinks, with one exception: when a known
@@ -431,35 +455,56 @@ macOS may ask then. Where a repository's
 `.git` is a file pointing elsewhere (a worktree or submodule) or a link, it is
 not followed. Repeat `--select DIR` to add folders or mounted drives;
 explicitly selecting an excluded directory scans that root, while exclusions
-still apply below it. Relative paths are accepted, but `..` and symlinked path
-components are not followed. Where your home folder is reached through a link,
-a path through that link, as the shell writes `~/notes`, names the folder in
-your home.
+still apply below it. Relative paths are accepted, but a path containing `..`
+is refused, and a folder reached through a link is listed as not checked: give
+its real path. Where your home folder is reached through a link, a path through
+that link, as the shell writes `~/notes`, names the folder in your home.
 
 Both text and JSON reports state the requested roots, exclusions and detection
-limits. Access failures, cloud-only candidates, unavailable roots and work
-limits appear under `not_checked` and make the scan partial. The limits:
+limits. A place the scan could not check appears under `not_checked` with one
+of these reasons, and makes the scan partial:
+
+- `permission-denied`: file permissions or macOS privacy settings blocked it.
+  Allow access, then scan again;
+- `unreadable`: reading failed, the file changed while it was read, or it is a
+  known file in a form the scanner does not read. A browser database with
+  pending changes is listed this way: quit the browser and scan again. So is a
+  selected folder that is missing or reached through a link;
+- `too-large`: the file is over a read limit below;
+- `cloud-only-file`: the folder holds files kept only in the cloud, which are
+  not downloaded. Download them, then scan again;
+- `scan-limit`: a work limit below was reached;
+- `symlink`: a known sign-in location is a link that is not followed, as
+  described above.
+
+The limits:
 
 - discovery: 64 folder levels, 10,000 entries per folder and 100,000 entries
   per root. It is breadth-first, with the home's `Library`, `Movies`, `Music`
   and `Pictures` last, so one large folder cannot use up the budget before the
   rest is seen;
-- reads: 4 KiB for a header, 1 MiB for a JSON or config file;
-- matches: each rule lists a fixed number of matches per file. When more are
+- reads: 4 KiB for a header, and 1 MiB for a file read whole, such as a
+  config, shell history, note, Terraform state or browser database. A larger
+  one is a `too-large` gap, except that a `.txt`, `.rtf` or `*_tokens.json`
+  file over 1 MiB with nothing matching in its first 4 KiB is passed over, not
+  listed as not checked;
+- matches: some rules list a fixed number of matches per file. When more are
   omitted, the listed findings stay and a `scan-limit` gap makes the scan
   partial;
+- findings: a scan in the app stops at 4096 findings, and a `scan-limit` gap
+  makes it partial. The command line has no such limit;
 - agent records: 16 levels deep, 50,000 entries per tree, 256 MiB per file
   and 50 different tokens listed per file. A larger file is a `too-large`
   gap, and a record with more tokens a `scan-limit` gap. A deeper folder is
   reported once; added as its own root, only the first 4 KiB of its files are
   read;
 - time: the app stops a scan after 30 seconds, once the file it is reading is
-  finished, or when you press **Stop**, and gives one agent record at most 60
-  seconds. The command line has no time limit: stop it with Control-C.
+  finished, or when you press **Stop Scan**, and gives one agent record at most
+  60 seconds. The command line has no time limit: stop it with Control-C.
 
 These are work limits: a slow filesystem call can still hold a scan. Known
 credential locations are checked before discovery and keep their own limits.
-If results show a work limit, select an omitted subfolder as another root:
-each `--select` root gets its own budget and depth start. `scan --limits`
-prints what is not detected.
+If results show a work limit, add an omitted subfolder as another root, with
+`--select` or **Add Folder or Drive…** in Settings: each root gets its own
+budget and depth start. `scan --limits` prints what is not detected.
 
