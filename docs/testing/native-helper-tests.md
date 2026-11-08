@@ -21,8 +21,10 @@ unlocked screen, and `TMPDIR` set to a scratch folder with no link in its path
 Accessibility in the guest's System Settings and, if macOS asks, approve the
 Login Items entry.
 
-Use a fresh clone for each suite, set up as in [the macOS guest](guest.md):
-the runner refuses existing app state, `.aws`, a running app or helper, or a
+Use a fresh clone of `lk-sip-base` for each suite, described in [Repeatable
+release checks](guest.md#repeatable-release-checks), with the bundle and
+sources copied in as in [Setting it up](guest.md#setting-it-up): the runner
+refuses existing app state, `.aws`, a running app or helper, or a
 registered helper. Do not rebuild or replace the bundle during a run.
 
 ## Run
@@ -51,16 +53,11 @@ when Tart starts the harness. It presses only Don't Allow and records a fixed
 note, never dialog text. The fixture is in `.aws`, so these permissions are
 unnecessary. An unexpected prompt is left unanswered and the existing action
 deadline fails; no permission database is edited and no grant is added.
-The polling pause runs the main run loop so a newly launched dialog process
-appears in `NSWorkspace.runningApplications`, as required by
-[AppKit](https://developer.apple.com/documentation/appkit/nsworkspace/runningapplications).
-The twenty-second action deadline is unchanged.
 
-Without this handling, the app waits in Preparing Folder Access and disables
-Scan Automatically. The prompt wording and responsible-client attribution
-were checked on the macOS 26.6.2 guest. Other macOS versions and non-English
-dialogs remain unverified; an unmatched request must fail rather than receive
-a guessed answer.
+The prompt wording and responsible-client attribution were checked on the
+macOS 26.6.2 guest. Other macOS versions and non-English dialogs remain
+unverified; an unmatched request must fail rather than receive a guessed
+answer.
 
 `results.json` in the work folder records PASS, FAIL, BLOCKED or NOT RUN for
 each case, never the review store, its key or fixture values. Exit 0 means
@@ -69,8 +66,6 @@ prerequisite. Keep a failed run's work folder and report it along with any
 later pass. If cleanup fails or the run is killed, do not reuse the guest or
 say the helper is off: stop the guest, keep the work folder and reset the
 clone.
-
-`cargo test` runs the runner's self-tests, which need no guest.
 
 ## Limits
 

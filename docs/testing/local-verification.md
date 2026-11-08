@@ -175,8 +175,10 @@ sample window check starts first in a headless guest and runs alongside the
 others, which run one at a time; it builds from its own copy of the sources
 inside the guest. Ctrl-C stops it and waits while it stops its guest. It keeps
 going after a failure, exits 1 if any check failed and prints how long each
-check took. Each check's log is in the folder it names at the end. The
-shipped-app and native-helper guest checks are not in it.
+check took. Each check's log is in the folder it names at the end. A window
+check that ran leaves a stopped clone, named on the `VM:` line of `window.log`
+in that folder; delete it after reporting. The shipped-app and native-helper
+guest checks are not in it.
 
 The harness self-test and the window check are skipped when none of the files
 they use differ from `origin/main`, which passed this script before it was

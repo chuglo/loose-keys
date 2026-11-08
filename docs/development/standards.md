@@ -53,16 +53,16 @@ own. Numbers in brackets refer to the sources at the end.
 
 ## Unsafe code
 
-- `unsafe` has two uses here: system calls on file descriptors
-  (`src/fsutil.rs`, `gui/src/review.rs`) and the C interface to the window and
+- `unsafe` has two uses here: system calls, mostly on file descriptors
+  (`src/fsutil.rs`, `gui/src/review.rs`), and the C interface to the window and
   the macOS bridge (`gui/src/lib.rs`, `gui/src/agent.rs`). It is not used for
   speed or to get around the borrow checker. [8][9]
 - New code: every `unsafe` block has a `// SAFETY:` comment directly above it
   that says why this call's requirements hold here, not what the call does.
   `// SAFETY: openat returned a new owned descriptor.` is the form. Keep one
   operation to a block where you can, so the comment makes one claim. Older
-  blocks in `fsutil.rs` and `review.rs` lack comments. Add one when you
-  change such a block. [10]
+  blocks in `fsutil.rs`, `review.rs`, `agent.rs` and `gui/src/lib.rs` lack
+  comments. Add one when you change such a block. [10]
 - A `pub unsafe fn` has a `# Safety` section saying what the caller must
   guarantee, as `ch_call` and `ch_free` do. Clippy already requires it.
 - Every file descriptor has one owner. Wrap the result of `openat` in
@@ -81,7 +81,9 @@ own. Numbers in brackets refer to the sources at the end.
   return or a caught panic then cannot leave one held. A `Drop` must not
   panic. [8]
 - The code is edition 2021 but uses the spellings edition 2024 requires:
-  `unsafe extern "C" { }` and `#[unsafe(no_mangle)]`. Keep to them. [7]
+  `unsafe extern "C" { }` and `#[unsafe(no_mangle)]`. Keep to them. The one
+  exception is the plain `extern "C"` block of access-list functions in
+  `src/fsutil.rs`. [7]
 
 ## The C interface
 
@@ -121,17 +123,22 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
 - The window never supplies a path to act on. It sends a finding's index or
   id. The engine looks the path up, checks it again and returns it
   (`item_path`: a plain printable name, its folder opened without following
-  links, never as root). A link is returned only if `rules::known_link` lists
-  it. A new file or link action keeps this shape.
+  links, never as root). An issuer's page goes through `open_link`, which
+  returns the URL only if `rules::known_link` lists it; `AppModel.openLink`
+  then opens it with `NSWorkspace`. A new file or link action keeps this
+  shape.
 - Fixed pages open without the engine: System Settings at Notifications,
   Files & Folders and Login Items, and GitHub's page for the latest release.
   None has anything from a scan in it. Login Items opens through
   `AppModel.openLoginItems`, the others through `AppModel.openURL`; the
   window check replaces both, so that it opens nothing on the Mac running it.
+  It does not replace `openLink` and presses no button that opens an
+  issuer's page.
 - `set_monitoring` does not take an approved helper registration as proof
   that its launchd job is loaded. On new consent it unregisters that
-  registration and registers again, with no store or app lock held across
-  either native call. The bridge waits for
+  registration and registers again, with no store lock held across either
+  native call; only `app_login` is, as "Locks, threads and waits" says. The
+  bridge waits for
   [`unregisterWithCompletionHandler:`](https://developer.apple.com/documentation/servicemanagement/smappservice/unregister(completionhandler:)),
   because synchronous unregister does not wait for the old process to exit.
   An error or a ten-second timeout stops the sequence, and a late completion
@@ -146,8 +153,8 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   process of the person's, other than the one asking, has the number the
   helper saved when it started and runs the app's program: the file
   `proc_pidpath` gives for it is the asking process's own, by device and
-  inode (`helper_running`). Nothing clears that number when the helper ends;
-  before, any process later given it read as the helper. Test:
+  inode (`helper_running`). Nothing clears that number when the helper ends,
+  so otherwise any process later given it would read as the helper. Test:
   `only_this_program_at_the_saved_number_is_the_helper_running`, with an
   unrelated process and a suspended copy of the test program. Not covered:
   another process of the app's program given the number reads as the
@@ -218,7 +225,9 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   kind `arm` last let through, so a pause or a change of consent never ends a
   scan the person started.
 - The atomics are `AtomicBool` flags, such as `cancel` and the scanning
-  flag, that hand over no other data, and all use `SeqCst`. Keep to that. Data
+  flag, and two values that stand alone (`PERMISSION`, an `AtomicU8`, and
+  `Agent.unsaved`, an `AtomicU32`). None hands over other data, and all use
+  `SeqCst`. Keep to that. Data
   another thread reads goes through a `Mutex`, `Condvar` or channel, never a
   flag set after writing it. A weaker ordering is a change of its own, with
   the reasoning in a comment. [15]
@@ -281,6 +290,18 @@ The threats are a local user racing a root run with links, and hostile files
   from the open file, not from the path a second time. `read_config` compares
   the size before and after reading. A path can be swapped between two calls;
   a handle cannot. [5]
+- Each read and each loop over scanned data is bounded, so one huge or
+  endless file, or an enormous tree, cannot stall a scan or exhaust its
+  memory. `fsutil` bounds each read by the size it is given (`HEADER` and
+  `CONFIG_MAX` in `src/scan.rs`), and agent records have `STREAM_MAX`,
+  `TREE_ENTRIES` and `TREE_DEPTH`. Discovery has a depth limit and entry
+  budgets per folder and per root (`src/scan/discovery.rs`,
+  `run_budgeted`), and a scan in the app caps its findings and
+  `not_checked` rows (`Scan::halted`, `Scan::gap`). A traversal limit
+  that is reached is a `scan-limit` gap, so a cut-short scan is never shown
+  as complete. The matcher caps are under
+  [The shared scanner crate](#the-shared-scanner-crate), and the numbers a
+  person relies on in [usage](../usage.md#supported-checks).
 - A presence check outside `fsutil` uses `std::fs::symlink_metadata`.
   `Path::exists`, `is_file`, `is_dir` and `fs::metadata` follow links. Treat
   the answer as a hint: whatever is read next still goes through `fsutil`.
@@ -290,14 +311,14 @@ The threats are a local user racing a root run with links, and hostile files
   not add another.
   A wallet extension's storage in a browser profile is a known location too:
   the scan, a check of changes and a recheck resolve it this way before the
-  `symlink_metadata` that tells it is there. Before, that call followed a
+  `symlink_metadata` that tells it is there; that call alone would follow a
   linked `Local Extension Settings` wherever it led, also as root, and
-  reported a wallet in the home with no gap. A profile that is a link is
+  report a wallet in the home with no gap. A profile that is a link is
   looked in as for its sign-ins, and a check of changes finds the storage
   at the real place a link in the browser's folder leads to, as
-  `linked_targets` finds a file in a profile. Before, a linked profile was
-  passed over with no gap. An entry of the browser's folder that is not a
-  folder is looked in only if it is a link that leads to one: it is
+  `linked_targets` finds a file in a profile; otherwise a linked profile
+  would be passed over with no gap. An entry of the browser's folder that is
+  not a folder is looked in only if it is a link that leads to one: it is
   resolved once with `through_links`, and of a link out of the home folder
   only whether it leads to a folder is asked, by one `fs::metadata`, for
   `targeted` to give the gap below it. A link to a file, as Chrome's
@@ -312,9 +333,8 @@ The threats are a local user racing a root run with links, and hostile files
   the home folder or the scan runs as root, where the text report and the
   window say that no link is followed; `permission-denied` or `unreadable`
   when it cannot be resolved, as when it loops or passes through a folder
-  that cannot be opened. Before, all of these were `symlink`, said to leave
-  the home folder. A place below a link to a file is not there and is no
-  gap. Tests: `links_resolve_only_to_places_inside_home`,
+  that cannot be opened. A place below a link to a file is not there and is
+  no gap. Tests: `links_resolve_only_to_places_inside_home`,
   `a_link_that_cannot_be_resolved_is_not_said_to_leave_the_home`,
   `a_known_location_below_a_link_to_a_file_is_not_a_gap`, and
   `a_link_not_followed_as_root_is_not_said_to_leave_the_home` in
@@ -323,9 +343,10 @@ The threats are a local user racing a root run with links, and hostile files
   link. A folder given to `--select` or `--exclude` that begins with `HOME`
   as set, as the shell writes `~/notes`, has that prefix replaced by the
   resolved home (`named_folder`). Nothing else in the path is resolved, so a
-  link after the prefix is still not followed. Before, a folder excluded this
-  way was read while the report said it was left out, a selected one was an
-  `unreadable` gap, and the whole home could be excluded. Test:
+  link after the prefix is still not followed. Without the replacement, a
+  folder excluded this way would still be read though the report listed it
+  as left out, a selected one would be an `unreadable` gap, and the whole
+  home could be excluded. Test:
   `folders_named_through_a_linked_home_are_the_ones_in_it`. Not covered: a
   folder named through another link to the home, and places added in the app
   (`add_place`), which are taken as given.
@@ -346,11 +367,11 @@ The threats are a local user racing a root run with links, and hostile files
   links. The file's own name is still created relative to that handle with
   `O_EXCL | O_NOFOLLOW`, so a link at the name is refused and nothing is
   overwritten. A link someone else put on the way can only lead the export
-  into a folder the person can write to, as a new file of theirs. Before,
+  into a folder the person can write to, as a new file of theirs. So
   `--export /tmp/r.json` (on macOS `/tmp` is a link), a path through a linked
-  home and `../r.json` were all refused as `export directory: unreadable`. As
-  root the folder is still walked to from `/` without following links, and a
-  link or `..` on its path is refused by name. Tests:
+  home and `../r.json` all work. As root the folder is still walked to from
+  `/` without following links, and a link or `..` on its path is refused by
+  name. Tests:
   `export_reaches_its_folder_through_links_but_never_follows_its_name` in
   `tests/scan_scope.rs` and
   `as_root_a_link_or_dot_dot_before_the_export_folder_is_refused_by_name` in
@@ -358,6 +379,15 @@ The threats are a local user racing a root run with links, and hostile files
   root.
 - A cloud-only file (`SF_DATALESS`) is never read, because reading downloads
   it. `fsutil` checks the flag before the open and on the handle.
+- Discovery does not enter the folders in `EXCLUDED` and does not open the
+  settings files in `ASKS` (`src/scan.rs`), for the reason
+  [usage](../usage.md) gives; from the helper the prompt would come with
+  nobody at the window. The report lists the folders as excluded. Tests:
+  `other_apps_data_and_media_stores_are_not_entered`, which also checks that
+  a change there reads nothing, and
+  `exclusions_and_detection_boundaries_are_visible` in `tests/scan_scope.rs`.
+  Not verified: that the prompts are gone in a guest with SIP on, and that
+  `Music/Music` is guarded as the TV library is.
 - The app's `prepare_access` command takes only an index into Desktop,
   Documents and Downloads under the scan home. It lists the folder through
   `fsutil::list_dir` with a budget of zero entries, which is enough for macOS
@@ -435,8 +465,7 @@ The threats are a local user racing a root run with links, and hostile files
   regular file of the user's and the new folder holds none; anything else
   there is left as it is. It looks first without the locks, so a start with
   nothing to move does not wait for the store, as when the old folder stays
-  because something else is in it. A helper from before the move that is
-  still running writes to the removed old folder until it restarts.
+  because something else is in it.
 - The window names an item by its id, so the ids in `state.json` are input
   like any other number in a file. `Store::load` refuses a list in which two
   items share an id, an id is above `next_id`, or `next_id` has no room left
@@ -473,6 +502,14 @@ The threats are a local user racing a root run with links, and hostile files
   covered: a full pass under way when the list is replaced saved its
   earlier slices into the old list, so it ends without their findings, which
   return at the next pass or when their files change.
+- A decision in the app is a label. Set Aside changes what asks for
+  attention, never what a scan finds, counts or exports; a skipped folder is
+  left out of discovery and reported as left out (below). Whoever can write
+  inside a scanned folder could otherwise hide a credential, so nothing read
+  from one can set a finding aside: the organization's list enters only as a
+  forced preference (above). The CLI reads none of the app's state, so it
+  gives the same result whatever the app saved (`src/main.rs` matches
+  `--fail-on-open` against every finding worth reviewing).
 - In a folder the person stopped checking, a scan still reads the known
   locations: a rule's own file, a file directly in a folder a rule covers or
   at the top of a tree of records, and a place whose presence is the
@@ -482,9 +519,10 @@ The threats are a local user racing a root run with links, and hostile files
   other item there is not read and stays as it is. So a folder added to the
   scan inside a skipped one, or that is one, is left out with it
   (`run_budgeted`), as is one given to `--select` inside an `--exclude`.
-  Before, every item in a skipped folder stayed open after its credential
-  was removed. Tests: `a_known_file_in_a_skipped_folder_is_still_marked_fixed`
-  in `gui/src/lib.rs`,
+  Without this, every item in a skipped folder would stay open after its
+  credential was removed. Tests:
+  `a_known_file_in_a_skipped_folder_is_still_marked_fixed` in
+  `gui/src/lib.rs`,
   `what_a_scan_reads_in_a_skipped_folder_is_what_read_when_skipped_names`,
   which compares it with what a scan given the skip finds, and
   `a_folder_selected_inside_a_skipped_one_is_left_out_with_it` in
@@ -500,9 +538,9 @@ UTF-8 paths, each at most 4096 bytes, with no NUL or parent component. Load
 and save both validate it; invalid state is unavailable, not an empty scope.
 Old state defaults to no extra roots. Adding and removing roots uses the
 store transaction, so a failed save leaves the prior list and another writer's
-changes intact. The app no longer keeps a separate mutable root list. Scans
-snapshot the latest usable list and use the scanner's existing no-follow,
-bounded access; an unavailable root remains listed and produces a gap.
+changes intact. Scans snapshot the latest usable list and use the scanner's
+existing no-follow, bounded access; an unavailable root remains listed and
+produces a gap.
 The helper preserves this field when saving but does not watch these roots.
 An older app or helper can drop the field when it saves: downgrade persistence
 is not promised. Full manual reports still last only until the app quits.
@@ -511,12 +549,11 @@ Each grouped `PlaceView` includes `actionable`, computed from its original
 name before escaping. The window offers the existing file actions for an
 actionable secondary copy and sends only its existing id to `item_path`.
 The command still resolves that id afresh and validates the path and parent;
-the window never supplies a path to act on. Missing actionability in an older
-response offers no extra action. Public reports, exports and the five C
-functions are unchanged. Tests cover restart/removal, limits and legacy state,
-failed saves, shared writers, linked roots, per-copy ids and unusual names;
-the window check presses the secondary copy's control. Permission-denial
-wording names both file permissions and macOS privacy, not an assumed cause.
+the window never supplies a path to act on. Tests cover restart/removal,
+limits and legacy state, failed saves, shared writers, linked roots, per-copy
+ids and unusual names; the window check presses the secondary copy's control.
+Permission-denial wording names both file permissions and macOS privacy, not
+an assumed cause.
 
 ### Saved automatic coverage
 
@@ -526,8 +563,8 @@ owner-only store transaction. A pass in progress does not replace that snapshot;
 a failed save retries the slice. Snapshots contain no file contents or credential
 values. `UnreadPlaces` deduplicates path/reason pairs and limits them to 4096
 entries and 512 KiB serialized, within the store's existing 8 MiB limit. Reaching
-either limit marks the snapshot truncated, and the UI describes the count as a
-lower bound. The store validates these bounds on save and load.
+either limit marks the snapshot truncated, and the window says the list is
+full. The store validates these bounds on save and load.
 
 `automatic_coverage` reads this snapshot on demand without scanning or probing
 file access. It returns all retained paths escaped through `report::escape`;
@@ -549,8 +586,9 @@ subject to the guest checks, not the preview or Rust tests.
 Verification: the helper's multi-slice test checks persistence and replacement;
 store tests cover entry/byte caps and old state; the helper check searches saved state and detail output for planted file values;
 the engine check exercises path escaping; model checks cover overlapping
-reads and failures; the sample window check opens the list from Settings and
-asserts that no scan was requested.
+reads and failures; the sample window check opens the list from the Overview,
+asserts that no scan was requested and that a failed read keeps the saved
+paths, and checks that Settings neither counts nor links to the list.
 
 ### Changes in folders discovery passes over
 
@@ -561,10 +599,10 @@ not in, as `Library/Caches` holds the Claude CLI's records, the change goes no
 further up than a folder holding none, and a change at or in the location is
 checked as it is. Checking the folder reads the same known locations and
 `.git` files the change itself would, and no more. Without this, every file a
-build or `git` wrote was a change of its own; more than 5,000 at once, or more
-than 20,000 checked within a quarter of an hour, started a walk of the whole
-home, and one asked for during a walk followed it, so walks ran back to back
-while software was being built.
+build or `git` writes would be a change of its own, and more than 5,000 at
+once, or more than 20,000 checked within a quarter of an hour, start a walk of
+the whole home; one asked for during a walk follows it, so walks would run
+back to back while software is built.
 
 Verification: the helper tests send more than 5,000 changes in `target`, and
 six rounds of 4,500 in `.git`, and check that neither starts a full pass; a
@@ -577,12 +615,13 @@ build against the installed helper.
 A path a change check leaves unfinished asks for a full pass only when it was
 the first the check began, with the check's time and entries to itself. One
 begun after other paths had used part of them is reported with the paths not
-begun and checked again in a later round. Before, the long batch a helper
-replays when it starts nearly always ran out of time partway, and the path it
-was on then started a walk of the whole home. Verification: a helper test
-checks two folders that together exceed one check's entries without a full
-pass; the existing tests still show a folder too large for any check finished
-by a full pass. Not verified: how long a real start's replay takes.
+begun and checked again in a later round. Otherwise the long batch a helper
+replays when it starts, which nearly always runs out of time partway, would
+start a walk of the whole home from the path it was on. Verification: a
+helper test checks two folders that together exceed one check's entries
+without a full pass; the existing tests still show a folder too large for any
+check finished by a full pass. Not verified: how long a real start's replay
+takes.
 
 The paths a check leaves to check again go first in the next round, in the
 order they had. By name among the paths that changed since, paths that keep
@@ -594,21 +633,21 @@ A slice of a full pass whose entries run out partway through listing a folder
 passes on none of that folder's subfolders. It is the first folder the next
 slice's discovery lists, again from its start and with all of a slice's 20,000
 entries, more than the 10,000 one listing holds, and its subfolders are all
-passed on then. Before, the subfolders passed on from the cut listing were
-queued a second time by that listing and walked twice, with everything in
-them. The files of the cut listing are still checked in both slices.
-Verification: a scanner test checks that no slice leaves a folder to walk
-twice and that each file below is read once; the test of resumed passes
+passed on then. Otherwise the subfolders passed on from the cut listing
+would be queued a second time by that listing and walked twice, with
+everything in them. The files of the cut listing are still checked in both
+slices. Verification: a scanner test checks that no slice leaves a folder to
+walk twice and that each file below is read once; the test of resumed passes
 against an uninterrupted one still passes. Not verified: how much time this
 saves the installed helper on a real home.
 
 The worker remembers when each path was last checked, to space out the checks
 of a file that keeps changing. Past 20,000 such paths it forgets those whose
 wait is over, which loses no change, and asks for a full pass only if the paths
-still waiting their turn are that many. Before, another project writing about
-a thousand files every ten seconds filled it within minutes and started a walk
-of the whole home each time. Verification: a helper test checks 27,000 paths
-once each without a full pass.
+still waiting their turn are that many. Otherwise a project writing about a
+thousand files every ten seconds would fill it within minutes and start a
+walk of the whole home each time. Verification: a helper test checks 27,000
+paths once each without a full pass.
 
 The helper runs at background priority, and a build that deletes thousands of
 files at once can outrun it: FSEvents then drops events for it and says so
@@ -730,9 +769,9 @@ checker does not catch either. [8]
   else fixed), not the shown copy's own: GitHub CLI's and Vault's rules
   rate a token medium that the token rule rates high, and nothing may look
   safer than it is. A copy set aside or fixed while another needs a
-  decision does not raise it, as it did not when each copy was its own
-  row. Only the entry built for display changes; stored items, and the
-  severity each Kept decision records and is matched against, do not.
+  decision does not raise it. Only the entry built for display changes;
+  stored items, and the severity each Kept decision records and is matched
+  against, do not.
   Kept chosen in the window covers the value in one file whichever rules
   found it there: `decide_review` records a Kept for the item the window
   named and for each other copy of its value at that path
@@ -755,33 +794,27 @@ checker does not catch either. [8]
   the file as JSON decodes it. Only a header named Authorization or
   Proxy-Authorization (case-insensitive) omits a `Bearer`-style scheme.
   Environment values, even a variable named Authorization, other headers,
-  arguments and apiKey fields keep their whole literal. Applying the
-  detection heuristic's scheme stripping to these values made distinct
-  passwords share decisions and hid prefix-only rotations from review.
-  Span selection now uses the field's container before that context is lost;
-  detection and the sorted, deduplicated literal triples used for material
-  fingerprints are unchanged. Tests cover distinct-password decisions,
+  arguments and apiKey fields keep their whole literal: stripping a scheme
+  from them would make distinct passwords share decisions and hide
+  prefix-only rotations from review. Tests cover distinct-password decisions,
   rotation and revision changes through the native engine, ordinary fields,
   header case and schemes, nonmatches, mixed-field ambiguity, and exact
   material bytes. Several distinct values, colliding display names or a
   decoded value absent from the original text still leave a finding without
   a value identity. This is not a full authorization parser: unsupported
   scheme syntax and escaped values may not group with a token found by
-  another rule. No saved-state fields or migration are added; existing
-  identities are refreshed by a scan, not by loading state alone. Rules whose
-  one finding can stand for several values in a file or on a line (netrc,
+  another rule. Identities are refreshed by a scan, not by loading state
+  alone. Rules whose one finding can stand for several values in a file or
+  on a line (netrc,
   Maven, Composer, Docker, Terraform state, Codex's TOML headers), whose
   values are rebuilt rather than read as they are (pgpass), or whose value
   the token rule does not match whole (Bundler's user:password, AWS's
   secret key, Terraform's token file) record none, so a token the
-  service-token rule also finds there is still a second item. Findings,
-  lines, subjects and the JSON report are unchanged: the report was
-  compared with the previous build's on the harness home and on a home of
-  multi-value and colliding-name cases.
+  service-token rule also finds there is still a second item.
   Items saved without a digest take one on the next scan without becoming
   news (ingest compares fingerprints when one side has none). A decision
   saved on such an item, kept or about the value, still covers it by place
-  and fingerprint; a decision about the value made on the token's copy now
+  and fingerprint; a decision about the value made on the token's copy
   covers the known file's copy too. If only the known file's copy was set
   aside, the grouped entry is open in Worth Reviewing until the other copy
   is decided; Kept chosen for the entry then covers both. One item that
@@ -805,7 +838,19 @@ checker does not catch either. [8]
 - A type that holds file bytes has no `Debug` or `Display` (`Head` has
   neither), and `Incomplete`'s `Debug` shows only its fixed reason and hit
   count. What goes to the window is rebuilt field by field: `shown` clears
-  `fingerprint`, `secret` and `mount` from every item `review_items` sends.
+  `fingerprint`, `secret`, `mount` and `scope` from every item `review_items`
+  sends.
+- A finding's `subject` (a profile, host or variable name) and `detail` are
+  `#[serde(skip)]` in `report::Finding`: the window and the text summary
+  show them (each a short printable name, as `rules::label` allows; the text
+  summary also escapes them), and the JSON report, the output people pass
+  on, leaves them out, as they can name the person's accounts and hosts.
+  `token_type` is a `&'static str` from the scanner's fixed list
+  (`PROVIDERS` in `src/rules/token.rs`), so it carries nothing from a file
+  and is exported. Test:
+  `a_finding_in_the_json_report_has_only_the_fields_of_the_schema` in
+  `src/report.rs`, which sets every field and checks that none of the
+  private ones reaches the report.
 - A fingerprint is keyed: HMAC-SHA-256 under a random key made once per
   install and kept in the owner-only state. An unkeyed hash of a short secret
   can be reversed by guessing. Fingerprints are never exported, and the report
@@ -876,6 +921,13 @@ Rule samples, the detection corpus and the security harness check that finding
 text reaches the reports with no credential value in it. They do not check
 what third-party products show or how each version stores credentials, and
 vendors change their settings.
+
+A scan sees only the places and formats it knows, so nothing it outputs says
+a Mac is clean or gives it a score. For the same reason the command's exit
+code describes the run, not the findings, so a script cannot read success as
+"no credentials" or miss a partial scan. `--fail-on-open` is the one
+exception, for device-management checks that ask for it. The usage text in
+`src/main.rs` has the codes.
 
 ## The shared scanner crate
 
@@ -984,14 +1036,12 @@ format evidence, not a live Docker login check. Tokens are not decoded or
 validated. Empty values, nonstrings, whitespace and reference/masking forms
 are skipped; JSON token values otherwise retain literal shell characters.
 
-The rule still emits one finding per file, with no registry subject or value.
-It reads no new paths, runs no helpers and retains the 1 MiB no-follow config
-read limit. Detection and private fingerprint material use the same field
-selection. Auth-only material retains its old serialized pairs; token material
-also includes its field name, so field changes and token rotation cannot reuse
-an auth-only or other token field's fingerprint. Files with newly covered token
-fields can need review again under value-based decisions. Kept and managed
-decisions retain their existing rule/file scope; no state schema changes.
+The rule emits one finding per file, with no registry subject or value. It
+runs no helpers and retains the 1 MiB no-follow config read limit. Detection
+and private fingerprint material use the same field selection. Token material
+includes its field name, so field changes and token rotation cannot reuse an
+auth-only or other token field's fingerprint. Kept and managed decisions
+retain their rule/file scope.
 
 `rules::docker::tests` checks detection, rejected values, one-finding behavior,
 material identity and legacy auth-only bytes. The shared detection corpus
@@ -999,15 +1049,17 @@ checks CLI/engine exports and leaks at the three paths; the background test
 `docker_token_fingerprints_follow_tokens_not_config_layout` checks native keyed
 fingerprints for rotation, removal and permission changes. Real Docker/Podman/
 Helm login flows, helper-backed secrets, app alerts and Binance's undisclosed
-deployment credential remain unverified. No Binance-specific matcher is added.
+deployment credential remain unverified.
 
 ## Tests
 
 - Unit tests are in a `tests` module in the file they test and can reach
   private items. The scanner's are all in `src/scan/tests.rs`, and reach a
   private item of another file in `src/scan/` only if it is `pub(super)`.
-  `tests/scan_scope.rs` runs the built scanner as a child process and sees
-  what a person would: output, exit status, files. [1]
+  The engine's `background_tests.rs` and `engine_text_tests.rs` are files of
+  their own in `gui/src`, declared in `lib.rs`. `tests/scan_scope.rs` runs
+  the built scanner as a child process and sees what a person would: output,
+  exit status, files. [1]
 - A test builds its fixtures in a folder under `TMPDIR` named for the test and
   `std::process::id()`, and removes it at the end or in `Drop`. Tests run in
   parallel, so a shared name collides. `TMPDIR` has to be a real path because
@@ -1076,8 +1128,8 @@ deployment credential remain unverified. No Binance-specific matcher is added.
   check (`-D warnings`). Both manifests have a
   `[lints]` table that denies eight more things: an unsafe call inside an
   `unsafe fn` with no block of its own (`unsafe_op_in_unsafe_fn`), clippy's
-  `dbg_macro`, `todo`, `unimplemented` and `mem_forget`, and since
-  2026-10-30 a cast that can truncate, wrap or lose a sign
+  `dbg_macro`, `todo`, `unimplemented` and `mem_forget`, and a cast that
+  can truncate, wrap or lose a sign
   (`cast_possible_truncation`, `cast_possible_wrap`, `cast_sign_loss`).
   Keep the two tables the same. Fix what a lint reports. If it is wrong for this
   code, override it on the smallest item with
@@ -1085,13 +1137,17 @@ deployment credential remain unverified. No Binance-specific matcher is added.
   lint no longer fires there, so the override cannot outlive its reason. [6]
 - Clippy does not check arithmetic or indexing here. Its lints for them
   (`arithmetic_side_effects`, `indexing_slicing`, `string_slice`) are
-  restriction lints that reported 368 places on 2026-10-30, nearly all
-  bounded already. "Numbers, offsets and text from a file" is the rule for
+  restriction lints, and the places they report here are nearly all bounded
+  already. "Numbers, offsets and text from a file" is the rule for
   them. Turning one on is a lint setting to ask about first. [10]
 - Pass `--locked` to every cargo command that builds. It fails instead of
   rewriting `Cargo.lock`. The workspace has one lock file, at the root.
   `cargo audit --file <lock>` checks one against the RustSec advisory list.
   [Local checks](../testing/local-verification.md) has the commands. [11]
+- The test-only `jsonschema` and `zip` are set in the root manifest's
+  `[dev-dependencies]` with default features off, so schema resolution
+  never fetches a URL or reads a file and `zip` builds only the deflate
+  codec the harness's fixture uses.
 - Both manifests say `rust-version = "1.88"`, and `README.md` tells people
   that version. The checks lint and test with the latest stable and also
   build the workspace with 1.88. Clippy's `incompatible_msrv` lint, on by default,
@@ -1123,12 +1179,7 @@ deployment credential remain unverified. No Binance-specific matcher is added.
 HFS+ disk image with an `/Applications` shortcut and English/Spanish install
 instructions. It uses macOS tools, adds no dependency, starts no app, and
 never writes to Applications. A private temporary staging directory is
-removed on exit; an existing output image is refused. The release candidate
-includes both this image and the existing ZIP in its checksum manifest.
-Candidate verification requires both packages at fixed paths and rejects
-a missing or modified one. The offline script regression checks each
-package independently. The ZIP remains the input to the guest scripts; that
-does not verify the Finder installation flow.
+removed on exit; an existing output image is refused.
 See [disk image checks](../testing/local-verification.md#installer-disk-image)
 for verification and remaining unverified behavior. Packaging does not add
 notarization or change signing.
@@ -1207,8 +1258,13 @@ is replaced (macOS behaviour).
 - `AppModel` is `@MainActor` and owns all state. Views read it through
   `@EnvironmentObject`. Engine calls block (`start_scan` until the scan ends),
   so they go through `Engine.request` and `send`, which run off the main
-  thread. Events may arrive on any thread and are moved to the main actor in
-  `AppModel.start`.
+  thread. The one exception is `prepare_quit`, which `prepareToQuit` calls
+  on the main actor from `applicationWillTerminate`: a call sent off the
+  main thread could still be waiting when the process ends, and the monitor
+  has to be stopped first, so that no scan starts and a running one is
+  cancelled. It takes only the monitor's lock and skips `App::ready`, so it
+  does not wait for the store. Events may arrive on any thread and are moved
+  to the main actor in `AppModel.start`.
 - Those calls answer in any order: startup, an event, a click and the window
   coming forward can each ask for the same list while an earlier request is
   still out. `review` and `monitor` each use `ReadTurns`: one read at a time,
@@ -1304,9 +1360,9 @@ is replaced (macOS behaviour).
   such as a failed save or an unreadable review store, has no key: it shows
   in English, alone or inside a translated sentence. The model check looks
   engine text up in a made-up table: exact keys, templates, the lookup's
-  depth, the order of languages, and the Filter and sort. The host window
-  and model checks copy only `en.lproj` beside their executables, so they
-  run in English whatever the Mac's language.
+  depth, the order of languages, and the Filter and sort. The window and
+  model checks copy only `en.lproj` beside their executables, so they run in
+  English whatever the Mac's language.
 - Every toolbar button, and what the inspector and a row's context menu do
   to the chosen item, is also a command in the menu bar (`Commands.swift`),
   since the toolbar can be hidden. The Item menu acts as the inspector does:
@@ -1342,15 +1398,12 @@ is replaced (macOS behaviour).
   turns on the same way in both, with no confirmation: the line says what it
   does, and an alert is not for an action that can be undone [22, 27].
 - Window text is as short as it can be. Apple's writing guidance says to
-  check that each word needs to be there [18], and every passage over about
-  140 characters was cut on 2026-10-22: a 700-character note on scan limits
-  was removed, not reworded, because the heading above it said enough. A
-  test that pins long text is suspect. Limits, ordering, timing and caveats
-  are in [usage](../usage.md). Reassurance ("Nothing leaves this Mac") was
-  removed everywhere, and Save Report… was left out of the popover because
-  Export already does it. The same guidance gives the rest: verbs on buttons
-  and links, no "we", which leaves unclear who is meant, a setting described
-  by what it does when on, a button that opens a setting rather than only
+  check that each word needs to be there [18]: a note that repeats its
+  heading is cut, not reworded. A test that pins long text is suspect.
+  Limits, ordering, timing and caveats are in [usage](../usage.md).
+  The same guidance gives the rest: verbs on buttons and links, no "we",
+  which leaves unclear who is meant, a setting described by what it does
+  when on, a button that opens a setting rather than only
   its location, and an empty page that offers the next step [18]. Apple's style
   guide recommends contractions and rules out idioms, which translate badly
   [26]; here the Spanish is keyed on the exact English, so a reworded

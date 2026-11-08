@@ -24,7 +24,8 @@ interactive desktop agent or VNC.
    and stops at a failed check or a changed tree. They do not run side by
    side: the release build's load made a timed check fail. Record the
    commit, each exit status, and any failed runs. `check-all.sh` skips the
-   window check when its files match `origin/main`.
+   window check and the harness self-test when their files match
+   `origin/main`.
 4. `candidate.sh` builds an ad-hoc bundle and harness from the commit, checks
    the bundle and versions, mounts the disk image read-only at a folder of
    its own, checks its signature and Applications shortcut, and compares its

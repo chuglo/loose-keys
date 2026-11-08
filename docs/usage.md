@@ -121,27 +121,18 @@ of credential appears there, or after six months. For npm, RubyGems and Bundler
 registry entries, it covers that entry's scope, not a new scope in the same file.
 
 An update that removes unsafe registry labels clears earlier personal choices
-for npm, RubyGems and Bundler, so those findings may need review again. Old
-labels are removed even from fixed history. An old unresolved entry whose scope
-cannot be recovered can remain beside newly found entries until a full recheck
-finds none of that credential kind in its file; it is not marked fixed merely
-because its label was removed.
+for npm, RubyGems and Bundler, so those findings may need review again.
 
-Earlier versions listed a token twice when a sign-in file's own check and the
-general token check both found it in that file, as in `~/.npmrc`; it is now
-one item, which shows the file's own check's steps unless only that copy has
-been set aside. A token in `~/.config/gh/hosts.yml` shows GitHub CLI's steps
-at High, the general token check's risk, though GitHub CLI's check rates it
-Medium. Any item shows the highest risk among its findings that still need a
-decision, or, when none does, among those set aside, or else the fixed ones.
-A choice made earlier at the token check's listing (any
-reason but
-**Keeping It Here on Purpose**) now covers both. One made at the file's own
-listing still covers that copy only, so the item stays in Worth Reviewing
-until the other copy is set aside too, as choosing **Keeping It Here on
-Purpose** for the item does. A file holding several credentials of
-one kind, such as a Kubernetes config with several tokens, now lists each, and
-one not listed before may be reported as new once.
+A token that a sign-in file's own check and the general token check both find
+in that file, as in `~/.npmrc`, is one item, which shows the file's own
+check's steps unless only that copy has been set aside. In some files, such
+as `~/.netrc`, it is listed twice. A token in `~/.config/gh/hosts.yml` shows
+GitHub CLI's steps at High, the general token check's risk, though GitHub
+CLI's check rates it Medium. Any item shows the
+highest risk among its findings that still need a decision, or, when none
+does, among those set aside, or else the fixed ones. A file holding several
+credentials of one kind, such as a Kubernetes config with several tokens,
+lists each.
 
 **Expected by your organization** appears when a managed setting from your
 organization lists the finding's rule and file. It covers only that file; a
@@ -196,9 +187,7 @@ key, the names of profiles, hosts and variables that findings concern,
 consent, and review choices, not credential values. Do not share it: with the
 key, anyone can check a guessed password against it. Your answer about update
 checks is also kept in `update-check.json` beside it. The directory uses mode
-`0700`; the files use `0600`. The CLI does not use this review state. Earlier
-versions kept it in `~/.loose-keys-review`; the app moves it from there on
-first start, unless the new folder already holds state.
+`0700`; the files use `0600`. The CLI does not use this review state.
 
 If Worth Reviewing cannot be opened, nothing a scan or the helper finds is
 saved, and choices and settings cannot be changed. If the folder or a file in
@@ -345,8 +334,7 @@ Turn **Check for Updates Automatically** on or off in Settings. The
    launchd job.
 2. Quit the app and move it to the Trash. If you linked the `loose-keys`
    command, remove the link: `sudo rm /usr/local/bin/loose-keys`.
-3. Delete `~/Library/Application Support/dev.loosekeys.desktop`, and
-   `~/.loose-keys-review` if an earlier version left one.
+3. Delete `~/Library/Application Support/dev.loosekeys.desktop`.
 4. Optionally, remove the window sizes macOS saved and the folder access you
    granted: `defaults delete dev.loosekeys.desktop` and
    `tccutil reset All dev.loosekeys.desktop`.
@@ -506,7 +494,9 @@ home folder or a folder above it, and a file or a link, and accepts a path
 it cannot look up, such as a folder that is not there or one inside a folder
 you cannot open. Leaving a folder out does not make the scan partial, and a
 folder selected inside it, or selected as well, is left out with it: the JSON
-report still lists it in `roots`, and the text summary leaves it out. Where
+report still lists it in `roots`, and the text summary leaves it out. A scan
+still reads known sign-in files in a folder left out, such as
+`~/.aws/credentials`, and files directly in an AI tool's own folder. Where
 your home folder is reached through a link, a path through that link, as the
 shell writes `~/notes`, names the folder in your home.
 

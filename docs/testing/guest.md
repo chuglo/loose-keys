@@ -4,7 +4,9 @@
 
 ## Setting it up
 
-Build the bundle on this Mac, then copy it into a new clone for each build:
+Build the bundle on this Mac, then copy it into a new clone for each build.
+If `tart` is not on `PATH`, add `~/.local/share/tart/tart.app/Contents/MacOS`,
+where Tart's app keeps it:
 
 ```sh
 VM=lk-$(git rev-parse --short HEAD)
@@ -36,9 +38,9 @@ hostile host. These clones run macOS 26 and boot with SIP off. The
 
 ## Sample window check
 
-Run from the repository root, with `tart` on `PATH` or Tart's app at
-`~/.local/share/tart/tart.app`, fewer than two VMs running (`tart list`: the
-check starts its own, and macOS runs at most two), and the
+Run from the repository root, with `tart` found as in [Setting it
+up](#setting-it-up), fewer than two VMs running (`tart list`: the check
+starts its own, and macOS runs at most two), and the
 `ghcr.io/cirruslabs/macos-tahoe-base:latest` image already cached. The
 wrapper does not download it:
 
@@ -140,14 +142,9 @@ update. Nothing compares the pictures with earlier ones.
 ## Managed settings
 
 An organization sets the app's preferences with a configuration profile from
-its MDM. To open a build in a new guest with a profile installed, as the
-[vm skill](../../.agents/skills/vm/SKILL.md) does:
-
-```sh
-LOOSE_KEYS_PROFILE=.agents/skills/vm/managed-settings.mobileconfig \
-LOOSE_KEYS_EXTRA_HOME=<folder of extra synthetic files> \
-sh .agents/skills/vm/open-in-vm.sh <ref>
-```
+its MDM. To open a build in a new guest with a profile installed, set
+`LOOSE_KEYS_PROFILE` as in step 2 of the
+[vm skill](../../.agents/skills/vm/SKILL.md).
 
 What macOS reported as managed in a guest is under
 [Files](../development/standards.md#files) in the standards.

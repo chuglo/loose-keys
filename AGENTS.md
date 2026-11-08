@@ -65,14 +65,14 @@ command, what it needs and what it does not cover:
 | anything under `src/` | the security harness's scanner gate and platform check |
 | `security-tests/`, `schema/` | the whole security harness, self-test included |
 | rules, scan/report code, the engine's scan/export commands, the detection corpus | `sh security-tests/check_detection.sh` |
-| `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, the C interface | the bundle build and its contract test |
+| `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, `gui/icons/`, `.cargo/config.toml`, the C interface | the bundle build and its contract test |
 | `gui/app/`, `gui/macos/en.lproj/`, `gui/macos/Info.plist` | also the window check and the model check |
 | `gui/package-dmg.sh` | the installer disk image commands |
-| the helper runner or its Settings driver | the native helper check and its negative control, when asked |
+| the helper runner or its Settings driver | the harness self-test; the native helper check and its negative control, when asked |
 | `gui/src/notifications.m` | the bridge checks |
 | a check script or test under `gui/tests/` | that check (the shipped-bundle and helper ones when asked) |
 | `tests/check-all.sh`, `gui/tests/check-window-guest.sh` | their self-tests, which `cargo test` runs (`security_harness`) |
-| a dependency or `Cargo.lock` | the dependency advisories |
+| a dependency or `Cargo.lock` | the dependency advisories and the harness self-test |
 | a script under `.agents/skills/` | the checks in its skill's `SKILL.md`, or `sh -n` where it has none |
 
 The shipped-bundle and native-helper checks run only in the disposable macOS
@@ -157,10 +157,12 @@ sample window check runs in a guest whenever the matrix requires it.
 - **Finding text says what the matcher established,** no more: a matched
   format is not a validated credential. Remediation tells preventing future
   sign-ins apart from ending an existing credential or session.
-- **A decision is a label, never a filter.** Setting an item aside or
-  skipping a folder changes what asks for attention, never what is found. The
-  CLI never reads the app's state, and nothing inside a scanned folder can
-  silence a finding: whoever can write there could hide a credential.
+- **Setting aside is a label, never a filter.** Setting an item aside
+  changes what asks for attention, never what is found. Skipping a folder
+  leaves it out of scans, and saved reports and the window say so; known
+  sign-in files in it are still read. The CLI never reads the app's state,
+  and nothing inside a scanned folder can silence a finding: whoever can
+  write there could hide a credential.
 - **Every read and loop over scanned data has a limit** (4 KiB heads, 1 MiB
   configs, entry and depth budgets), so one endless or huge file cannot stall
   the scan. A traversal limit that is reached is reported as a `scan-limit`
