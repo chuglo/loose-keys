@@ -44,6 +44,11 @@ struct App {
     review: Mutex<review::Review>,
     store: Result<review::Store, String>,
     storage_error: Mutex<Option<String>>,
+    /// Whether `storage_error` is from a change that could not be saved.
+    /// What it would have saved is lost, so a later read that works does not
+    /// clear it, as it does an error from reading. Changed only while
+    /// `storage_error` is locked.
+    storage_unsaved: AtomicBool,
     /// Held for the whole of a change that decides the app's Login Items
     /// entry, so the last change decides it. Holds no data.
     app_login: Mutex<()>,
@@ -220,7 +225,10 @@ fn try_update_state<T>(
         }
         Err(e) if refused => Err(e),
         Err(e) => {
-            *app.storage_error.lock().unwrap() = Some(e.clone());
+            let mut error = app.storage_error.lock().unwrap();
+            *error = Some(e.clone());
+            app.storage_unsaved.store(true, Ordering::SeqCst);
+            drop(error);
             app.monitor.configure(false, true);
             Err(e)
         }
@@ -232,13 +240,26 @@ fn try_update_state<T>(
 /// here, never from the app's copy after it: commands run at once, and a
 /// read that began before a change may be the last to leave its state in the
 /// copy. The copy is what is left to answer from once the store cannot be
-/// read.
+/// read. A read that works clears an error from an earlier read, and not
+/// one from a change that could not be saved.
 fn refresh_state(app: &App) -> review::Review {
-    if app.storage_error.lock().unwrap().is_none() {
+    let unsaved = {
+        let error = app.storage_error.lock().unwrap();
+        error.is_some() && app.storage_unsaved.load(Ordering::SeqCst)
+    };
+    if !unsaved {
         if let Ok(store) = &app.store {
             match store.read() {
                 Ok(state) => {
                     *app.review.lock().unwrap() = state.clone();
+                    let mut error = app.storage_error.lock().unwrap();
+                    if error.is_some() && !app.storage_unsaved.load(Ordering::SeqCst) {
+                        *error = None;
+                        drop(error);
+                        // As `ready` sets it from a store it could read.
+                        app.monitor
+                            .configure(state.monitoring && !scan::is_root(), state.paused);
+                    }
                     return state;
                 }
                 Err(e) => *app.storage_error.lock().unwrap() = Some(e),
@@ -294,6 +315,14 @@ fn material_fingerprint(rule: &str, key: &[u8], bytes: &[u8], shared: bool) -> S
 
 fn monitor_status(app: &App) -> MonitorView {
     let r = refresh_state(app);
+    // Each copied out on its own, so no lock is held while another is taken.
+    let error = app.storage_error.lock().unwrap().clone();
+    let results = app
+        .report
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|r| results_view(r, app.home.as_deref().ok()));
     MonitorView {
         enabled: r.monitoring,
         paused: r.paused,
@@ -305,19 +334,14 @@ fn monitor_status(app: &App) -> MonitorView {
         app_login: unsafe { ch_app_login_status() },
         update_check: r.update_check,
         health: health(&r.agent),
-        error: app.storage_error.lock().unwrap().clone().or_else(|| {
+        error: error.or_else(|| {
             r.full.then(|| {
                 "Worth Reviewing is full, so some findings are not in it. Fix some items, then scan again.".to_string()
             })
         }),
         pending_delivery: r.items.iter().any(|i| r.alerting(i, now())),
         attempts: r.attempts,
-        results: app
-            .report
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|r| results_view(r, app.home.as_deref().ok())),
+        results,
     }
 }
 
@@ -470,11 +494,43 @@ fn set_update_check(app: &App, enabled: bool) -> Answer<()> {
 }
 
 fn set_login_startup(app: &App, enabled: bool) -> Answer<u8> {
-    if enabled && !refresh_state(app).monitoring {
+    set_login_startup_with(app, enabled, |on| {
+        // SAFETY: takes a bool and touches no memory of ours.
+        unsafe { ch_login_set(on) }
+    })
+}
+
+/// Restart Helper changes the registration `set_monitoring_with_login`
+/// changes, so it holds the same lock: checks turned off while it runs are
+/// not followed by the helper registered again.
+fn set_login_startup_with(
+    app: &App,
+    enabled: bool,
+    set_login: impl FnOnce(bool) -> u8,
+) -> Answer<u8> {
+    let unreadable = || {
+        app.storage_error.lock().unwrap().is_some().then(|| {
+            "Automatic scanning cannot start because Loose Keys could not open its saved data."
+                .to_string()
+        })
+    };
+    if let Some(error) = unreadable() {
+        return Err(error);
+    }
+    if scan::is_root() {
+        return Err("Automatic scanning is not available when running as root.".into());
+    }
+    let one_change = app.app_login.lock().unwrap();
+    let monitoring = refresh_state(app).monitoring;
+    if let Some(error) = unreadable() {
+        return Err(error);
+    }
+    if enabled && !monitoring {
         return Err("To open Loose Keys at login, first turn on Scan Automatically.".into());
     }
-    // SAFETY: takes a bool and touches no memory of ours.
-    Ok(unsafe { ch_login_set(enabled) })
+    let status = set_login(enabled);
+    drop(one_change);
+    Ok(status)
 }
 
 /// What quitting needs first: a running scan is cancelled and no other starts.
@@ -494,16 +550,33 @@ extern "C" fn open_review() {
     emit(c"open-review", ());
 }
 
+/// Called on the notifications' own queue, outside `call`: a panic ends
+/// here, and the save waits for the store on a thread of its own.
 extern "C" fn notification_permission(value: u8) {
-    let was = PERMISSION.swap(value, Ordering::SeqCst);
-    emit(c"notification-permission", value);
-    // The helper is started by consent, which comes before this answer, and
-    // is not told of it. A change to the shared state wakes it, and it asks
-    // macOS again when it has something to send.
-    if newly_allowed(was, value) {
-        if let Some(app) = APP.get() {
+    let _ = std::panic::catch_unwind(|| {
+        let was = PERMISSION.swap(value, Ordering::SeqCst);
+        emit(c"notification-permission", value);
+        if newly_allowed(was, value) {
+            if let Some(app) = APP.get() {
+                let _ = std::thread::Builder::new().spawn(move || wake_helper(app));
+            }
+        }
+    });
+}
+
+/// The helper is started by consent, which comes before notifications are
+/// allowed, and is not told of it. A change to the shared state wakes it,
+/// and it asks macOS again when it has something to send. Nothing is saved
+/// while the state cannot be read.
+fn wake_helper(app: &App) {
+    let woken = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        app.ready();
+        if app.storage_error.lock().unwrap().is_none() {
             let _ = update_state(app, |_| ());
         }
+    }));
+    if woken.is_err() {
+        app.recover();
     }
 }
 
@@ -603,6 +676,10 @@ fn shown(item: &review::Item) -> review::Item {
     let mut shown = item.clone();
     shown.path = report::escape(&shown.path);
     shown.reason = shown.reason.as_ref().map(|s| report::escape(s));
+    // What the scanner writes here is printable already; the store is a
+    // file other programs can edit.
+    shown.subject = shown.subject.as_ref().map(|s| report::escape(s));
+    shown.detail = shown.detail.as_ref().map(|s| report::escape(s));
     (shown.fingerprint, shown.secret, shown.mount, shown.scope) = (None, None, None, None);
     shown
 }
@@ -788,16 +865,29 @@ fn set_expected(app: &App, entries: Vec<serde_json::Value>) -> Answer<()> {
         .into_iter()
         .filter_map(|entry| serde_json::from_value(entry).ok())
         .collect();
-    let changes = app.review.lock().unwrap().expected_changes(&list);
-    if !changes {
+    // Compared with the store, which may no longer hold what this app last
+    // saved there. A list that changes nothing is refused, so nothing is saved.
+    let mut unchanged = false;
+    let saved = try_update_state(app, |state| {
+        if !state.expected_changes(&list) {
+            unchanged = true;
+            return Err(String::new());
+        }
+        state.set_expected(list);
+        Ok(())
+    });
+    if unchanged {
         return Ok(());
     }
-    update_state(app, |state| state.set_expected(list))
+    saved
 }
 
 /// Stop checking the folder that holds this item. The front end names an
 /// item, never a path. The folder stays listed wherever results are shown.
 fn skip_folder(app: &App, id: u64) -> Answer<()> {
+    if app.storage_error.lock().unwrap().is_some() {
+        return Err("Loose Keys could not open its saved data.".into());
+    }
     let home = app.home.clone().map_err(|e| e.to_string())?;
     try_update_state(app, |state| {
         let item = state
@@ -808,10 +898,10 @@ fn skip_folder(app: &App, id: u64) -> Answer<()> {
         let folder = folder_of(&item.path).ok_or("The home folder cannot be skipped.")?;
         let real = full_path(folder, Some(&home)).ok_or("That folder's name cannot be used.")?;
         scan::skipped_folder(real.as_os_str(), &home).map_err(|e| format!("Cannot skip: {e}."))?;
-        if state.skipped.len() >= review::MAX_SKIPS {
-            return Err("Too many folders are skipped. Remove one first.".to_string());
-        }
         if !state.skips(folder) {
+            if state.skipped.len() >= review::MAX_SKIPS {
+                return Err("Too many folders are skipped. Remove one first.".to_string());
+            }
             let (path, added) = (folder.to_string(), report::utc_now());
             state.skipped.push(review::Skip { path, added });
         }
@@ -823,6 +913,9 @@ fn skip_folder(app: &App, id: u64) -> Answer<()> {
 /// the text it drew there. A press that arrives after the list has moved up
 /// names the wrong place, so it is acted on only while the two still agree.
 fn unskip_folder(app: &App, index: usize, shown: String) -> Answer<()> {
+    if app.storage_error.lock().unwrap().is_some() {
+        return Err("Loose Keys could not open its saved data.".into());
+    }
     update_state(app, |state| {
         let there = state.skipped.get(index);
         if there.is_some_and(|skip| report::escape(&skip.path) == shown) {
@@ -869,6 +962,7 @@ impl App {
             review: Mutex::new(review::Review::default()),
             store,
             storage_error: Mutex::new(None),
+            storage_unsaved: AtomicBool::new(false),
             app_login: Mutex::new(()),
             rechecks: RECHECKS,
             read: OnceLock::new(),
@@ -993,7 +1087,10 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
         }
         "monitor_status" => done(monitor_status(app)),
         "automatic_coverage" => {
-            let state = app.store.as_ref().map_err(Clone::clone)?.read()?;
+            let state = refresh_state(app);
+            if app.storage_error.lock().unwrap().is_some() {
+                return Err("Loose Keys could not open its saved data.".into());
+            }
             done(automatic_coverage(&state.agent))
         }
         "set_monitoring" => done(set_monitoring(
@@ -1158,6 +1255,9 @@ fn show(p: &Path) -> String {
 }
 
 fn add_place(app: &App, path: &Path) -> Answer<()> {
+    if app.storage_error.lock().unwrap().is_some() {
+        return Err("Loose Keys could not open its saved data.".into());
+    }
     if app.scanning.load(Ordering::SeqCst) {
         return Err("Wait for the scan to finish.".into());
     }
@@ -1199,6 +1299,12 @@ fn type_place(app: &App, text: String) -> PlacesView {
 
 /// As for `unskip_folder`: the place in the list, and what was shown there.
 fn remove_place(app: &App, index: usize, shown: String) -> PlacesView {
+    if app.storage_error.lock().unwrap().is_some() {
+        return places_view(
+            app,
+            Some("Loose Keys could not open its saved data.".into()),
+        );
+    }
     let error = try_update_state(app, |state| {
         if app.scanning.load(Ordering::SeqCst) {
             return Err("Wait for the scan to finish.".into());
@@ -1344,16 +1450,7 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
 
 /// Returns when the scan ends, so the front end calls it off its main thread.
 fn start_scan(app: &App) -> Answer<ResultsView> {
-    // Use the latest saved scope, or its last usable copy if reading fails.
-    // As in perform_scan, a store failure is reported by the save; it must
-    // not silently erase the chosen roots or cancel an otherwise usable scan.
-    let state = app
-        .store
-        .as_ref()
-        .ok()
-        .and_then(|store| store.read().ok())
-        .unwrap_or_else(|| app.review.lock().unwrap().clone());
-    perform_scan(app, &state.selected_places, monitor::ScanKind::Manual)
+    perform_scan(app, monitor::ScanKind::Manual)
 }
 
 /// Said when the monitor refuses a scan the person asked for. In this process
@@ -1369,7 +1466,7 @@ const SCAN_BLOCKED: &str =
 const LIST_REPLACED: &str =
     "The review list was replaced during the scan, so nothing it found was saved. Scan again.";
 
-fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer<ResultsView> {
+fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
     let home = app.home.clone().map_err(|e| format!("Cannot scan: {e}."))?;
     if app.store.is_err() {
         return Err(
@@ -1391,9 +1488,11 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
         return Err(SCAN_BLOCKED.into());
     }
     emit(c"monitor-status", ());
-    // The folders to leave out are the store's as the scan starts, for the
-    // reason `refresh_state` gives. A store that cannot be read is the save's
-    // to report, below: until then the app's copy has to do.
+    // The places to check and the folders to leave out are the store's as
+    // the scan starts, from one read, for the reason `refresh_state` gives.
+    // A store that cannot be read is the save's to report, below: it must
+    // not erase the chosen places or cancel a scan, so until then the app's
+    // copy has to do.
     let read = app.store.as_ref().ok().and_then(|store| store.read().ok());
     let state = read.unwrap_or_else(|| app.review.lock().unwrap().clone());
     // The store creates the fingerprint key the first time it is changed.
@@ -1405,7 +1504,7 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
     let made_with = key.clone();
     let r = scan::Scan::report_controlled(
         &home,
-        extra,
+        &state.selected_places,
         &skip,
         app.monitor.cancel.clone(),
         move |rule, bytes, shared| material_fingerprint(rule, &key, bytes, shared),
@@ -1420,7 +1519,9 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
     // The rechecks get their own time, counted once the store is locked:
     // from before the scan, or while the agent held the store, they could
     // have none left, and nothing was marked fixed.
-    let saved = if app.storage_error.lock().unwrap().is_none() {
+    let error = app.storage_error.lock().unwrap();
+    let saved = if error.is_none() {
+        drop(error);
         update_state(app, |review| {
             if review.key != made_with {
                 return None;
@@ -1431,12 +1532,15 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
             // its end and the list has room.
             let was_full = std::mem::take(&mut review.full);
             let key = review.key.clone();
+            // Asked between items and while one large file is read.
+            let stop = || {
+                rechecking.elapsed() >= app.rechecks || app.monitor.cancel.load(Ordering::SeqCst)
+            };
             let new = review.merge(&r, |item| {
-                if rechecking.elapsed() >= app.rechecks || app.monitor.cancel.load(Ordering::SeqCst)
-                {
+                if stop() {
                     return None;
                 }
-                still_there(item, &home, &key)
+                still_there(item, &home, &key, &stop)
             });
             // A cancelled scan says nothing about what was left out before
             // it. One that stopped at a work limit did not present every
@@ -1448,6 +1552,14 @@ fn perform_scan(app: &App, extra: &[PathBuf], kind: monitor::ScanKind) -> Answer
             Some(new)
         })
     } else {
+        // What the scan found and could have marked fixed is lost, so the
+        // error stays once the store reads again, as after a failed save. A
+        // cancelled scan with nothing to list would have changed nothing.
+        let found = r.findings.iter().any(|f| f.kind == "review");
+        if found || !app.monitor.cancel.load(Ordering::SeqCst) {
+            app.storage_unsaved.store(true, Ordering::SeqCst);
+        }
+        drop(error);
         Err("The review list is unavailable.".into())
     };
     let replaced = matches!(saved, Ok(None));
@@ -1584,12 +1696,18 @@ fn recheck_path(rel: &str, home: Option<&Path>) -> Option<PathBuf> {
 
 /// What a listed item's file holds now, read again as its rule reads it,
 /// with each value's digest under the store's key: what marks an item fixed.
-/// None where the file cannot be read again, or was listed under a name
-/// that does not name it (`recheck_path`).
-fn still_there(item: &review::Item, home: &Path, key: &[u8]) -> Option<review::Still> {
+/// None where the file cannot be read again, was listed under a name that
+/// does not name it (`recheck_path`), or `stop` said to stop before it was
+/// read to its end.
+fn still_there(
+    item: &review::Item,
+    home: &Path,
+    key: &[u8],
+    stop: &dyn Fn() -> bool,
+) -> Option<review::Still> {
     let path = recheck_path(&item.path, Some(home))?;
     let digest = |rule: &str, bytes: &[u8], shared| material_fingerprint(rule, key, bytes, shared);
-    scan::recheck_identities(&item.rule, &path, home, item.mount, &digest)
+    scan::recheck_identities(&item.rule, &path, home, item.mount, &digest, stop)
 }
 
 /// `root`: the scan ran as root, where no link is followed.
@@ -2569,6 +2687,360 @@ mod tests {
             1,
             "with background checks off, the app is not left in Login Items"
         );
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn restart_helper_does_not_register_the_helper_once_checks_are_off() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let _alone = one_scan();
+        let (home, app) = engine("restart-helper-race");
+        // Show in Menu Bar off: only the helper is registered.
+        update_state(&app, |state| state.menu_bar_off = true).unwrap();
+        set_monitoring_with_login(
+            &app,
+            true,
+            false,
+            1,
+            |_| 2,
+            || 1,
+            |_| panic!("no login item without the menu bar"),
+        )
+        .unwrap();
+        let registered = AtomicU8::new(2);
+        let fake = |on: bool| {
+            let status = if on { 2 } else { 1 };
+            registered.store(status, Ordering::SeqCst);
+            status
+        };
+        let (app, registered_now) = (&app, || registered.load(Ordering::SeqCst));
+        let (reached, at_call) = mpsc::channel();
+        let (release, gate) = mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            // Restart Helper found checks on, and is held as it asks macOS...
+            let restart = scope.spawn(move || {
+                set_login_startup_with(app, true, move |on| {
+                    reached.send(()).unwrap();
+                    gate.recv().unwrap();
+                    fake(on)
+                })
+            });
+            at_call
+                .recv_timeout(Duration::from_secs(10))
+                .expect("Restart Helper asks macOS to register the helper");
+            // ...while background checks are turned off.
+            let (finished, done) = mpsc::channel();
+            let checks = scope.spawn(move || {
+                let result = set_monitoring_with_login(
+                    app,
+                    false,
+                    false,
+                    registered_now(),
+                    fake,
+                    || 1,
+                    |_| panic!("no login item without the menu bar"),
+                );
+                finished.send(()).unwrap();
+                result
+            });
+            // One change at a time keeps the second waiting here. Without that,
+            // it finishes now, before Restart Helper registers the helper.
+            let _ = done.recv_timeout(Duration::from_millis(500));
+            release.send(()).unwrap();
+            restart.join().unwrap().unwrap();
+            checks.join().unwrap().unwrap();
+        });
+        assert!(!app.store.as_ref().unwrap().read().unwrap().monitoring);
+        assert_eq!(
+            registered.load(Ordering::SeqCst),
+            1,
+            "with background checks off, the helper is not left registered"
+        );
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn restart_helper_needs_readable_state() {
+        let (home, app) = engine("restart-helper-storage");
+        update_state(&app, |state| state.monitoring = true).unwrap();
+        *app.storage_error.lock().unwrap() = Some("synthetic failure".into());
+        for enabled in [false, true] {
+            assert_eq!(
+                set_login_startup_with(&app, enabled, |_| panic!("refused first")),
+                Err("Automatic scanning cannot start because Loose Keys could not open its saved data.".into())
+            );
+        }
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// The status holds no lock while it waits for another: a scan saving
+    /// its results holds the report, and the storage error is asked for by
+    /// every command meanwhile.
+    #[test]
+    fn the_status_holds_no_lock_while_it_waits_for_the_report() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let (home, app) = engine("status-locks");
+        let report = app.report.lock().unwrap();
+        let app = &app;
+        std::thread::scope(|scope| {
+            let (finished, done) = mpsc::channel();
+            let status = scope.spawn(move || {
+                let enabled = monitor_status(app).enabled;
+                finished.send(()).unwrap();
+                enabled
+            });
+            // The report is held, so the status waits for it here.
+            assert!(done.recv_timeout(Duration::from_millis(500)).is_err());
+            let (got, asked) = mpsc::channel();
+            scope.spawn(move || {
+                let error = app.storage_error.lock().unwrap().clone();
+                got.send(error).unwrap();
+            });
+            let error = asked.recv_timeout(Duration::from_secs(5));
+            drop(report);
+            assert_eq!(
+                error,
+                Ok(None),
+                "the storage error was held while the status waited for the report"
+            );
+            assert!(!status.join().unwrap());
+        });
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// Notifications allowed wake the helper by saving the state. Nothing is
+    /// saved while the state cannot be read.
+    #[test]
+    fn a_permission_answer_saves_nothing_while_state_is_unavailable() {
+        use std::os::unix::fs::MetadataExt;
+        let (home, app) = engine("permission-storage-error");
+        update_state(&app, |_| ()).unwrap();
+        let state = home.join(review::STATE_DIR).join("state.json");
+        let saved = || std::fs::symlink_metadata(&state).unwrap().ino();
+        let before = saved();
+        *app.storage_error.lock().unwrap() = Some("synthetic failure".into());
+        wake_helper(&app);
+        assert_eq!(saved(), before, "the state was saved");
+        *app.storage_error.lock().unwrap() = None;
+        wake_helper(&app);
+        assert_ne!(saved(), before, "the helper is woken by a save");
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// A read that fails once, as when the state's permissions are put
+    /// right, is cleared by a later read that works. A change that could not
+    /// be saved is not: what it would have saved is lost.
+    #[test]
+    fn a_failed_read_is_cleared_by_a_later_one_and_a_failed_save_is_not() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, app) = engine("storage-error-clears");
+        update_state(&app, |_| ()).unwrap();
+        let dir = home.join(review::STATE_DIR);
+        let state = dir.join("state.json");
+        let error = |app: &App| ask(app, "pending_review", "{}")["ok"]["error"].clone();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(error(&app).is_string());
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(error(&app), Value::Null);
+        assert_eq!(
+            ask(&app, "retry_notifications", "{}"),
+            json!({ "ok": null })
+        );
+        // A save that leaves a file it cannot trust.
+        std::fs::create_dir(dir.join("state.tmp")).unwrap();
+        assert!(ask(&app, "retry_notifications", "{}")["error"].is_string());
+        std::fs::remove_dir(dir.join("state.tmp")).unwrap();
+        assert!(error(&app).is_string());
+        assert!(ask(&app, "retry_notifications", "{}")["error"].is_string());
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// A scan made while the state cannot be read saves nothing. Once the
+    /// state reads again, the list would be shown without what that scan
+    /// found, so the error stays as it does for a save that failed.
+    #[test]
+    fn a_scan_not_saved_keeps_the_error_after_the_state_reads_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let _alone = one_scan();
+        let (home, app) = engine("scan-not-saved");
+        update_state(&app, |_| ()).unwrap();
+        std::fs::create_dir(home.join(".claude")).unwrap();
+        let record = home.join(".claude/session.jsonl");
+        std::fs::write(&record, format!("{{\"out\":\"{}\"}}\n", token('A'))).unwrap();
+        let state = home.join(review::STATE_DIR).join("state.json");
+        let error = |app: &App| ask(app, "pending_review", "{}")["ok"]["error"].clone();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(error(&app).is_string());
+        let scan = ask(&app, "start_scan", "{}");
+        assert!(scan["ok"]["review"].as_u64() > Some(0), "{scan}");
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let after = error(&app);
+        let items = app.store.as_ref().unwrap().read().unwrap().items.len();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(items, 0, "the scan saved nothing");
+        assert!(after.is_string(), "{after}");
+    }
+
+    /// A scan stopped before it found anything would have changed nothing
+    /// on the list, so the error clears once the state reads again. One
+    /// stopped after it found something has lost that, and the error stays.
+    #[test]
+    fn a_stopped_scan_keeps_the_error_only_when_it_found_something() {
+        use std::os::unix::fs::PermissionsExt;
+        type StopAt = Option<(std::sync::Arc<AtomicBool>, u64)>;
+        static STOP_AT: Mutex<StopAt> = Mutex::new(None);
+        /// Stops the scan, as the Stop button would, at the first progress
+        /// that counts at least the findings asked for.
+        extern "C" fn stop(name: *const c_char, payload: *const c_char) {
+            // SAFETY: the engine passes two NUL-terminated strings.
+            let (name, payload) = unsafe { (CStr::from_ptr(name), CStr::from_ptr(payload)) };
+            let progress: Value = serde_json::from_slice(payload.to_bytes()).unwrap();
+            if let Some((cancel, findings)) = &*STOP_AT.lock().unwrap() {
+                if name == c"scan-progress" && progress["findings"].as_u64() >= Some(*findings) {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+        let _alone = one_scan();
+        let stopped = |name: &str, findings: u64| {
+            let (home, app) = engine(name);
+            update_state(&app, |_| ()).unwrap();
+            if findings > 0 {
+                std::fs::create_dir(home.join(".claude")).unwrap();
+                let record = home.join(".claude/session.jsonl");
+                std::fs::write(&record, format!("{{\"out\":\"{}\"}}\n", token('A'))).unwrap();
+            }
+            let state = home.join(review::STATE_DIR).join("state.json");
+            let error = |app: &App| ask(app, "pending_review", "{}")["ok"]["error"].clone();
+            std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(error(&app).is_string());
+            *STOP_AT.lock().unwrap() = Some((app.monitor.cancel.clone(), findings));
+            ch_set_event_handler(Some(stop));
+            let scan = ask(&app, "start_scan", "{}");
+            ch_set_event_handler(None);
+            *STOP_AT.lock().unwrap() = None;
+            let cancelled = app.monitor.cancel.load(Ordering::SeqCst);
+            std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+            let after = error(&app);
+            std::fs::remove_dir_all(home).unwrap();
+            assert!(cancelled, "the scan was not stopped: {scan}");
+            assert_eq!(scan["ok"]["review"].as_u64(), Some(findings), "{scan}");
+            after
+        };
+        assert_eq!(stopped("stopped-scan-empty", 0), Value::Null);
+        assert!(stopped("stopped-scan-found", 1).is_string());
+    }
+
+    /// Commands that change the folders checked save nothing while the
+    /// state cannot be read, as other changes do.
+    #[test]
+    fn folder_changes_need_readable_state() {
+        let (home, app, _) = found_since("folders-storage-error");
+        let extra = home.join("Extra");
+        std::fs::create_dir(&extra).unwrap();
+        assert_eq!(
+            ask(&app, "skip_folder", r#"{"id":1}"#),
+            json!({ "ok": null })
+        );
+        assert!(add_place(&app, &extra).is_ok());
+        let stored = || app.store.as_ref().unwrap().read().unwrap();
+        // As a change that could not be saved leaves it: a read does not
+        // clear it.
+        *app.storage_error.lock().unwrap() = Some("synthetic failure".into());
+        app.storage_unsaved.store(true, Ordering::SeqCst);
+        let refused = "Loose Keys could not open its saved data.";
+        let shown = json!({ "index": 0, "shown": "~/Documents" }).to_string();
+        assert_eq!(ask(&app, "unskip_folder", &shown)["error"], refused);
+        let shown = json!({ "index": 0, "shown": show(&extra) }).to_string();
+        assert_eq!(ask(&app, "remove_place", &shown)["ok"]["error"], refused);
+        update_state(&app, |state| state.skipped.clear()).unwrap();
+        let skipped = serde_json::to_string(&stored()).unwrap();
+        assert_eq!(ask(&app, "skip_folder", r#"{"id":1}"#)["error"], refused);
+        assert_eq!(serde_json::to_string(&stored()).unwrap(), skipped);
+        update_state(&app, |state| state.selected_places.clear()).unwrap();
+        let removed = serde_json::to_string(&stored()).unwrap();
+        assert_eq!(add_place(&app, &extra), Err(refused.into()));
+        assert_eq!(serde_json::to_string(&stored()).unwrap(), removed);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn a_folder_already_skipped_can_be_skipped_again_with_the_list_full() {
+        let (home, app, _) = found_since("skip-again-full");
+        assert_eq!(
+            ask(&app, "skip_folder", r#"{"id":1}"#),
+            json!({ "ok": null })
+        );
+        update_state(&app, |state| {
+            for n in 1..review::MAX_SKIPS {
+                let (path, added) = (format!("~/Other-{n}"), "synthetic".into());
+                state.skipped.push(review::Skip { path, added });
+            }
+        })
+        .unwrap();
+        assert_eq!(
+            ask(&app, "skip_folder", r#"{"id":1}"#),
+            json!({ "ok": null })
+        );
+        let stored = app.store.as_ref().unwrap().read().unwrap();
+        assert_eq!(stored.skipped.len(), review::MAX_SKIPS);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// The organization's list is compared with what the store holds: a
+    /// list whose file was deleted takes it again.
+    #[test]
+    fn the_expected_list_is_compared_with_the_store() {
+        let (home, app, _) = found_since("expected-against-store");
+        let entries = json!({ "entries": [{ "rule": "export.password-csv", "path": "~/Documents/export.csv" }] })
+            .to_string();
+        assert_eq!(ask(&app, "set_expected", &entries), json!({ "ok": null }));
+        std::fs::remove_file(home.join(review::STATE_DIR).join("state.json")).unwrap();
+        assert_eq!(ask(&app, "set_expected", &entries), json!({ "ok": null }));
+        let stored = app.store.as_ref().unwrap().read().unwrap();
+        assert_eq!(stored.expected.len(), 1);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn automatic_coverage_needs_readable_state() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, app) = engine("coverage-storage-error");
+        update_state(&app, |_| ()).unwrap();
+        let state = home.join(review::STATE_DIR).join("state.json");
+        assert!(ask(&app, "automatic_coverage", "{}")["ok"].is_object());
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            ask(&app, "automatic_coverage", "{}")["error"],
+            "Loose Keys could not open its saved data."
+        );
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(ask(&app, "automatic_coverage", "{}")["ok"].is_object());
+        // A change that could not be saved is not cleared by a read.
+        *app.storage_error.lock().unwrap() = Some("synthetic failure".into());
+        app.storage_unsaved.store(true, Ordering::SeqCst);
+        assert_eq!(
+            ask(&app, "automatic_coverage", "{}")["error"],
+            "Loose Keys could not open its saved data."
+        );
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// The store is a file other programs can edit: what it says an item
+    /// concerns reaches the window escaped, as a path does.
+    #[test]
+    fn stored_subjects_reach_the_window_escaped() {
+        let (home, app, _) = found_since("stored-subject");
+        update_state(&app, |state| {
+            state.items[0].subject = Some("profile\u{202e}txt".into());
+            state.items[0].detail = Some("\u{7}2 saved logins".into());
+        })
+        .unwrap();
+        let item = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
+        assert_eq!(item["subject"], "profile\\u{202e}txt");
+        assert_eq!(item["detail"], "\\u{7}2 saved logins");
         std::fs::remove_dir_all(home).unwrap();
     }
 
@@ -3847,6 +4319,39 @@ mod tests {
         assert_eq!(state, "fixed");
     }
 
+    /// The rechecks' time is checked while a large file is read, and not
+    /// only between items: one record could hold the store for as long as
+    /// reading all of it took.
+    #[test]
+    fn a_recheck_of_a_large_record_stops_when_the_rechecks_run_out_of_time() {
+        let (home, mut app) = engine("long-recheck");
+        std::fs::create_dir(home.join(".claude")).unwrap();
+        let record = home.join(".claude/session.jsonl");
+        std::fs::write(&record, format!("{{\"out\":\"{}\"}}\n", token('A'))).unwrap();
+        let alone = one_scan();
+        ask(&app, "start_scan", "{}");
+        let open = |app: &App| {
+            let stored = app.store.as_ref().unwrap().read().unwrap();
+            let rule = "secret.agent-record";
+            stored
+                .items
+                .iter()
+                .find(|i| i.rule == rule)
+                .map(|i| !i.resolved)
+        };
+        assert_eq!(open(&app), Some(true));
+        // The token is gone, before more of the record than can be read in
+        // the time the rechecks are given.
+        std::fs::write(&record, "{\"type\":\"filler\"}\n".repeat(2_000_000)).unwrap();
+        app.rechecks = std::time::Duration::from_millis(20);
+        let again = ask(&app, "start_scan", "{}");
+        drop(alone);
+        let open = open(&app);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(again["ok"]["review"], 0, "{again}");
+        assert_eq!(open, Some(true), "an item not reached in time stays open");
+    }
+
     /// The background agent holds the store for its own rechecks, which can
     /// take longer than the app's. Waiting for it used up the app's, and an
     /// item whose file was deleted stayed open.
@@ -4837,7 +5342,9 @@ mod tests {
         fn save(&self, state: &mut review::Review, report: &Report) -> bool {
             state.merge(report, |item| {
                 let path = recheck_path(&item.path, Some(&self.0))?;
-                scan::recheck_identities(&item.rule, &path, &self.0, item.mount, &stand_in)
+                scan::recheck_identities(&item.rule, &path, &self.0, item.mount, &stand_in, &|| {
+                    false
+                })
             })
         }
     }

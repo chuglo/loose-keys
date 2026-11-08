@@ -220,12 +220,15 @@ impl Agent {
                 }
                 // Out of time, or told to stop: nothing is known of the rest,
                 // and they stay as they are until they are next checked.
-                if rechecking.elapsed() >= self.rechecks
-                    || self.monitor.cancel.load(Ordering::SeqCst)
-                {
+                // Asked again while one large file is read.
+                let stop = || {
+                    rechecking.elapsed() >= self.rechecks
+                        || self.monitor.cancel.load(Ordering::SeqCst)
+                };
+                if stop() {
                     return None;
                 }
-                crate::still_there(item, &self.home, key)
+                crate::still_there(item, &self.home, key, &stop)
             });
             state.agent.last_check = Some(report.generated_at.clone());
             state.agent.error = None;

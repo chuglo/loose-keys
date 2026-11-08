@@ -166,9 +166,15 @@ const UPDATE_ANSWER: &CStr = c"update-check.json";
 const UPDATE_ANSWER_TEMP: &CStr = c"update-check.tmp";
 /// Room for the items, as they are stored: three quarters of what the store
 /// takes. A refused save loses every finding of that scan, so the list
-/// counts as full before that. The rest is for decisions and settings,
-/// which are limited by number and not measured.
+/// counts as full before that.
 const ITEM_BYTES: usize = STORE_BYTES / 4 * 3;
+/// Room for the decisions, as they are stored: an eighth. A decision copies
+/// its item's path, so a full list of decisions about long paths would
+/// otherwise take the state past what the store saves, and then no change
+/// would be saved, not even moving one back. The last eighth is for the
+/// settings and the helper's record, which are limited by number, and
+/// `UNREAD_BYTES`.
+const DECISION_BYTES: usize = STORE_BYTES / 8;
 
 fn stored_size<T: Serialize>(value: &T) -> usize {
     serde_json::to_vec(value).map_or(ITEM_BYTES, |json| json.len())
@@ -608,15 +614,7 @@ impl Review {
                 self.forget(&copy);
             }
         }
-        if self.decisions.len() >= MAX_ITEMS {
-            self.make_room(now);
-        }
-        if self.decisions.len() >= MAX_ITEMS {
-            return Err(
-                "Too many findings are set aside. Move some back to Worth Reviewing.".into(),
-            );
-        }
-        self.decisions.push(Decision {
+        let decision = Decision {
             reason,
             secret: item.secret.clone().filter(|_| value),
             rule: item.rule,
@@ -629,19 +627,36 @@ impl Review {
             severity: item.severity,
             decided: stamp,
             decided_at: now,
-        });
+        };
+        // With the comma before it in the stored list.
+        let size = stored_size(&decision) + 1;
+        if !self.fits(size) {
+            self.make_room(now, size);
+        }
+        if !self.fits(size) {
+            return Err(
+                "Too many findings are set aside. Move some back to Worth Reviewing.".into(),
+            );
+        }
+        self.decisions.push(decision);
         Ok(())
     }
 
-    /// Room for one more decision, made from those no listed item uses. A
-    /// decision stays when what it was about leaves the list, where the
-    /// person can no longer move it back. Such a decision only sets aside a
-    /// credential found again, so dropping one can make that ask for
-    /// attention again, never hide it. A Kept that has run out sets nothing
-    /// aside, so those go first; then the oldest. A decision a listed item
-    /// uses stays, even a Kept that has run out: `ingest` reads that one to
-    /// tell whether a copy of a credential is news.
-    fn make_room(&mut self, now: u64) {
+    /// Whether one more decision of `size` stored bytes fits, by number and
+    /// by size.
+    fn fits(&self, size: usize) -> bool {
+        self.decisions.len() < MAX_ITEMS && stored_size(&self.decisions) + size <= DECISION_BYTES
+    }
+
+    /// Room for one more decision of `size` stored bytes, made from those no
+    /// listed item uses. A decision stays when what it was about leaves the
+    /// list, where the person can no longer move it back. Such a decision
+    /// only sets aside a credential found again, so dropping one can make
+    /// that ask for attention again, never hide it. A Kept that has run out
+    /// sets nothing aside, so those go first; then the oldest. A decision a
+    /// listed item uses stays, even a Kept that has run out: `ingest` reads
+    /// that one to tell whether a copy of a credential is news.
+    fn make_room(&mut self, now: u64, size: usize) {
         let secrets: std::collections::HashSet<&String> = self
             .items
             .iter()
@@ -661,10 +676,13 @@ impl Review {
             d.reason == Reason::Kept && now >= d.decided_at.saturating_add(RECONFIRM)
         };
         self.decisions.retain(|d| used(d) || !run_out(d));
-        if self.decisions.len() >= MAX_ITEMS {
-            if let Some(oldest) = self.decisions.iter().position(|d| !used(d)) {
-                self.decisions.remove(oldest);
-            }
+        let mut bytes = stored_size(&self.decisions);
+        while self.decisions.len() >= MAX_ITEMS || bytes + size > DECISION_BYTES {
+            let Some(oldest) = self.decisions.iter().position(|d| !used(d)) else {
+                break;
+            };
+            let gone = self.decisions.remove(oldest);
+            bytes = bytes.saturating_sub(stored_size(&gone) + 1);
         }
     }
 
@@ -1320,15 +1338,18 @@ impl Store {
         if !review.ids_hold() || review.registry_labels > 1 || !review.selected_places_valid() {
             return Err("The review list file is damaged or in an unknown format.".into());
         }
-        if review.items.len() > 4096
-            || (!review.key.is_empty() && review.key.len() != 32)
+        if (!review.key.is_empty() && review.key.len() != 32)
             || (review.key.is_empty() && review.items.iter().any(|i| i.fingerprint.is_some()))
+            || review.attempts > 3
+        {
+            return Err("The review list file is damaged or in an unknown format.".into());
+        }
+        if review.items.len() > MAX_ITEMS
             || review
                 .agent
                 .unread_places
                 .as_ref()
                 .is_some_and(|p| !p.within_bounds())
-            || review.attempts > 3
         {
             return Err("The review list is too large for automatic scanning.".into());
         }
@@ -1341,7 +1362,7 @@ impl Store {
     }
 
     pub fn save(&self, review: &Review) -> Result<(), String> {
-        if review.items.len() > 4096
+        if review.items.len() > MAX_ITEMS
             || !review.ids_hold()
             || !review.selected_places_valid()
             || review
@@ -3016,6 +3037,58 @@ mod tests {
             state.decide(id, Reason::Testing, now, "synthetic".into()),
             Err("Too many findings are set aside. Move some back to Worth Reviewing.".into())
         );
+    }
+
+    /// Decisions are bounded by their size as well as their number: a list
+    /// whose items fill their room, each set aside under a long path, has to
+    /// leave a state the store still saves, or no later change is saved.
+    #[test]
+    fn decisions_about_long_paths_leave_room_to_save_the_state() {
+        let folder = "x".repeat(3000);
+        let paths: Vec<String> = (0..1500).map(|n| format!("~/{folder}/{n}.csv")).collect();
+        let found: Vec<(&str, &str)> = paths.iter().map(|p| ("review", p.as_str())).collect();
+        let mut state = Review::default();
+        state.ingest(&report(&found));
+        assert_eq!(state.items.len(), paths.len());
+        assert!(!state.full);
+        let ids: Vec<u64> = state.items.iter().map(|i| i.id).collect();
+        let mut refused = 0;
+        for id in ids {
+            if let Err(e) = state.decide(id, Reason::NotACredential, 0, "synthetic".into()) {
+                assert_eq!(
+                    e,
+                    "Too many findings are set aside. Move some back to Worth Reviewing."
+                );
+                refused += 1;
+            }
+        }
+        assert!(refused > 0, "every decision fit");
+        assert!(serde_json::to_vec(&state).unwrap().len() <= STORE_BYTES);
+    }
+
+    #[test]
+    fn a_state_out_of_range_is_damaged_and_not_too_large() {
+        for (name, change) in [
+            ("bad-key-length", r#"{"key":[1,2,3]}"#),
+            ("too-many-attempts", r#"{"attempts":4}"#),
+        ] {
+            let root = synthetic_home(name);
+            let store = Store::open(&root).unwrap();
+            let mut json = serde_json::to_value(Review::default()).unwrap();
+            let change: serde_json::Value = serde_json::from_str(change).unwrap();
+            for (field, value) in change.as_object().unwrap() {
+                json[field] = value.clone();
+            }
+            let state = root.join(STATE_DIR).join("state.json");
+            fsutil::write_export(&state, &json.to_string(), false).unwrap();
+            assert_eq!(
+                store.read().err().as_deref(),
+                Some("The review list file is damaged or in an unknown format."),
+                "{name}"
+            );
+            drop(store);
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

@@ -113,7 +113,10 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   but it ends the app. So commands run inside `catch_unwind` in `call`, and
   the other `extern "C"` functions and callbacks (`ch_app_start`,
   `open_review`, `changed`, `batch`, `delivered` and the rest) stay small and
-  do nothing that fails on input. In the agent the abort is the intended
+  do nothing that fails on input. `notification_permission` catches a
+  panic itself and hands the save that wakes the helper to a thread of its
+  own, which waits for the store and saves nothing while the state cannot
+  be read. In the agent the abort is the intended
   result. Do not switch to `"C-unwind"`. [2][6]
 - Callbacks arrive on other threads. They reach shared state only through
   `OnceLock`, atomics and mutexes, and return at once when the state is not
@@ -148,7 +151,10 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   registration fails, so the status and Restart Helper stay available.
   Settings shows Restart Helper only while the helper is not running; it
   unregisters a registered helper and registers it again, as new consent
-  does. Recovery after `launchctl bootout` is unverified; the guest helper
+  does. It holds `app_login` and checks Scan Automatically under it, so
+  checks turned off meanwhile are not followed by a new registration
+  (`restart_helper_does_not_register_the_helper_once_checks_are_off`).
+  Recovery after `launchctl bootout` is unverified; the guest helper
   check's restart stage tests it. The helper counts as running only while a
   process of the person's, other than the one asking, has the number the
   helper saved when it started and runs the app's program: the file
@@ -211,9 +217,25 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   load, change and save, so the closure passed to it delays the app or the
   agent for as long as it runs. Keep a new closure to the change itself. The
   item rechecks inside the existing ones are deliberate: the merge has to be
-  one step. A change that fails saves nothing: an engine command that can
-  refuse goes through `try_update_state`, which leaves the saved state and the
-  app's copy as they were and does not count the refusal as a storage failure.
+  one step. Their deadline is asked between items and between the 1 MiB
+  pieces of a file read through, which a recheck reads as the scan does
+  (`a_recheck_of_a_large_record_stops_when_the_rechecks_run_out_of_time`).
+  Not bounded: a read the system blocks, as on a network share that stopped
+  answering, holds the store until it returns. A change that fails saves
+  nothing: an engine command that can refuse goes through
+  `try_update_state`, which leaves the saved state and the app's copy as
+  they were and does not count the refusal as a storage failure.
+- While `storage_error` is set, the commands that change settings,
+  decisions or folders refuse first, and a scan saves nothing. A later
+  read that works clears an error from reading. An error from a change
+  that could not be saved (`storage_unsaved`) stays until the app opens
+  again: what the change would have saved, such as a scan's findings, is
+  lost, and the list is not what was found
+  (`a_failed_read_is_cleared_by_a_later_one_and_a_failed_save_is_not`). A
+  scan whose save was skipped counts as such a change, unless it was
+  cancelled with nothing to list
+  (`a_scan_not_saved_keeps_the_error_after_the_state_reads_again`,
+  `a_stopped_scan_keeps_the_error_only_when_it_found_something`).
 - `Monitor` is the one condition variable. State is changed under its mutex
   and then notified. `wait` checks the state again in a loop, because a wait
   can return with no notification and a notification with no waiter is lost.
@@ -529,8 +551,10 @@ The threats are a local user racing a root run with links, and hostile files
   even a Kept that has run out, because `ingest` reads it to tell whether a
   copy is news; only when every decision is in use is a new one refused.
   Test: `a_full_list_of_decisions_makes_room_from_ones_nothing_listed_uses`.
-  Decisions are still limited by number, not measured against the store's
-  size.
+  They are also limited to `DECISION_BYTES`, an eighth of the store, as
+  items are to three quarters: a decision copies its item's path, and a
+  state past `STORE_BYTES` would refuse every later save. Test:
+  `decisions_about_long_paths_leave_room_to_save_the_state`.
 - A scan's digests are made with the key the list had when it began
   (`perform_scan`, `Agent::fingerprint`). A list replaced while it ran, as
   when its file is deleted or put back from a copy, has another key, and
@@ -885,14 +909,16 @@ checker does not catch either. [8]
 - A finding's `subject` (a profile, host or variable name) and `detail` are
   `#[serde(skip)]` in `report::Finding`: the window and the text summary
   show them (each a short printable name, as `rules::label` allows; the text
-  summary also escapes them), and the JSON report, the output people pass
+  summary escapes them, and `shown` does for the window, as other programs
+  can edit the state file), and the JSON report, the output people pass
   on, leaves them out, as they can name the person's accounts and hosts.
   `token_type` is a `&'static str` from the scanner's fixed list
   (`PROVIDERS` in `src/rules/token.rs`), so it carries nothing from a file
   and is exported. Test:
   `a_finding_in_the_json_report_has_only_the_fields_of_the_schema` in
   `src/report.rs`, which sets every field and checks that none of the
-  private ones reaches the report.
+  private ones reaches the report, and
+  `stored_subjects_reach_the_window_escaped` in `gui/src/lib.rs`.
 - A fingerprint is keyed: HMAC-SHA-256 under a random key made once per
   install and kept in the owner-only state. An unkeyed hash of a short secret
   can be reversed by guessing. Fingerprints are never exported, and the report

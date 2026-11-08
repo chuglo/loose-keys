@@ -1,10 +1,11 @@
 //! Checking one file again outside a scan, to learn whether a review item is
 //! still there.
 
-use super::read::settled;
+use super::read::{long_line_cut, settled};
 use super::{is_root, CONFIG_MAX, HEADER, STREAM_MAX};
 use crate::fsutil::{list_dir, open_regular, read_config, read_head, through_links};
 use crate::rules::{Hit, Matcher, Rule, Target, RULES};
+use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::Path;
 
@@ -36,19 +37,22 @@ pub fn recheck_values(
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
-    recheck_by(rule, path, home, mount, digest, false)
+    recheck_by(rule, path, home, mount, digest, false, &|| false)
 }
 
 /// As `recheck_values`, with private registry-place identities instead of
 /// display labels where available. Only for private review-state comparisons.
+/// `stop` is asked between the pieces of a file read through, which can be
+/// large; once it says to stop, nothing is known.
 pub fn recheck_identities(
     rule: &str,
     path: &Path,
     home: &Path,
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
+    stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
-    recheck_by(rule, path, home, mount, digest, true)
+    recheck_by(rule, path, home, mount, digest, true, stop)
 }
 
 pub(super) fn scope_digest(
@@ -70,6 +74,7 @@ fn recheck_by(
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
     identities: bool,
+    stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
     let mut still = Vec::new();
     // The value alone, under no rule's name, as `Scan::add_from` asks for it.
@@ -133,26 +138,53 @@ fn recheck_by(
                 continue;
             }
             Matcher::Stream(test) => {
-                let Some((mut file, len, _)) = open_regular(path).ok()? else {
+                let Some((file, len, _)) = open_regular(path).ok()? else {
                     return crate::fsutil::checked_or_absent(path, mount, home).then_some(still);
                 };
                 if len > STREAM_MAX {
                     return None;
                 }
-                // Rechecks are rare; reading it in one piece keeps this simple.
-                // As long as it was when opened, as the scan reads it.
-                let mut bytes = Vec::new();
-                (&mut file).take(len).read_to_end(&mut bytes).ok()?;
-                // Compared here, where the bytes are: nothing of them is kept.
-                let value = |hit: &Hit| hit.span.clone().and_then(|s| bytes.get(s));
-                let mut hits: Vec<Hit> = Vec::new();
-                for hit in test(&bytes, 1).ok()? {
-                    let seen = |h: &Hit| h.subject == hit.subject && value(h) == value(&hit);
-                    if !hits.iter().any(seen) {
-                        hits.push(hit);
+                // As long as it was when opened, in pieces that end at a line
+                // break, as the scan reads it: one large file read whole
+                // could take longer than the rechecks are given. The pieces
+                // must be cut as the loop in `read.rs` cuts them, or a recheck
+                // would not see what the scan saw.
+                let mut file = file.take(len);
+                let mut buffer = vec![0u8; 1024 * 1024];
+                let mut carry = Vec::new();
+                // Each value once, known by a hash of its bytes, which are
+                // compared here and not kept.
+                let mut seen = std::collections::HashSet::new();
+                loop {
+                    if stop() {
+                        return None;
+                    }
+                    let read = file.read(&mut buffer).ok()?;
+                    carry.extend_from_slice(buffer.get(..read)?);
+                    let cut = match carry.iter().rposition(|b| *b == b'\n') {
+                        _ if read == 0 => carry.len(),
+                        Some(end) => end + 1,
+                        None if carry.len() > 4 * buffer.len() => long_line_cut(&carry),
+                        None => 0,
+                    };
+                    if cut > 0 {
+                        let piece: Vec<u8> = carry.drain(..cut).collect();
+                        for hit in test(&piece, 1).ok()? {
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                            hit.subject.hash(&mut hasher);
+                            hit.span
+                                .clone()
+                                .and_then(|s| piece.get(s))
+                                .hash(&mut hasher);
+                            if seen.insert(hasher.finish()) {
+                                still.push(valued(hit, &piece));
+                            }
+                        }
+                    }
+                    if read == 0 {
+                        break;
                     }
                 }
-                still.extend(hits.into_iter().map(|hit| valued(hit, &bytes)));
                 continue;
             }
             _ => {}

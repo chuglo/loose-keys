@@ -107,9 +107,9 @@ or key is replaced, the new one appears in Worth Reviewing. For **Not a Password
 or Key**, changed text appears there if it is flagged again. A finding set
 aside under the earlier combined reason, for testing or no longer working,
 stays set aside and is shown as a previous choice. The app keeps up to 4096
-choices. When it needs room for another, it forgets the oldest choices about
-findings no longer on its list, so such a credential found again appears in
-Worth Reviewing.
+choices, and fewer once they fill 1 MiB, as a few thousand ordinary ones do. When it needs
+room for another, it forgets the oldest choices about findings no longer on
+its list, so such a credential found again appears in Worth Reviewing.
 
 **Keeping It Here on Purpose** covers one file. The same credential turning
 up elsewhere is still reported. It covers the credential in that file
@@ -191,8 +191,8 @@ checks is also kept in `update-check.json` beside it. The directory uses mode
 
 If Worth Reviewing cannot be opened, nothing a scan or the helper finds is
 saved, and choices and settings cannot be changed. If the folder or a file in
-it is not private, set the modes above. If a newer version saved the list,
-open that version again. Otherwise, quit Loose Keys and move `state.json` out
+it is not private, set the modes above, then quit Loose Keys and open it
+again. If a newer version saved the list, open that version again. Otherwise, quit Loose Keys and move `state.json` out
 of the folder: the app then starts a new list and forgets what that file held,
 including your choices and folders.
 

@@ -76,7 +76,7 @@ fn holds_nothing(path: &Path) -> Result<bool, Gap> {
 /// not such bytes: a colour code before a token has them. A run with no such
 /// byte, as in encoded binary data, is cut short of its end, and a token
 /// across that place can be missed.
-fn long_line_cut(carry: &[u8]) -> usize {
+pub(super) fn long_line_cut(carry: &[u8]) -> usize {
     let near = carry.len().saturating_sub(4096);
     carry[near..]
         .iter()
