@@ -329,6 +329,17 @@ The threats are a local user racing a root run with links, and hostile files
   `folders_named_through_a_linked_home_are_the_ones_in_it`. Not covered: a
   folder named through another link to the home, and places added in the app
   (`add_place`), which are taken as given.
+- Discovery passes over folders only, so `--exclude` refuses a path that is
+  a file or a link (`symlink_metadata` in `excluded_folder`, `src/main.rs`):
+  either would be read while the report said it was left out. The path is
+  looked up and kept without a trailing slash: with one, the lookup fails on
+  a file and follows a link. A path whose lookup fails, such as one with
+  nothing there or in a folder that cannot be opened, is taken, as nothing at
+  it can be read. Test:
+  `an_excluded_path_that_is_not_a_folder_is_refused`. Not covered: a path
+  through a link in a folder above it, such as `~/docs-link/notes`, names a
+  folder the walk does not reach by that path, so the folder is read where
+  the link leads while the report lists the path as left out.
 - An export's folder is not a scanned file. Run as the person, `write_export`
   resolves it with `fs::canonicalize`, through links and `..` as any program
   writing to that path would, and opens the real folder without following
@@ -468,15 +479,18 @@ The threats are a local user racing a root run with links, and hostile files
   finding. `scan::read_when_skipped` names those from the rules' targets, by
   rule and place, and `Review::resolve` looks again at an item in a skipped
   folder only where it says so, at every check as for any other item. Any
-  other item there is not read and stays as it is. Before, every item in a
-  skipped folder stayed open after its credential was removed. Tests:
-  `a_known_file_in_a_skipped_folder_is_still_marked_fixed` in
-  `gui/src/lib.rs`, and
+  other item there is not read and stays as it is. So a folder added to the
+  scan inside a skipped one, or that is one, is left out with it
+  (`run_budgeted`), as is one given to `--select` inside an `--exclude`.
+  Before, every item in a skipped folder stayed open after its credential
+  was removed. Tests: `a_known_file_in_a_skipped_folder_is_still_marked_fixed`
+  in `gui/src/lib.rs`,
   `what_a_scan_reads_in_a_skipped_folder_is_what_read_when_skipped_names`,
-  which compares it with what a scan given the skip finds. Not covered: a
-  known location that is a link into a skipped folder is listed where the
-  link leads, which the function does not follow, so that item stays open
-  until the folder is included again.
+  which compares it with what a scan given the skip finds, and
+  `a_folder_selected_inside_a_skipped_one_is_left_out_with_it` in
+  `tests/scan_scope.rs`. Not covered: a known location that is a link into a
+  skipped folder is listed where the link leads, which the function does not
+  follow, so that item stays open until the folder is included again.
 
 ### Saved manual roots and grouped file actions
 

@@ -283,6 +283,11 @@ impl Scan {
         s.counts.phase = "discovery";
         s.publish(true);
         for root in roots {
+            // A selected folder in a skipped one, or that is one, is left out
+            // with it: the app takes all of a skipped folder to be unread.
+            if s.skipped(root) {
+                continue;
+            }
             // Limited subtrees can be retried with an independent budget.
             s.traversal.remaining = budget;
             s.discover(root, vec![(root.clone(), 0)]);

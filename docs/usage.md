@@ -252,7 +252,9 @@ drives are included in one-time scans, not watched by the helper.
 
 Folders added with **Add Folder or Drive…** in Settings, or dropped on the
 Settings window, are kept for later launches and manual scans until you remove
-them. Up to eight are saved. Disconnected drives
+them. Up to eight are saved. An added folder inside a folder you stopped
+checking, or the same folder, is left out with it until you choose **Include
+Again**. Disconnected drives
 stay listed; their unavailable paths are listed under **Show Places Not
 Checked** rather than silently removed. An older app or helper can forget these saved folders
 when it writes its state, so check the folder list after updating or
@@ -495,11 +497,18 @@ over without a gap, as is macOS's `.com.apple.containermanagerd.metadata.plist`.
 Where a repository's
 `.git` is a file pointing elsewhere (a worktree or submodule) or a link, it is
 not followed. Repeat `--select DIR` to add folders or mounted drives;
-explicitly selecting an excluded directory scans that root, while exclusions
-still apply below it. Relative paths are accepted, but a path containing `..`
+explicitly selecting one of the folders above scans that root, while they are
+still skipped below it. Relative paths are accepted, but a path containing `..`
 is refused, and a folder reached through a link is listed as not checked: give
-its real path. Where your home folder is reached through a link, a path through
-that link, as the shell writes `~/notes`, names the folder in your home.
+its real path. Repeat `--exclude DIR` to leave out up to 32 folders. It takes
+a path relative to the current folder too, refuses one containing `..`, the
+home folder or a folder above it, and a file or a link, and accepts a path
+it cannot look up, such as a folder that is not there or one inside a folder
+you cannot open. Leaving a folder out does not make the scan partial, and a
+folder selected inside it, or selected as well, is left out with it: the JSON
+report still lists it in `roots`, and the text summary leaves it out. Where
+your home folder is reached through a link, a path through that link, as the
+shell writes `~/notes`, names the folder in your home.
 
 Both text and JSON reports state the requested roots and exclusions. The JSON
 report also states the detection limits, which the command's text summary

@@ -1818,6 +1818,131 @@ fn a_33rd_skipped_folder_is_refused_with_the_reason() {
     assert_eq!(said, "error: --exclude takes at most 32 folders\n");
 }
 
+/// Discovery leaves out folders only, so a file or a link given to
+/// --exclude was read while the report said it was left out.
+#[test]
+fn an_excluded_path_that_is_not_a_folder_is_refused() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let f = Fixture::new();
+    let file = f.home().join("export.csv");
+    f.csv(&file);
+    f.csv(&f.home().join("Documents/export.csv"));
+    let link = f.home().join("docs-link");
+    symlink(f.home().join("Documents"), &link).unwrap();
+    for path in [&file, &link] {
+        let out = f.run(&["--exclude", path.to_str().unwrap()]);
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{said}");
+        assert_eq!(
+            said,
+            "error: --exclude takes a folder, not a file or a link\n"
+        );
+    }
+    // A trailing slash made the file's lookup fail and the link's follow it.
+    for path in ["export.csv/", "docs-link/"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", f.home())
+            .current_dir(f.home())
+            .args(["scan", "--exclude", path])
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{path}: {said}");
+        assert_eq!(
+            said,
+            "error: --exclude takes a folder, not a file or a link\n"
+        );
+    }
+    // A path whose lookup fails for another reason, here under a file and
+    // in a folder that cannot be opened, is taken: nothing at it is read.
+    assert_ne!(
+        unsafe { libc::geteuid() },
+        0,
+        "run this test as an ordinary user"
+    );
+    let locked = f.home().join("locked");
+    fs::create_dir_all(locked.join("sub")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o0)).unwrap();
+    let out = f.run(&[
+        "--exclude",
+        file.join("sub").to_str().unwrap(),
+        "--exclude",
+        locked.join("sub").to_str().unwrap(),
+        "--export",
+        "-",
+    ]);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    let r: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        r["coverage"]["excluded_by_user"],
+        serde_json::json!(["~/export.csv/sub", "~/locked/sub"])
+    );
+    // A folder that is not there is taken: there is nothing in it to read.
+    let later = f.home().join("later");
+    let r = f.json(&["--exclude", later.to_str().unwrap()]);
+    assert_eq!(
+        r["coverage"]["excluded_by_user"],
+        serde_json::json!(["~/later"])
+    );
+}
+
+/// The refusal names the option it is for.
+#[test]
+fn a_path_with_dot_dot_is_refused_in_the_options_words() {
+    let f = Fixture::new();
+    fs::create_dir(f.home().join("Documents")).unwrap();
+    let path = f.home().join("Documents/../Documents");
+    for (option, refusal) in [
+        ("--exclude", "error: --exclude takes a path without '..'\n"),
+        ("--select", "error: selected paths must not contain '..'\n"),
+    ] {
+        let out = f.run(&[option, path.to_str().unwrap()]);
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{said}");
+        assert_eq!(said, refusal);
+    }
+}
+
+/// A folder selected inside a skipped one, or that is one, is left out
+/// with it, as the app treats everything in a skipped folder as unread.
+/// Its own files were read while the report said it was left out.
+#[test]
+fn a_folder_selected_inside_a_skipped_one_is_left_out_with_it() {
+    let f = Fixture::new();
+    let corpus = f.home().join("corpus");
+    let kept = corpus.join("kept");
+    f.csv(&kept.join("export.csv"));
+    f.csv(&kept.join("nested/export.csv"));
+    f.csv(&f.home().join("Documents/export.csv"));
+    for skipped in [&corpus, &kept] {
+        let r = f.json(&[
+            "--exclude",
+            skipped.to_str().unwrap(),
+            "--select",
+            kept.to_str().unwrap(),
+        ]);
+        let paths: Vec<_> = r["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(paths, ["~/Documents/export.csv"], "{skipped:?}");
+        assert_eq!(r["status"], "complete");
+        // The summary does not call it scanned.
+        let out = f.run(&[
+            "--exclude",
+            skipped.to_str().unwrap(),
+            "--select",
+            kept.to_str().unwrap(),
+        ]);
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.contains("Scanned: \"~/\"\n"), "{text}");
+    }
+}
+
 /// The shell writes `~/corpus` with HOME as it is set. A home reached
 /// through a link is scanned at its real location, so a folder named
 /// through the link has to be the same folder there: excluded, it was read

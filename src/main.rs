@@ -1,7 +1,8 @@
 use loose_keys::{fsutil, report, rules, scan};
 
+use std::ffi::OsStr;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: loose-keys scan [--select DIR ...] [--exclude DIR ...] [--limits]
@@ -24,15 +25,20 @@ Loose Keys works offline, changes nothing and never shows secret values.
   --device-id NAME
                   with --feedback: also record this name for the Mac (such as its
                   serial number) and the time of the scan, for device management.
-                  Without it, the counts include neither.
+                  Without it, the counts include neither. NAME is 1 to 64
+                  letters, digits, '.', '_', ':' or '-'.
   --select DIR    also scan this folder or mounted drive (repeatable)
-  --exclude DIR   skip this folder (repeatable). The report always lists it, and
-                  known sign-in files such as ~/.aws/credentials are still checked.
-  --limits        also print what this scan cannot detect
+  --exclude DIR   skip this folder (repeatable, up to 32): not the home folder or
+                  a folder above it, and not a file or a link. The report always
+                  lists it, and it does not make the scan partial. Known sign-in
+                  files such as ~/.aws/credentials are still checked.
+  --limits        also print what this scan cannot detect, after the summary
+                  (--export - and --feedback - print no summary)
   --fail-on-open LEVEL
                   exit with 3 if anything worth reviewing is at this risk level or
                   above (high, medium or low). For device-management checks.
 
+Each option except --select, --exclude and --limits may be given once.
 Choose --export or --feedback, not both. A full report contains file paths,
 and a counts file shows which kinds of credentials you have. Check either one
 before you share it.
@@ -91,8 +97,7 @@ fn main() -> ExitCode {
                     eprintln!("error: --exclude takes at most 32 folders");
                     return ExitCode::from(2);
                 }
-                let named = scan::named_folder(&pair[1], &home);
-                match scan::skipped_folder(named.as_os_str(), &home) {
+                match excluded_folder(&pair[1], &home) {
                     Ok(path) if !excluded.contains(&path) => excluded.push(path),
                     Ok(_) => {}
                     Err(e) => {
@@ -188,6 +193,25 @@ fn output(text: &str) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
     out.write_all(text.as_bytes())?;
     out.flush()
+}
+
+/// A folder `--exclude` names. Discovery passes over folders only, so a
+/// file or a link there would be read while the report said it was left
+/// out. A path whose lookup fails is taken: nothing at it can be read.
+/// The lookup is made without a trailing slash: with one, it fails on a
+/// file and follows a link.
+fn excluded_folder(arg: &OsStr, home: &Path) -> Result<PathBuf, &'static str> {
+    let named = scan::named_folder(arg, home);
+    if named.components().any(|c| c == Component::ParentDir) {
+        return Err("--exclude takes a path without '..'");
+    }
+    let path: PathBuf = scan::skipped_folder(named.as_os_str(), home)?
+        .components()
+        .collect();
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) if !meta.is_dir() => Err("--exclude takes a folder, not a file or a link"),
+        _ => Ok(path),
+    }
 }
 
 /// Risk levels, most serious first.

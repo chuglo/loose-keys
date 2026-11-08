@@ -1,6 +1,7 @@
 //! Report format v1 (schema/report-1.schema.json) and the plain-text summary.
 
 use serde::Serialize;
+use std::path::Path;
 
 #[derive(Serialize, Default)]
 pub struct Finding {
@@ -78,7 +79,7 @@ pub struct Coverage {
     pub limitations: &'static str,
 }
 
-pub const LIMITATIONS: &str = "Loose Keys reads the first 4 KiB of every regular file, regardless of extension, for CSV password exports, private-key headers, unencrypted Bitwarden JSON exports, KeePass databases, Google service account keys, kubeconfigs, wallet recovery phrases and service tokens in a known format. Tokens further in are found only in files read whole, up to 1 MiB: .env*, *.env, shell files, .git/config, MCP configs. In Terraform state it reads only named or sensitive values. AI agent folders (Claude Code, Codex, others) are read whole for tokens, 16 levels deep, up to 256 MiB and 50 tokens per file. It misses other token formats and secrets with no format. Known locations (see --list-rules) include ~/.ssh, ~/.aws/credentials, ~/.git-credentials, ~/.config/gh/hosts.yml, ~/.npmrc and other developer, cloud and AI tool files; counts of saved Chromium logins and cards, and of Firefox logins; and, unopened, listed wallet extensions, desktop wallet folders and Telegram Desktop's session. It reads simple fields only, not full YAML or INI, custom locations, references or credential helpers; unparsable files are listed as not checked. It skips browser cookies and sessions, Safari, Notes, Keychain items, images and password manager vaults. No archives are opened and nothing is decrypted. Searches skip links, special files, container metadata, Contacts settings and TV settings; it follows a link at a known location only inside the home folder, and does not download cloud-only files. Exclusions match path endings; a selected folder is scanned even if one matches it. Limits: 64 levels, 10000 entries per folder and 100000 per root, breadth-first, Library, Movies, Music and Pictures last; anything left out is listed as not checked. A match, or a file others may read, does not prove a credential works or that anyone can read it. It runs nothing and works offline. Deleting a file does not revoke a credential. Finding nothing does not mean this Mac is safe.";
+pub const LIMITATIONS: &str = "Loose Keys reads the first 4 KiB of every regular file, regardless of extension, for CSV password exports, private-key headers, KeePass databases and wallet recovery phrases, and in files up to 1 MiB for unencrypted Bitwarden JSON exports, Google service account keys, kubeconfigs and service tokens in a known format. Tokens further in are found only in files read whole, up to 1 MiB: .env*, *.env, shell files, .git/config, MCP configs. In Terraform state it reads only named or sensitive values. AI agent folders (Claude Code, Codex, others) are read whole for tokens, 16 levels deep, up to 256 MiB and 50 tokens per file. It misses other token formats and secrets with no format. Known locations (see --list-rules) include ~/.ssh, ~/.aws/credentials, ~/.git-credentials, ~/.config/gh/hosts.yml, ~/.npmrc and other developer, cloud and AI tool files; counts of saved Chromium logins and cards, and of Firefox logins; and, unopened, listed wallet extensions, desktop wallet folders and Telegram Desktop's session. It reads simple fields only, not full YAML or INI, custom locations, references or credential helpers; unparsable files are listed as not checked. It skips browser cookies and sessions, Safari, Notes, Keychain items, images and password manager vaults. No archives are opened and nothing is decrypted. Searches skip links, special files, container metadata, Contacts settings and TV settings; it follows a link at a known location only inside the home folder, and downloads no cloud-only files. Built-in exclusions match path endings; a selected folder is scanned even if one matches it. Limits: 64 levels, 10000 entries per folder and 100000 per root, breadth-first, Library, Movies, Music and Pictures last; anything left out is listed as not checked. A match, or a file others may read, does not prove a credential works or that anyone can read it. It runs nothing and works offline. Deleting a file does not revoke a credential. Finding nothing does not mean this Mac is safe.";
 
 #[derive(Serialize)]
 pub struct Report {
@@ -400,9 +401,15 @@ pub fn to_text(r: &Report, limits: bool) -> String {
     push_gaps(&mut s, r);
     s.push('\n');
     if let Some(c) = &r.coverage {
+        // A root in a folder left out on request is left out with it.
         let roots: Vec<String> = c
             .roots
             .iter()
+            .filter(|p| {
+                !c.excluded_by_user
+                    .iter()
+                    .any(|x| Path::new(p).starts_with(x))
+            })
             .map(|p| format!("\"{}\"", escape(p)))
             .collect();
         s.push_str(&format!("Scanned: {}\n", roots.join(", ")));
