@@ -66,7 +66,7 @@ fn forbidden_keys(value: &Value, errors: &mut Vec<String>) {
     }
 }
 pub(crate) fn good_report() -> Value {
-    json!({"schema":"loose-keys/report/1","tool_version":"0.0.0-selftest","generated_at":"2026-01-01T00:00:00Z","status":"complete","context":"user","findings":[{"rule":"export.browser-csv","category":"password-export","kind":"review","title":"Password export","explanation":"Synthetic reference finding","reason":"Unencrypted export","path":"~/Downloads/export.csv"}],"not_checked":[]})
+    json!({"schema":"loose-keys/report/1","tool_version":"0.0.0-selftest","generated_at":"2026-01-01T00:00:00Z","status":"complete","context":"user","coverage":{"roots":["~"],"excluded_directories":[],"limitations":"Synthetic reference coverage"},"findings":[{"rule":"export.browser-csv","category":"password-export","kind":"review","severity":"high","title":"Password export","explanation":"Synthetic reference finding","reason":"Unencrypted export","path":"~/Downloads/export.csv"}],"not_checked":[]})
 }
 pub(crate) fn self_tests() -> Result<()> {
     let good = good_report();
@@ -83,6 +83,18 @@ pub(crate) fn self_tests() -> Result<()> {
         .as_object_mut()
         .ok_or("bad base")?
         .remove("reason");
+    mutations.push(report);
+    let mut report = good.clone();
+    report["findings"][0]
+        .as_object_mut()
+        .ok_or("bad base")?
+        .remove("severity");
+    mutations.push(report);
+    let mut report = good.clone();
+    report.as_object_mut().ok_or("bad base")?.remove("coverage");
+    mutations.push(report);
+    let mut report = good.clone();
+    report["findings"][0]["category"] = json!("keychain");
     mutations.push(report);
     let mut report = good.clone();
     report["not_checked"] = json!([{"path":"~/Library/Keychains","reason":"permission-denied"}]);

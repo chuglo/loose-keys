@@ -48,7 +48,7 @@ fn finding(rule: &str, path: &Path, home: &Path, kind: &str, category: &str) -> 
     let relative = path
         .strip_prefix(home)
         .map_err(|_| "reference path escaped synthetic home")?;
-    let mut f = json!({"rule":rule,"category":category,"kind":kind,"title":"Synthetic reference finding","explanation":"Independent security harness reference scanner","path":format!("~/{}",relative.display())});
+    let mut f = json!({"rule":rule,"category":category,"kind":kind,"severity":"high","title":"Synthetic reference finding","explanation":"Independent security harness reference scanner","path":format!("~/{}",relative.display())});
     if kind == "review" {
         f["reason"] = json!("Synthetic material requires review");
     }
@@ -168,7 +168,7 @@ pub(crate) fn scan(args: &[String]) -> Result<i32> {
             }
         }
     }
-    let report = json!({"schema":"loose-keys/report/1","tool_version":"0.0.0-selftest","generated_at":"2026-01-01T00:00:00Z","status":"complete","context":"user","findings":findings,"not_checked":[]});
+    let report = json!({"schema":"loose-keys/report/1","tool_version":"0.0.0-selftest","generated_at":"2026-01-01T00:00:00Z","status":"complete","context":"user","coverage":{"roots":["~"],"excluded_directories":[],"limitations":"Independent security harness reference scanner"},"findings":findings,"not_checked":[]});
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -469,7 +469,7 @@ pub(crate) fn selftest(args: &[String]) -> Result<i32> {
         }
         return Ok(1);
     }
-    println!("SELFTEST PASSED: 7 harness scenarios, 5 validator mutations");
+    println!("SELFTEST PASSED: 7 harness scenarios, 8 validator mutations");
     Ok(0)
 }
 fn explain_network_miss(run: &Path) -> Result<()> {
