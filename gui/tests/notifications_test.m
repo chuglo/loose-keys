@@ -8,6 +8,9 @@ static void permissionResult(unsigned char value) { permissionStatus = value; }
 static unsigned long long deliveredRevision;
 static bool deliveredSuccess;
 static void deliveryResult(unsigned long long revision, bool success) { deliveredRevision = revision; deliveredSuccess = success; }
+static unsigned long long batchLast;
+static void watchedChange(const char *path, unsigned int flags) {}
+static void watchedBatch(unsigned long long last) { batchLast = last; }
 
 int main(void) {
     @autoreleasepool {
@@ -27,6 +30,15 @@ int main(void) {
         deliveryCallback = deliveryResult;
         ch_notifications_send(7);
         assert(deliveredRevision == 7 && !deliveredSuccess);
+        // An event FSEvents numbers 0, such as the end of replayed history,
+        // is not the place a batch ends at.
+        watchChange = watchedChange;
+        watchBatch = watchedBatch;
+        const char *names[] = {"/synthetic/a", "/synthetic"};
+        FSEventStreamEventFlags eventFlags[] = {0, kFSEventStreamEventFlagHistoryDone};
+        FSEventStreamEventId ids[] = {41, 0};
+        watchCallback(NULL, NULL, 2, (void *)names, eventFlags, ids);
+        assert(batchLast == 41);
         UNNotificationRequest *request = reviewRequest();
         UNNotificationContent *content = request.content;
         assert([content.title isEqualToString:@"Loose Keys"]);
@@ -66,7 +78,7 @@ int main(void) {
         unsigned char changed[32];
         ch_fingerprint(key, synthetic + 1, sizeof(synthetic) - 1, true, changed);
         assert(memcmp(digest, changed, sizeof(digest)) != 0);
-        puts("Native unavailable permission/delivery, generic payload, login events, keyed digest, and click routing checks passed. No notifications sent.");
+        puts("Native unavailable permission/delivery, generic payload, login events, keyed digest, batch event numbers, and click routing checks passed. No notifications sent.");
     }
     return 0;
 }

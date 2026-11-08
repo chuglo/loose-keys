@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::{c_char, CStr, CString, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -43,6 +43,9 @@ const RECHECK_AFTER: Duration = Duration::from_secs(30);
 const INBOX_MAX: usize = 5000;
 /// A path whose check was cut short asks for a full pass once in this long.
 const PASS_AGAIN: Duration = Duration::from_secs(24 * 3600);
+/// While notifications are not allowed, macOS is asked again once in this
+/// long, or when the app has changed the shared state.
+const PERMISSION_AGAIN: Duration = Duration::from_secs(15 * 60);
 
 /// Whether the weekly full pass is due, the last having ended at
 /// `baseline_at`. A time more than a day ahead of the clock was written
@@ -50,6 +53,13 @@ const PASS_AGAIN: Duration = Duration::from_secs(24 * 3600);
 /// until the clock was a week past it, so it counts as long ago.
 fn pass_due(baseline_at: u64, now: u64) -> bool {
     now.saturating_sub(baseline_at) > FULL_PASS_EVERY || baseline_at > now.saturating_add(24 * 3600)
+}
+
+/// Whether an agent starting with the saved `state` begins with a full
+/// pass: on its first run, from `since` 0, when the weekly pass is due, and
+/// when one was under way or owed, which leaves folders to check.
+fn pass_at_start(state: &review::Agent, since: u64, now: u64) -> bool {
+    since == 0 || state.left != 0 || pass_due(state.baseline_at, now)
 }
 
 // FSEvents flags: events were dropped or coalesced, so the folder must be
@@ -86,7 +96,9 @@ struct Agent {
     store: Store,
     monitor: Monitor,
     inbox: Mutex<Inbox>,
-    delivering: AtomicBool,
+    /// When the notification being sent was handed to macOS, until its
+    /// completion comes back.
+    delivering: Mutex<Option<Instant>>,
     /// From the last state read or written: what the next step needs without
     /// reading the store again.
     known: Mutex<Known>,
@@ -111,6 +123,10 @@ struct Agent {
     /// Open the event stream again from an event, to replay what was
     /// dropped. Ends the agent if it cannot, so launchd starts it again.
     resume_watch: fn(u64),
+    /// Ask macOS again whether notifications are allowed.
+    refresh: fn(),
+    /// When it was last asked, by `deliver`.
+    asked: Mutex<Option<Instant>>,
     /// Saves of what a check found that have failed in a row. A full pass
     /// waits longer for each before it makes the slice again.
     unsaved: AtomicU32,
@@ -125,6 +141,9 @@ struct Inbox {
     last_event: u64,
     /// Events were dropped: the place to replay the change history from.
     resume: Option<u64>,
+    /// Drops reported so far, so that one reported while the stream is
+    /// opened again is not taken as handled by that opening.
+    drops: u64,
 }
 
 #[derive(Default)]
@@ -140,13 +159,32 @@ struct Known {
     /// When the next notification attempt may be made, if one is owed.
     retry_at: Option<u64>,
     saved_event: u64,
+    /// The last number given to a read of the state, and the number of the
+    /// state remembered.
+    tickets: u64,
+    remembered: u64,
 }
 
 static AGENT: OnceLock<Agent> = OnceLock::new();
 
 impl Agent {
-    fn remember(&self, state: &Review) {
+    /// A number for a read of the state about to be made, or for a change
+    /// to it, taken inside the store's update: a later read gets a larger one.
+    fn ticket(&self) -> u64 {
         let mut known = self.known.lock().unwrap();
+        known.tickets += 1;
+        known.tickets
+    }
+
+    /// Take in `state`, read under `ticket`.
+    fn remember(&self, state: &Review, ticket: u64) {
+        let mut known = self.known.lock().unwrap();
+        // Read before the state last taken in, it may hold a setting that
+        // has changed since.
+        if ticket < known.remembered {
+            return;
+        }
+        known.remembered = ticket;
         known.key = state.key.clone();
         known.open = state
             .items
@@ -201,7 +239,9 @@ impl Agent {
         place: Option<u64>,
         health: impl FnOnce(&mut review::Agent),
     ) -> bool {
+        let mut ticket = 0;
         let saved = self.store.update(|state| {
+            ticket = self.ticket();
             // A list replaced while the check ran has another key, and the
             // check's digests would be taken for other values there. Nothing
             // it found is saved; the list is, unchanged, so that its key is
@@ -243,7 +283,7 @@ impl Agent {
                 if merged {
                     self.unsaved.store(0, Ordering::SeqCst);
                 }
-                self.remember(&state);
+                self.remember(&state, ticket);
                 merged
             }
             Err(e) => {
@@ -278,8 +318,15 @@ impl Agent {
             // this helper, and the person is asked about notifications after
             // that, in the app. So with something to send, ask again. The
             // answer comes back through `permission`, which calls for
-            // another try when it is yes.
-            unsafe { crate::ch_notifications_refresh() };
+            // another try when it is yes. Not at every wake: the app saves
+            // the shared state when notifications are allowed there, and
+            // `batch` then lets this ask at once.
+            let mut asked = self.asked.lock().unwrap();
+            if asked.is_none_or(|at| at.elapsed() >= PERMISSION_AGAIN) {
+                *asked = Some(Instant::now());
+                drop(asked);
+                (self.refresh)();
+            }
             return;
         }
         // The app shows new items itself while it is in front.
@@ -287,9 +334,7 @@ impl Agent {
             return self.monitor.retry_in(Duration::from_secs(60));
         }
         let due = |state: &Review| state.monitoring && !state.paused && state.pending(crate::now());
-        if !self.store.read().is_ok_and(|state| due(&state))
-            || self.delivering.swap(true, Ordering::SeqCst)
-        {
+        if !self.store.read().is_ok_and(|state| due(&state)) || !self.claim_delivery() {
             return;
         }
         let attempt = self.store.update(|state| {
@@ -301,9 +346,21 @@ impl Agent {
             Ok((_, revision)) => unsafe { crate::ch_notifications_send(revision) },
             Err(e) => {
                 eprintln!("loose-keys agent: {e}");
-                self.delivering.store(false, Ordering::SeqCst);
+                *self.delivering.lock().unwrap() = None;
             }
         }
+    }
+
+    /// Whether a notification may be handed to macOS now, and if so, mark
+    /// one as under way.
+    fn claim_delivery(&self) -> bool {
+        let mut began = self.delivering.lock().unwrap();
+        let now = Instant::now();
+        if delivery_under_way(*began, now) {
+            return false;
+        }
+        *began = Some(now);
+        true
     }
 
     /// One file-change event: hold the path for the worker.
@@ -321,6 +378,7 @@ impl Agent {
             // in full, instead of walking the whole home.
             let from = inbox.last_event;
             inbox.resume.get_or_insert(from);
+            inbox.drops = inbox.drops.wrapping_add(1);
         } else if !enabled
             || (flags & MUST_RESCAN != 0 && !path.starts_with(&self.home))
             || (flags & MUST_RESCAN != 0 && path == self.home)
@@ -341,16 +399,19 @@ impl Agent {
         let settings = {
             let mut inbox = self.inbox.lock().unwrap();
             // Not past events that were dropped: until they are replayed,
-            // no saved place may follow them.
-            if inbox.resume.is_none() {
+            // no saved place may follow them. Nor to 0, which FSEvents gives
+            // some events and which would make a restart read from now.
+            if inbox.resume.is_none() && last_event != 0 {
                 inbox.last_event = last_event;
             }
             std::mem::take(&mut inbox.settings)
         };
         // The app changed the shared state: a setting, a decision or a retry.
         if settings {
+            *self.asked.lock().unwrap() = None;
+            let ticket = self.ticket();
             match self.store.read() {
-                Ok(state) => self.remember(&state),
+                Ok(state) => self.remember(&state, ticket),
                 Err(e) => eprintln!("loose-keys agent: {e}"),
             }
         }
@@ -407,20 +468,18 @@ extern "C" fn delivered(revision: u64, success: bool) {
         return;
     };
     let state = if success {
-        agent
-            .store
-            .update(|state| {
-                state.delivered(revision);
-                Ok(())
-            })
-            .map(|(state, ())| state)
+        agent.store.update(|state| {
+            state.delivered(revision);
+            Ok(agent.ticket())
+        })
     } else {
-        agent.store.read()
+        let ticket = agent.ticket();
+        agent.store.read().map(|state| (state, ticket))
     };
-    agent.delivering.store(false, Ordering::SeqCst);
+    *agent.delivering.lock().unwrap() = None;
     match state {
-        Ok(state) => {
-            agent.remember(&state);
+        Ok((state, ticket)) => {
+            agent.remember(&state, ticket);
             if state.attempts < 3 {
                 let delay = state.retry_at.saturating_sub(crate::now()).max(1);
                 agent.monitor.retry_in(Duration::from_secs(delay));
@@ -503,6 +562,16 @@ fn unsaved_wait(pause: Duration, failed: u32) -> Duration {
     (pause * 2u32.pow(failed.saturating_sub(1).min(5))).min(CADENCE)
 }
 
+/// How long a notification handed to macOS holds off the next, if its
+/// completion never comes back.
+const DELIVERY_WAIT: Duration = Duration::from_secs(120);
+
+/// Whether a notification handed to macOS at `began` is still waiting for
+/// its completion.
+fn delivery_under_way(began: Option<Instant>, now: Instant) -> bool {
+    began.is_some_and(|at| now.saturating_duration_since(at) < DELIVERY_WAIT)
+}
+
 /// When to wake for a notification that may be tried again at `at`, in
 /// seconds since 1970: in a minute at the soonest, and never for a time the
 /// clock cannot hold.
@@ -554,7 +623,10 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
         // Copied, not taken: until the stream is open again, events still
         // coming must not move the place past those that were dropped. And
         // not under the lock, which the stream's callbacks wait for.
-        let resume = agent.inbox.lock().unwrap().resume;
+        let (resume, drops) = {
+            let inbox = agent.inbox.lock().unwrap();
+            (inbox.resume, inbox.drops)
+        };
         if let Some(since) = resume {
             resumes.retain(|at| at.elapsed() < RESUME_WINDOW);
             if resumes.len() < RESUMES_MAX {
@@ -564,7 +636,12 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 // Dropped again and again: a full pass makes up for them.
                 ask_for_pass(&mut full_pass, &mut owed);
             }
-            agent.inbox.lock().unwrap().resume = None;
+            // A drop reported meanwhile, by either stream, is replayed by
+            // opening it again on the next round.
+            let mut inbox = agent.inbox.lock().unwrap();
+            if inbox.drops == drops {
+                inbox.resume = None;
+            }
         }
         let (paths, restart, event) = {
             let mut inbox = agent.inbox.lock().unwrap();
@@ -576,13 +653,14 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
         };
         if tick {
             checked.retain(|_, (last, _)| last.elapsed() < CADENCE);
+            let ticket = agent.ticket();
             let state = agent.store.read();
             let last = state.as_ref().map_or(0, |s| s.agent.baseline_at);
             // What is to be notified can change by the clock alone, as when
             // a set-aside reason ends, with nothing read or written to say
             // so. What is known is from before; this is as it is now.
             if let Ok(state) = &state {
-                agent.remember(state);
+                agent.remember(state, ticket);
             }
             if full_pass.is_none() && pass_due(last, crate::now()) {
                 full_pass = Some(None);
@@ -714,7 +792,9 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 let place = (done && !owed).then(|| handled(&waiting, event));
                 let not_read = unread.places.len();
                 let saved = agent.record(&report, &key, (!done).then_some(nothing), place, |h| {
-                    h.left = folders_left(&pending);
+                    // A pass owed after this one has every folder left: at
+                    // least one, so that a restart still makes it.
+                    h.left = folders_left(&pending).max(usize::from(owed));
                     if done {
                         h.baseline = Some(report.generated_at.clone());
                         h.baseline_at = crate::now();
@@ -752,15 +832,19 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                     next_slice = Instant::now() + agent.slice_pause;
                 }
             }
-        } else if tick && handled(&waiting, event) != agent.known.lock().unwrap().saved_event {
-            // Keep the place in the change history, so a restart replays little.
+        } else if tick
+            && handled(&waiting, event) != 0
+            && handled(&waiting, event) != agent.known.lock().unwrap().saved_event
+        {
+            // Keep the place in the change history, so a restart replays
+            // little. Never 0: saved, it would start the next stream from now.
             let place = handled(&waiting, event);
             let saved = agent.store.update(|state| {
                 state.agent.event_id = place;
-                Ok(())
+                Ok(agent.ticket())
             });
-            if let Ok((state, ())) = saved {
-                agent.remember(&state);
+            if let Ok((state, ticket)) = saved {
+                agent.remember(&state, ticket);
             }
         }
         agent.deliver();
@@ -786,11 +870,17 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
 }
 
 /// Run as the agent. Exits with success on anything that a restart would not
-/// fix, so launchd does not start it again in a loop.
+/// fix, so launchd does not start it again in a loop, and with failure on
+/// what one may, such as a home folder not mounted yet: launchd then starts
+/// it again, a minute later at the soonest (`ThrottleInterval`).
 pub fn run() -> ! {
     fn stop(reason: &str) -> ! {
         eprintln!("loose-keys agent: {reason}");
         std::process::exit(0)
+    }
+    fn fail(reason: &str) -> ! {
+        eprintln!("loose-keys agent: {reason}");
+        std::process::exit(1)
     }
     // A panic on any thread ends the agent, so launchd starts it again. A
     // worker that died behind a live process would check nothing and look
@@ -804,7 +894,7 @@ pub fn run() -> ! {
         stop("not available as root");
     }
     let home = scan::home().unwrap_or_else(|e| stop(e));
-    let store = Store::open(&home).unwrap_or_else(|e| stop(&e));
+    let store = Store::open(&home).unwrap_or_else(|e| fail(&e));
     let path = CString::new(home.as_os_str().as_bytes()).unwrap_or_else(|_| stop("bad home"));
     let mut volume = [0 as c_char; 37];
     // SAFETY: a NUL-terminated path and a 37-byte buffer, as the bridge requires.
@@ -832,8 +922,8 @@ pub fn run() -> ! {
         };
         Ok(())
     });
-    let (state, ()) = started.unwrap_or_else(|e| stop(&e));
-    let overdue = pass_due(state.agent.baseline_at, crate::now());
+    let (state, ()) = started.unwrap_or_else(|e| fail(&e));
+    let full_pass = pass_at_start(&state.agent, since, crate::now()).then_some(None);
     let agent = AGENT.get_or_init(|| Agent {
         state_dir: home.join(review::STATE_DIR),
         home,
@@ -843,7 +933,7 @@ pub fn run() -> ! {
             last_event: since,
             ..Inbox::default()
         }),
-        delivering: AtomicBool::new(false),
+        delivering: Mutex::new(None),
         known: Mutex::new(Known::default()),
         recheck_after: RECHECK_AFTER,
         slice: SLICE,
@@ -863,9 +953,12 @@ pub fn run() -> ! {
                 std::process::exit(1)
             }
         },
+        // SAFETY: takes nothing; the answer comes back through `permission`.
+        refresh: || unsafe { crate::ch_notifications_refresh() },
+        asked: Mutex::new(None),
         unsaved: AtomicU32::new(0),
     });
-    agent.remember(&state);
+    agent.remember(&state, agent.ticket());
     // SAFETY: the callbacks are plain functions that live for the whole process.
     unsafe {
         crate::ch_notifications_init(open_review, permission);
@@ -875,10 +968,9 @@ pub fn run() -> ! {
                 state.agent.error = Some("Could not watch the home folder for changes.".into());
                 Ok(())
             });
-            stop("could not watch the home folder");
+            fail("could not watch the home folder");
         }
     }
-    let full_pass = (since == 0 || overdue).then_some(None);
     std::thread::Builder::new()
         .name("credential-agent".into())
         .spawn(move || {
@@ -888,7 +980,7 @@ pub fn run() -> ! {
             }
             work(agent, full_pass)
         })
-        .unwrap_or_else(|_| stop("could not start the worker"));
+        .unwrap_or_else(|_| fail("could not start the worker"));
     // SAFETY: runs the main run loop; called once, on the main thread.
     unsafe { ch_agent_run() };
     std::process::exit(0)
@@ -898,7 +990,7 @@ pub fn run() -> ! {
 mod tests {
     use super::*;
     use std::path::Path;
-    use std::sync::atomic::{AtomicU64, AtomicUsize};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 
     /// The worker running on a synthetic home folder, fed changes the way the
     /// file-event callbacks feed them. No event stream, window or notification,
@@ -945,7 +1037,7 @@ mod tests {
                 store,
                 monitor: Monitor::new(false, false),
                 inbox: Mutex::default(),
-                delivering: AtomicBool::new(false),
+                delivering: Mutex::new(None),
                 known: Mutex::default(),
                 recheck_after: Duration::from_secs(2),
                 slice: SLICE,
@@ -955,11 +1047,13 @@ mod tests {
                 low_power: || false,
                 low_power_pause: Duration::from_secs(600),
                 resume_watch: |_| {},
+                refresh: || {},
+                asked: Mutex::new(None),
                 unsaved: AtomicU32::new(0),
             };
             tune(&mut agent);
             let agent: &'static Agent = Box::leak(Box::new(agent));
-            agent.remember(&saved.unwrap().0);
+            agent.remember(&saved.unwrap().0, agent.ticket());
             Self {
                 app: Store::open(&home).unwrap(),
                 // As on a first run: the whole home is still to be walked.
@@ -1727,6 +1821,10 @@ mod tests {
         f.stop();
     }
 
+    unsafe extern "C" {
+        fn ch_watch_stop();
+    }
+
     /// The real event stream, on a synthetic folder: opened again from an
     /// event, it replays from the change history what came after that event,
     /// and not what came before. The only test that starts this process's
@@ -1778,6 +1876,12 @@ mod tests {
         assert!(unsafe { ch_watch_resume(place) });
         wait("the second file again", &|| seen("after-the-place"));
         assert!(!seen("before-the-place"), "replayed from before the place");
+        // SAFETY: takes nothing; called from this thread, not the stream's queue.
+        unsafe { ch_watch_stop() };
+        SEEN.lock().unwrap().clear();
+        touch(&dir.join("after-the-stop"));
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!seen("after-the-stop"), "reported after the stream stopped");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1812,6 +1916,44 @@ mod tests {
             "events dropped again and again were never made up for"
         );
         assert_eq!(OPENED.load(Ordering::SeqCst), RESUMES_MAX);
+        f.stop();
+    }
+
+    /// The place to replay from was cleared once the stream had been opened
+    /// again. A drop reported while it was being opened found that place
+    /// already set, and was then taken as handled: never replayed.
+    #[test]
+    fn a_drop_while_the_stream_is_opened_again_is_replayed() {
+        static AGENT: OnceLock<&'static Agent> = OnceLock::new();
+        static FROM: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+        let mut f = Fixture::tuned(
+            "dropped-while-opening",
+            &[],
+            |_| {},
+            |agent| {
+                agent.resume_watch = |since| {
+                    let first = {
+                        let mut from = FROM.lock().unwrap();
+                        from.push(since);
+                        from.len() == 1
+                    };
+                    // The stream opened again falls behind at once.
+                    if let (true, Some(agent)) = (first, AGENT.get()) {
+                        agent.changed(agent.home.clone(), 0x1 | USER_DROPPED);
+                        agent.batch(since + 1);
+                    }
+                }
+            },
+        );
+        assert!(AGENT.set(f.agent).is_ok());
+        f.first_pass();
+        f.changes(&["before.csv"]);
+        let before = f.event;
+        f.dropped();
+        f.until("the stream to be opened again for the second drop", || {
+            FROM.lock().unwrap().len() >= 2
+        });
+        assert_eq!(*FROM.lock().unwrap(), [before, before]);
         f.stop();
     }
 
@@ -2240,6 +2382,140 @@ mod tests {
         assert_eq!(notify_wake(u64::MAX), None);
         let soon = notify_wake(0).unwrap();
         assert!(soon > Instant::now() + Duration::from_secs(50));
+    }
+
+    /// FSEvents numbers some events 0, such as the one that ends replayed
+    /// history. Taken as the last event of a batch, or saved as the place,
+    /// it made the next start read from now and miss what came before.
+    #[test]
+    fn an_event_numbered_zero_moves_no_place() {
+        let mut f = Fixture::start("event-zero", &[], |_| {});
+        f.first_pass();
+        // The quarter-hourly save: nothing has been handled yet, and the
+        // saved place stays as it is.
+        f.app
+            .update(|state| {
+                state.agent.event_id = 7;
+                Ok(())
+            })
+            .unwrap();
+        f.tick();
+        f.until("the quarter-hourly check to read the place", || {
+            f.agent.known.lock().unwrap().saved_event == 7
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(f.app.read().unwrap().agent.event_id, 7);
+        f.changes(&["a.txt"]);
+        f.agent.batch(0);
+        assert_eq!(f.agent.inbox.lock().unwrap().last_event, f.event);
+        f.stop();
+    }
+
+    /// While notifications were not allowed and something waited to be
+    /// sent, every wake of the worker asked macOS again.
+    #[test]
+    fn notification_permission_is_asked_again_once_in_a_while_not_at_every_wake() {
+        static ASKED: AtomicUsize = AtomicUsize::new(0);
+        let mut f = Fixture::tuned(
+            "ask-permission",
+            &["export.csv"],
+            |_| {},
+            |agent| {
+                agent.refresh = || {
+                    ASKED.fetch_add(1, Ordering::SeqCst);
+                }
+            },
+        );
+        f.first_pass();
+        f.until("permission to be asked for what was found", || {
+            ASKED.load(Ordering::SeqCst) >= 1
+        });
+        for n in 0..3 {
+            change_listed(&mut f, &format!("more-{n}.csv"));
+        }
+        assert_eq!(ASKED.load(Ordering::SeqCst), 1, "asked at every wake");
+        // The app saves the shared state when notifications are allowed
+        // there: the helper may ask again at once.
+        f.app_sets(|_| {});
+        f.until(
+            "permission to be asked again after the app's change",
+            || ASKED.load(Ordering::SeqCst) == 2,
+        );
+        f.stop();
+    }
+
+    /// A notification whose completion never came back held off every
+    /// notification after it until the helper was started again.
+    #[test]
+    fn a_delivery_that_never_hears_back_stops_holding_up_the_next() {
+        let now = Instant::now();
+        assert!(!delivery_under_way(None, now));
+        assert!(delivery_under_way(Some(now), now));
+        assert!(delivery_under_way(Some(now), now + Duration::from_secs(1)));
+        assert!(!delivery_under_way(Some(now), now + DELIVERY_WAIT));
+    }
+
+    /// A full pass under way was not saved: a helper started again began
+    /// none until the weekly one, though the window showed folders left.
+    #[test]
+    fn a_full_pass_under_way_is_made_after_a_restart() {
+        let now = crate::now();
+        let saved = |left| review::Agent {
+            baseline_at: now,
+            left,
+            ..review::Agent::default()
+        };
+        assert!(!pass_at_start(&saved(0), 5, now));
+        assert!(pass_at_start(&saved(3), 5, now));
+        assert!(pass_at_start(&saved(0), 0, now));
+    }
+
+    /// A pass that ends while another is owed leaves a folder to check, so
+    /// that a restart before the next begins still makes it.
+    #[test]
+    fn a_pass_that_ends_with_another_owed_leaves_it_saved() {
+        let files: Vec<String> = (0..12)
+            .flat_map(|d| (0..10).map(move |n| format!("d{d}/export-{n}.csv")))
+            .collect();
+        let files: Vec<&str> = files.iter().map(String::as_str).collect();
+        let mut f = Fixture::tuned(
+            "pass-owed",
+            &files,
+            |_| {},
+            |agent| {
+                agent.slice.entries = 25;
+                agent.slice_pause = Duration::from_millis(300);
+            },
+        );
+        f.wait("the first slice", |s| s.agent.left > 0);
+        f.changes_lost();
+        let ended = f.first_pass();
+        assert_ne!(ended.agent.left, 0, "the pass owed was not saved");
+        f.wait("the pass that was owed", |s| s.agent.left == 0);
+        f.stop();
+    }
+
+    /// The state was taken in by whichever thread came last, though it may
+    /// have read it first: a pause read before monitoring was resumed left
+    /// the checks paused until the next change of a setting.
+    #[test]
+    fn a_state_read_earlier_does_not_replace_one_read_later() {
+        let f = Fixture::start("read-order", &[], |_| {});
+        f.first_pass();
+        let state = f.app.read().unwrap();
+        let earlier = f.agent.ticket();
+        let paused = Review {
+            paused: true,
+            ..state.clone()
+        };
+        let later = f.agent.ticket();
+        f.agent.remember(&state, later);
+        f.agent.remember(&paused, earlier);
+        assert!(
+            f.agent.monitor.active(),
+            "an earlier read paused the checks"
+        );
+        f.stop();
     }
 
     #[test]

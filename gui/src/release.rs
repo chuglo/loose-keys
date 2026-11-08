@@ -31,13 +31,19 @@ pub(crate) fn check(body: &str, current: &str) -> Result<ReleaseView, String> {
         .ok_or(NOT_EXPECTED)?;
     let flag = |name: &str| reply.get(name).and_then(serde_json::Value::as_bool);
     let release = tag.strip_prefix('v').and_then(parts).ok_or(NOT_EXPECTED)?;
-    let own = parts(current).ok_or(NOT_EXPECTED)?;
+    // A test build's version goes on past "x.y.z": "-beta.1" makes it come
+    // before that release, and "+local" changes nothing.
+    let (core, suffix) = current
+        .find(['-', '+'])
+        .map_or((current, ""), |at| current.split_at(at));
+    let own = parts(core).ok_or(NOT_EXPECTED)?;
     let unreleased = flag("draft") == Some(true) || flag("prerelease") == Some(true);
-    let newer = (!unreleased && release > own)
-        .then(|| format!("{}.{}.{}", release[0], release[1], release[2]));
+    let ahead = release > own || (release == own && suffix.starts_with('-'));
+    let newer =
+        (!unreleased && ahead).then(|| format!("{}.{}.{}", release[0], release[1], release[2]));
     Ok(ReleaseView {
         newer,
-        current: format!("{}.{}.{}", own[0], own[1], own[2]),
+        current: format!("{}.{}.{}{suffix}", own[0], own[1], own[2]),
     })
 }
 
@@ -76,6 +82,10 @@ mod tests {
         concat!("getStreams", "ToHost"),
         concat!("NSURL", "Connection"),
         concat!("getaddr", "info"),
+        concat!("Data(contents", "Of:"),
+        concat!("String(contents", "Of:"),
+        concat!("XMLParser(contents", "Of:"),
+        concat!("WK", "WebView"),
     ];
     const OBJC_WORDS: &[&str] = &[
         concat!("NSURL", "Session"),
@@ -87,7 +97,17 @@ mod tests {
         concat!("CFRead", "Stream"),
         concat!("CFWrite", "Stream"),
         concat!("getaddr", "info"),
+        concat!("dataWithContents", "OfURL"),
+        concat!("stringWithContents", "OfURL"),
+        concat!("initWithContents", "OfURL"),
+        concat!("WK", "WebView"),
     ];
+    /// Readers of a URL on a file the code itself made, each with the
+    /// expression around it, so that no other use passes.
+    const LOCAL_READS: &[(&str, &str)] = &[(
+        "app/Preview.swift",
+        concat!("String(contents", "Of: old, encoding: .utf8)"),
+    )];
     const RUST_WORDS: &[&str] = &[
         concat!("std", "::net"),
         concat!("Tcp", "Stream"),
@@ -144,6 +164,38 @@ mod tests {
         );
     }
 
+    /// Readers that take a URL fetch a remote one as readily as a file, and
+    /// a web view loads whatever it is given.
+    #[test]
+    fn the_guard_knows_readers_that_take_a_url() {
+        for swift in [
+            format!("let reply = try {}url)", concat!("Data(contents", "Of: ")),
+            format!("let reply = try {}url)", concat!("NSData(contents", "Of: ")),
+            format!(
+                "let page = try {}url, encoding: .utf8)",
+                concat!("String(contents", "Of: ")
+            ),
+            format!("let parser = {}url)", concat!("XMLParser(contents", "Of: ")),
+            format!("let view = {}()", concat!("WK", "WebView")),
+        ] {
+            assert!(!network_words(&swift, SWIFT_WORDS).is_empty(), "{swift}");
+        }
+        for objc in [
+            format!("[NSData {}url]", concat!("dataWithContents", "OfURL:")),
+            format!("[NSString {}url]", concat!("stringWithContents", "OfURL:")),
+            format!(
+                "[[NSXMLParser alloc] {}url]",
+                concat!("initWithContents", "OfURL:")
+            ),
+            format!("[[{} alloc] init]", concat!("WK", "WebView")),
+        ] {
+            assert!(!network_words(&objc, OBJC_WORDS).is_empty(), "{objc}");
+        }
+        // A file read by its path is no network code.
+        let log = concat!("String(contents", "OfFile: log, encoding: .utf8)");
+        assert!(network_words(log, SWIFT_WORDS).is_empty());
+    }
+
     /// The window's update check is the only code that goes online. The
     /// scanner, the engine and its C bridge, and the rest of the window
     /// name no network API.
@@ -167,10 +219,18 @@ mod tests {
                     Some("rs") => RUST_WORDS,
                     _ => continue,
                 };
-                let text = std::fs::read_to_string(&path).unwrap();
+                let mut text = std::fs::read_to_string(&path).unwrap();
                 if path == gui.join("app/Updates.swift") {
                     updates = Some(text);
                     continue;
+                }
+                for (file, read) in LOCAL_READS {
+                    if path == gui.join(file) {
+                        if !text.contains(read) {
+                            problems.push(format!("{}: no longer has {read}", path.display()));
+                        }
+                        text = text.replace(read, "");
+                    }
                 }
                 for word in network_words(&text, words) {
                     problems.push(format!("{}: {word}", path.display()));
@@ -225,6 +285,27 @@ mod tests {
                 "{tag} against {current}"
             );
         }
+    }
+
+    /// A test build of this app has a version such as "0.10.0-beta.1". It
+    /// was refused as a reply that could not be read, so every check failed.
+    #[test]
+    fn a_prerelease_of_this_app_is_offered_its_release() {
+        let answer = check(&reply("v0.10.0"), "0.10.0-beta.1").unwrap();
+        assert_eq!(answer.newer.as_deref(), Some("0.10.0"));
+        assert_eq!(answer.current, "0.10.0-beta.1");
+        for (tag, current) in [("v0.9.0", "0.10.0-beta.1"), ("v0.10.0", "0.10.0+local")] {
+            let answer = check(&reply(tag), current).unwrap();
+            assert_eq!(answer.newer, None, "{tag} against {current}");
+            assert_eq!(answer.current, current);
+        }
+        assert_eq!(
+            check(&reply("v0.11.0"), "0.10.0-beta.1")
+                .unwrap()
+                .newer
+                .as_deref(),
+            Some("0.11.0")
+        );
     }
 
     #[test]

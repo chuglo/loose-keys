@@ -50,6 +50,13 @@ own. Numbers in brackets refer to the sources at the end.
   at startup failures and at the end. New code that ends the agent saves
   what must be kept through the store first and leaves nothing to a
   `Drop`. [14]
+- The agent exits 0 where starting again would not help (run as root,
+  `HOME` not absolute) and 1 where it may: the review list's folder or file
+  cannot be used, as before the home volume is mounted, the home cannot be
+  watched, or the worker cannot start. Its launchd job restarts it only
+  after a failure, a minute later at the soonest (`ThrottleInterval`), so a
+  failure that lasts costs one start a minute. Not verified: launchd
+  restarting a real helper after such a failure.
 
 ## Unsafe code
 
@@ -240,6 +247,18 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   and then notified. `wait` checks the state again in a loop, because a wait
   can return with no notification and a notification with no waiter is lost.
   Requests to wake keep the earliest time (`retry_in`). [4]
+- Sleep holds the agent's checks until macOS reports the wake (`sleep`). If
+  none comes within an hour of `Instant` time, which does not advance while
+  the Mac sleeps, `wait` takes the wake as missed and checks again. Test:
+  `a_wake_that_never_comes_does_not_stop_the_checks_for_good`. Not verified:
+  a real missed wake, and whether dark wakes add up to an hour while the Mac
+  is asleep.
+- The agent takes in the state on the worker, the event stream's queue and
+  the notification completion, each read at its own moment. A read takes a
+  number first (`Agent::ticket`), an update takes one inside the store's
+  lock, and `remember` ignores a state numbered below the one it took in
+  last, so a pause read before monitoring was resumed is not applied after
+  it. Test: `a_state_read_earlier_does_not_replace_one_read_later`.
 - Stopping work is cooperative: a shared `AtomicBool` (`Monitor::cancel`) that
   the scanner polls in `Scan::stopped`. A work limit is not a timeout for a
   system call that blocks. `sleep` and `stop` set it for any work.
@@ -728,6 +747,36 @@ from the place before it without a full pass, and that drops past the limit
 become one; a test on a synthetic folder checks that the real stream, opened
 again, replays what came after the place and not what came before.
 Not verified: how often a real helper is dropped, or replays fall behind again.
+
+A drop reported while the stream is being opened again, by the old stream or
+the new one, keeps the place to replay from, and the stream is opened from it
+again in the next round (`Inbox.drops`). FSEvents numbers some events 0, such
+as the end of replayed history. A batch ends at its last event with a number,
+and neither the place a batch ends at nor the saved place is ever set to 0,
+which would make the next start read from now. Verification: the helper tests
+`a_drop_while_the_stream_is_opened_again_is_replayed` and
+`an_event_numbered_zero_moves_no_place`, and the notifications bridge check.
+
+A full pass under way leaves `left` above 0 in the state, and one that ends
+with another owed saves 1, so a helper started again begins a full pass when
+it is not 0 (`pass_at_start`), as on a first run or when the weekly pass is
+due. A pass given up after three slices that got nowhere is begun again by
+the next start too. A pass asked for that has made no slice yet, as one Low
+Power Mode holds, is not saved: a restart then leaves it to the weekly pass.
+Verification: `a_full_pass_under_way_is_made_after_a_restart` and
+`a_pass_that_ends_with_another_owed_leaves_it_saved`.
+
+While notifications are not allowed and something waits to be sent, the
+helper asks macOS again at most once a quarter-hour, and at once after the app
+changes the shared state, which it does when notifications are allowed there.
+A notification handed to macOS holds off the next until its completion comes
+back, or for two minutes if it never does. The last check before sending
+(`allowed`) reads the review list on a background queue, not the main one,
+which a save holding the store could otherwise block.
+Verification: `notification_permission_is_asked_again_once_in_a_while_not_at_every_wake`
+and `a_delivery_that_never_hears_back_stops_holding_up_the_next`. Not
+verified: a completion that never comes, or permission given in System
+Settings, with a real helper.
 
 ## Numbers, offsets and text from a file
 
@@ -1282,7 +1331,10 @@ session: no cookies, cache or saved credentials, a fixed User-Agent, a
 from that host over HTTPS and reads at most 1 MiB. `check_release` in
 `gui/src/release.rs` caps the reply again, reads only `tag_name`, `draft`
 and `prerelease`, accepts only `vX.Y.Z` with 1 to 9 digits a part, and
-answers with fixed text that never contains the reply. The window shows
+answers with fixed text that never contains the reply. The app's own
+version may go on past `x.y.z`, as a test build's does: a `-` suffix comes
+before that release and a `+` suffix changes nothing (test:
+`a_prerelease_of_this_app_is_offered_its_release`). The window shows
 only the version numbers the engine returns, and Download opens a fixed
 URL. The automatic checks look every hour and check once a day has passed
 by the wall clock, because a timer stops while the Mac sleeps. The person's answer is `update_check` in the app's private state. The
@@ -1303,8 +1355,11 @@ question is asked again and nothing is checked. Test:
 Checked by: `release.rs` tests (parsing, caps, errors, and
 `network_code_lives_only_in_updates_swift`, which fails if a network name
 on its lists appears in any other window, engine, bridge or scanner source;
-build scripts are not read, and a remote URL passed to a reader such as
-`Data(contentsOf:)` would not be caught), the model check's `updates:`
+build scripts are not read. The lists include readers that take a URL,
+`Data(contentsOf:)`, `String(contentsOf:)`, `XMLParser(contentsOf:)`, their
+Objective-C forms and `WKWebView`, apart from the exact local-file reads in
+`LOCAL_READS`; a reader not listed, such as `NSDictionary(contentsOf:)`,
+would not be caught), the model check's `updates:`
 cases, and the window check's update steps.
 
 The question whether to check automatically is a row at the bottom of the

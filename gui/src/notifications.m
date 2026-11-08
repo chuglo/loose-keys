@@ -143,12 +143,16 @@ void ch_notifications_send(unsigned long long revision) {
     UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
     [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
         if (settings.authorizationStatus != UNAuthorizationStatusAuthorized) { if (deliveryCallback) deliveryCallback(revision, false); return; }
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // The agent's check reads the review list, which waits while the
+        // agent's worker saves, so it runs off the main queue.
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             if (deliveryAllowed && !deliveryAllowed(revision)) { if (deliveryCallback) deliveryCallback(revision, false); return; }
-            if (reviewIsVisible()) { if (deliveryCallback) deliveryCallback(revision, false); return; }
-            [center addNotificationRequest:reviewRequest() withCompletionHandler:^(NSError *error) {
-                if (deliveryCallback) deliveryCallback(revision, error == nil);
-            }];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (reviewIsVisible()) { if (deliveryCallback) deliveryCallback(revision, false); return; }
+                [center addNotificationRequest:reviewRequest() withCompletionHandler:^(NSError *error) {
+                    if (deliveryCallback) deliveryCallback(revision, error == nil);
+                }];
+            });
         });
     }];
 }
@@ -246,8 +250,14 @@ static void (*watchBatch)(unsigned long long);
 static void watchCallback(ConstFSEventStreamRef stream, void *info, size_t count, void *paths,
                           const FSEventStreamEventFlags flags[], const FSEventStreamEventId ids[]) {
     char **list = paths;
-    for (size_t i = 0; i < count; i++) watchChange(list[i], flags[i]);
-    if (count) watchBatch(ids[count - 1]);
+    // Some events, such as the end of replayed history, are numbered 0: the
+    // batch ends at the last one with a number.
+    unsigned long long last = 0;
+    for (size_t i = 0; i < count; i++) {
+        watchChange(list[i], flags[i]);
+        if (ids[i]) last = ids[i];
+    }
+    if (count) watchBatch(last);
 }
 
 static bool watchOpen(unsigned long long since) {
@@ -294,6 +304,19 @@ bool ch_watch_resume(unsigned long long since) {
         ok = watchOpen(since);
     });
     return ok;
+}
+
+// Stop reporting file changes. Never call it from the stream's queue.
+void ch_watch_stop(void) {
+    if (!watchQueue) return;
+    dispatch_sync(watchQueue, ^{
+        if (watchStream) {
+            FSEventStreamStop(watchStream);
+            FSEventStreamInvalidate(watchStream);
+            FSEventStreamRelease(watchStream);
+            watchStream = NULL;
+        }
+    });
 }
 
 // Identifies the change history of the volume holding `path`. Event numbers

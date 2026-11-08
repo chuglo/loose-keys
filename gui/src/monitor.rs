@@ -8,6 +8,9 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 pub const CADENCE: Duration = Duration::from_secs(15 * 60);
+/// Sleep with no wake reported for this long, counted while the Mac is
+/// awake, is taken as a wake that was missed.
+const WAKE_MISSED: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ScanKind {
@@ -25,6 +28,9 @@ struct Schedule {
     enabled: bool,
     paused: bool,
     sleeping: bool,
+    /// When `sleeping` was last set, and how long it holds with no wake.
+    slept: Instant,
+    sleep_max: Duration,
     stopped: bool,
     /// The work `arm` last let through is a scan the person started.
     manual: bool,
@@ -40,6 +46,8 @@ impl Monitor {
                 enabled,
                 paused,
                 sleeping: false,
+                slept: Instant::now(),
+                sleep_max: WAKE_MISSED,
                 stopped: false,
                 manual: false,
                 due: Instant::now(),
@@ -65,6 +73,7 @@ impl Monitor {
     pub fn sleep(&self, sleeping: bool) {
         let mut s = self.state.lock().unwrap();
         s.sleeping = sleeping;
+        s.slept = Instant::now();
         s.due = Instant::now();
         self.cancel.store(true, Ordering::SeqCst);
         self.ready.notify_one();
@@ -100,8 +109,17 @@ impl Monitor {
             if s.stopped {
                 return None;
             }
-            if !s.enabled || s.paused || s.sleeping {
+            // `Instant` stands still while the Mac sleeps, so this is time
+            // awake with no wake reported: one was missed.
+            if s.sleeping && s.slept.elapsed() >= s.sleep_max {
+                s.sleeping = false;
+                s.due = Instant::now();
+            }
+            if !s.enabled || s.paused {
                 s = self.ready.wait(s).unwrap();
+            } else if s.sleeping {
+                let left = s.sleep_max.saturating_sub(s.slept.elapsed());
+                s = self.ready.wait_timeout(s, left).unwrap().0;
             } else if Instant::now() >= s.due {
                 s.due = Instant::now() + CADENCE;
                 return Some(true);
@@ -255,6 +273,22 @@ mod tests {
         assert!(rx.recv_timeout(Duration::from_millis(20)).is_err());
         m.retry_in(Duration::ZERO);
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(Some(false)));
+        m.stop();
+    }
+
+    /// Sleep was ended only by the wake macOS reports. Had one not come,
+    /// the checks would have stopped for the rest of the session.
+    #[test]
+    fn a_wake_that_never_comes_does_not_stop_the_checks_for_good() {
+        let m = Arc::new(Monitor::new(true, false));
+        m.state.lock().unwrap().sleep_max = Duration::from_millis(50);
+        assert_eq!(m.wait(), Some(true));
+        m.sleep(true);
+        assert!(!m.arm(ScanKind::Automatic));
+        let (worker, (tx, rx)) = (m.clone(), std::sync::mpsc::channel());
+        std::thread::spawn(move || tx.send(worker.wait()));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(Some(true)));
+        assert!(m.arm(ScanKind::Automatic));
         m.stop();
     }
 
