@@ -14,7 +14,7 @@ Version 0.9.0 · MIT licensed
 
 ## Install the beta
 
-Loose Keys requires macOS 14 or later.
+Loose Keys requires a Mac with Apple silicon and macOS 14 or later.
 
 1. Download the app from the [latest release](https://github.com/chuglo/loose-keys/releases/latest).
 2. Unzip it and move **Loose Keys** to Applications. If the release includes a
@@ -55,7 +55,8 @@ The app includes a `loose-keys` command for one-time scans in a terminal or
 script. To make it available on your `PATH`, link it and run a scan:
 
 ```sh
-ln -s "/Applications/Loose Keys.app/Contents/MacOS/loose-keys" /usr/local/bin/
+sudo mkdir -p /usr/local/bin
+sudo ln -s "/Applications/Loose Keys.app/Contents/MacOS/loose-keys" /usr/local/bin/
 loose-keys scan
 ```
 
@@ -75,6 +76,10 @@ Run `loose-keys --help` for the remaining options and exit codes.
 
 A full report contains file paths. A counts file leaves out paths, but still
 shows which kinds of credentials you have. Check either file before sharing it.
+
+The command checks the home folder that `HOME` names. When a device-management
+tool runs it as root, set `HOME` to the user's home folder. With root's `HOME`,
+it checks root's home instead and can still report the scan as complete.
 
 ## Development
 

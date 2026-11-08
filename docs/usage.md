@@ -288,7 +288,8 @@ command and the background helper never go online.
 1. In Settings, turn off **Show in Menu Bar** and **Scan Automatically**.
    This removes the app from Login Items, stops the helper and removes its
    launchd job.
-2. Quit the app and move it to the Trash.
+2. Quit the app and move it to the Trash. If you linked the `loose-keys`
+   command, remove the link: `sudo rm /usr/local/bin/loose-keys`.
 3. Delete `~/Library/Application Support/dev.loosekeys.desktop`, and
    `~/.loose-keys-review` if an earlier version left one.
 4. Optionally, remove the window sizes macOS saved and the folder access you
@@ -375,11 +376,12 @@ secret values. It does not follow symlinks, with one exception: when a known
 sign-in location such as `~/.npmrc` or `~/.aws` is a link to somewhere else
 inside your home folder (as dotfile managers set up), the real file is checked
 and reported at its real path. A link that leaves the home folder is reported
-as not checked. It does not determine whether a credential is valid or
-authorized. An empty report means none of the supported patterns turned up in
-the places it looked, not that the Mac is clean. A matched header can be an
-empty template. A file's permission bits do not show who can actually read
-it: ACLs and parent folders count too.
+as not checked. When the command runs as root, it follows none of these links
+and reports each one as not checked. It does not determine whether a
+credential is valid or authorized. An empty report means none of the supported
+patterns turned up in the places it looked, not that the Mac is clean. A
+matched header can be an empty template. A file's permission bits do not show
+who can actually read it: ACLs and parent folders count too.
 
 Discovery includes hidden folders and nested backups. It skips directories
 ending in `.git`, `node_modules`, `target`, `.venv`, `venv`, `__pycache__`,
