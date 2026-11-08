@@ -30,6 +30,7 @@ app; the `loose-keys` command ships inside its bundle.
 ## Commands
 
 Before running or changing tests, read [tests/AGENTS.md](tests/AGENTS.md).
+Before working in `gui/`, read [gui/AGENTS.md](gui/AGENTS.md).
 
 Run from the repository root as an ordinary user, with Rust 1.88 or later.
 `TMPDIR` must be a folder with no symbolic link in its path, because scanned
