@@ -282,7 +282,7 @@ final class SampleEngine: Engine {
 
     private static var automaticCoverage: String {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
-        let gaps = unread > 0 ? #"[{"label":"Couldn't Be Read","help":"macOS returned an error when Loose Keys tried to read these.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
+        let gaps = unread > 0 ? #"[{"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
         return """
         {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
         """

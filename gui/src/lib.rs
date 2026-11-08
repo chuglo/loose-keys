@@ -1605,15 +1605,13 @@ fn gap_text(reason: &str, root: bool) -> (&str, &str) {
         ),
         "unreadable" => (
             "Couldn't Be Read",
-            "macOS returned an error when Loose Keys tried to read these.",
+            "If an app such as a browser is using any of these, quit the app, then scan again.",
         ),
-        "too-large" => (
-            "Too Large to Check",
-            "Loose Keys skips config and JSON files over 1 MiB.",
-        ),
+        // The heading says it; the limits are in the usage guide.
+        "too-large" => ("Too Large to Check", ""),
         "cloud-only-file" => (
             "Stored Only in the Cloud",
-            "These files are not on this Mac, and Loose Keys does not download them.",
+            "Download these to this Mac, then scan again.",
         ),
         // The heading and the list's opening line say it; the limits are in
         // the usage guide.
@@ -4342,6 +4340,33 @@ mod tests {
     #[test]
     fn work_limit_is_named_without_a_note() {
         assert_eq!(gap_text("scan-limit", false), ("Only Partly Checked", ""));
+    }
+
+    // Read limits differ by kind of file, and are in the usage guide.
+    #[test]
+    fn size_limit_is_named_without_a_note() {
+        assert_eq!(gap_text("too-large", false), ("Too Large to Check", ""));
+    }
+
+    // Also a file in a form the scanner doesn't read, or a database an open
+    // app has unsaved changes in: not always an error from macOS.
+    #[test]
+    fn an_unreadable_gap_says_what_to_try_without_blaming_macos() {
+        let (label, help) = gap_text("unreadable", false);
+        assert_eq!(label, "Couldn't Be Read");
+        assert_eq!(
+            help,
+            "If an app such as a browser is using any of these, quit the app, then scan again."
+        );
+    }
+
+    // A folder is listed when it holds files kept only in the cloud: the
+    // folder itself is on this Mac.
+    #[test]
+    fn a_cloud_only_gap_does_not_say_its_place_is_off_this_mac() {
+        let (label, help) = gap_text("cloud-only-file", false);
+        assert_eq!(label, "Stored Only in the Cloud");
+        assert_eq!(help, "Download these to this Mac, then scan again.");
     }
 
     #[test]

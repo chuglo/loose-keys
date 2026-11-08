@@ -611,15 +611,14 @@
 
 /* not_checked reason cloud-only-file: label, then help */
 "Stored Only in the Cloud" = "Guardado solo en la nube";
-"These files are not on this Mac, and Loose Keys does not download them." = "Estos archivos no están en tu Mac, y Loose Keys no los descarga.";
+"Download these to this Mac, then scan again." = "Descárgalos en tu Mac y vuelve a analizar.";
 
-/* not_checked reason too-large: label, then help */
+/* not_checked reason too-large: label */
 "Too Large to Check" = "Demasiado grande para comprobar";
-"Loose Keys skips config and JSON files over 1 MiB." = "Loose Keys omite los archivos de configuración y JSON de más de 1 MiB.";
 
 /* not_checked reason unreadable: label, then help */
 "Couldn't Be Read" = "No se pudo leer";
-"macOS returned an error when Loose Keys tried to read these." = "macOS devolvió un error cuando Loose Keys intentó leerlos.";
+"If an app such as a browser is using any of these, quit the app, then scan again." = "Si una app, como un navegador, está usando alguno de estos, sal de la app y vuelve a analizar.";
 
 /* not_checked reason symlink: label, then help */
 "Link Not Followed" = "Enlace no seguido";
