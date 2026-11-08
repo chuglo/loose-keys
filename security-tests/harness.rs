@@ -39,6 +39,7 @@ fn dispatch(args: &[String]) -> Result<i32> {
             network::self_tests()?;
             gates::self_tests()?;
             helper::self_tests()?;
+            synthetic_home::self_tests()?;
             println!("PASS: security harness regression tests");
             Ok(0)
         }
@@ -82,7 +83,7 @@ fn dispatch(args: &[String]) -> Result<i32> {
         }
         Some("selftest") => reference::selftest(args),
         Some("generate-home") => {
-            synthetic_home::generate(args)?;
+            println!("{}", synthetic_home::generate(args)?);
             Ok(0)
         }
         Some("careful") | Some("naive") => reference::scan(args),

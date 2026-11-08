@@ -2,11 +2,13 @@
 //! Fixture contents and reports are never printed, including on failure.
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use crate::fixture_body::Body;
@@ -18,6 +20,9 @@ use crate::fixture_body::Body;
 /// rule does not support. A case expects one finding at `~/` plus `path`; an
 /// omitted `line` or `token_type` must be absent from it. `extra` lists further
 /// expected findings; repeat a row to expect that finding more than once.
+/// `values` lists each secret planted in `positive`, at least 10 bytes long;
+/// no output may hold any 10 bytes of one. It is required, so a new case
+/// states its values, and empty only when `positive` plants none that long.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Case {
@@ -27,6 +32,7 @@ pub struct Case {
     severity: String,
     target: String,
     path: String,
+    values: Vec<Planted>,
     positive: Body,
     negative: Body,
     negative_path: Option<String>,
@@ -34,6 +40,24 @@ pub struct Case {
     token_type: Option<String>,
     #[serde(default)]
     extra: Vec<Expected>,
+}
+
+/// A planted value as text, or as `parts` joined at run time so the corpus
+/// holds no token-shaped string.
+#[derive(Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+enum Planted {
+    Text(String),
+    Parts { parts: Vec<String> },
+}
+
+impl Planted {
+    fn bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Text(text) => text.as_bytes().to_vec(),
+            Self::Parts { parts } => parts.concat().into_bytes(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -185,36 +209,21 @@ impl Drop for Fixture {
 }
 
 pub fn assert_no_values(bytes: &[u8]) {
-    // Values used by this corpus, including interior fragments. Add a new
-    // case's secret markers here. Never print a rejected value or the output
-    // that contained it.
-    for value in [
-        "synthetic-only-value",
-        "synthetic,first-value",
-        "synthetic,only-value",
-        "synthetic-second-value",
-        "synthetic$only-value",
-        "synthetic-access-id",
-        "c3ludGhldGlj",
-        "0123456789abcdefghijABCDEFGHIJ012345",
-    ] {
-        for fragment in value.as_bytes().windows(10) {
-            assert!(
-                !bytes.windows(fragment.len()).any(|w| w == fragment),
-                "fixture value or fragment exposed"
-            );
-        }
-    }
-    for start in [
-        "velvet winner thank year wave sausage ",
-        "legal winner thank year wave sausage ",
-        "letter advice cage absurd amount doctor ",
-    ] {
-        assert!(
-            !bytes.windows(start.len()).any(|w| w == start.as_bytes()),
-            "fixture phrase exposed"
-        );
-    }
+    assert!(!exposed(bytes), "fixture value or fragment exposed");
+}
+
+/// Whether `bytes` holds any 10 bytes of a value some case plants. Never
+/// print a rejected value or the output that contained it.
+fn exposed(bytes: &[u8]) -> bool {
+    static PIECES: OnceLock<BTreeSet<Vec<u8>>> = OnceLock::new();
+    let pieces = PIECES.get_or_init(|| {
+        cases()
+            .iter()
+            .flat_map(|case| case.values.iter().map(Planted::bytes))
+            .flat_map(|value| value.windows(10).map(<[u8]>::to_vec).collect::<Vec<_>>())
+            .collect()
+    });
+    bytes.windows(10).any(|w| pieces.contains(w))
 }
 
 impl Case {
@@ -325,4 +334,33 @@ fn oracle_rejects_missing_extra_duplicate_and_misclassified_findings() {
     let a = json!({"generated_at":"first", "findings":[], "status":"complete"});
     let b = json!({"generated_at":"second", "findings":[], "status":"complete"});
     compare_reports(a, b, "oracle-control");
+}
+
+/// Every planted value is in its positive fixture, and the leak check rejects
+/// output holding the whole of it or any 10 bytes of it.
+#[test]
+fn leak_check_rejects_every_planted_value_and_its_pieces() {
+    assert!(!exposed(b"{\"findings\":[]}"));
+    for case in cases() {
+        let positive = case.positive.bytes().unwrap_or_default();
+        for value in case.values.iter().map(Planted::bytes) {
+            assert!(value.len() >= 10, "short planted value in {}", case.name);
+            assert!(
+                positive.windows(value.len()).any(|w| w == value),
+                "planted value not in the positive fixture of {}",
+                case.name
+            );
+            let mut output = b"{\"detail\":\"".to_vec();
+            output.extend(&value);
+            output.extend(b"\"}");
+            assert!(
+                exposed(&output),
+                "leak check missed a value of {}",
+                case.name
+            );
+            for piece in value.windows(10) {
+                assert!(exposed(piece), "leak check missed a piece of {}", case.name);
+            }
+        }
+    }
 }

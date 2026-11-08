@@ -88,37 +88,45 @@ impl Builder {
     fn decoy(&mut self, id: &str, what: &str, rel: &str) {
         self.decoys.push(json!({"id":id,"what":what,"paths":[rel]}));
     }
-    fn run(&self, program: &str, args: &[&str]) -> Result<()> {
-        let out = Command::new(program)
-            .args(args)
-            .env("HOME", &self.home)
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !out.status.success() {
+    /// Runs a system program from `/usr/bin`, never one found on `PATH`,
+    /// with a deadline.
+    fn run(&self, program: &str, args: &[&str]) -> Result<Captured> {
+        let work = self.home.parent().ok_or("synthetic home missing parent")?;
+        let out = run_capture(
+            Command::new(Path::new("/usr/bin").join(program))
+                .args(args)
+                .env("HOME", &self.home),
+            work,
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("synthetic home fixture program {program} {e}"))?;
+        if out.timed_out {
+            return Err(format!(
+                "synthetic home fixture program {program} timed out"
+            ));
+        }
+        if out.status != Some(0) {
             return Err(format!("synthetic home fixture program {program} failed"));
         }
-        Ok(())
+        Ok(out)
     }
     fn sql(&self, rel: &str, sql: &str) -> Result<()> {
         let path = self.home.join(rel);
         private_dir(path.parent().ok_or("SQL missing parent")?)?;
-        self.run("sqlite3", &[path.to_str().ok_or("SQL path encoding")?, sql])
+        self.run("sqlite3", &[path.to_str().ok_or("SQL path encoding")?, sql])?;
+        Ok(())
     }
     fn pem(&self) -> Result<String> {
-        let out = Command::new("openssl")
-            .args([
+        let out = self.run(
+            "openssl",
+            &[
                 "genpkey",
                 "-algorithm",
                 "RSA",
                 "-pkeyopt",
                 "rsa_keygen_bits:2048",
-            ])
-            .env("HOME", &self.home)
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !out.status.success() {
-            return Err("synthetic home RSA generation failed".into());
-        }
+            ],
+        )?;
         String::from_utf8(out.stdout).map_err(|_| "synthetic home PEM encoding".into())
     }
     fn noise(&self, n: usize) -> Result<Vec<u8>> {
@@ -129,7 +137,8 @@ impl Builder {
         Ok(data)
     }
 }
-pub(crate) fn generate(args: &[String]) -> Result<()> {
+/// Fills a new synthetic home and returns a one-line summary of it.
+pub(crate) fn generate(args: &[String]) -> Result<String> {
     let out = PathBuf::from(args.get(1).ok_or("synthetic home output required")?);
     let seed = option(args, "--seed")
         .unwrap_or("20261010")
@@ -1157,12 +1166,73 @@ pub(crate) fn generate(args: &[String]) -> Result<()> {
     }
     let manifest = json!({"seed":b.seed,"targets":b.targets,"decoys":b.decoys,"secrets":b.secrets});
     save(&out.join("manifest.json"), &manifest)?;
-    println!(
+    Ok(format!(
         "{} targets, {} decoys, {} planted values -> {}",
         b.targets.len(),
         b.decoys.len(),
         b.secrets.len(),
         b.home.display()
-    );
-    Ok(())
+    ))
+}
+
+/// Generates a home and checks that every path its manifest names is there,
+/// inside the home, and that a filled folder is not generated into again.
+pub(crate) fn self_tests() -> Result<()> {
+    let work = scratch("synthetic-home-tests")?;
+    let result = (|| {
+        let out = work.join("decoys");
+        let args = [
+            "generate-home".to_owned(),
+            out.to_string_lossy().into_owned(),
+        ];
+        generate(&args)?;
+        let manifest = load(&out.join("manifest.json"))?;
+        let mode = fs::symlink_metadata(out.join("manifest.json"))
+            .map_err(|e| e.to_string())?
+            .permissions()
+            .mode();
+        if mode & 0o777 != 0o600 {
+            return Err("synthetic home manifest is not owner-only".into());
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for list in ["targets", "decoys"] {
+            let entries = manifest[list]
+                .as_array()
+                .filter(|entries| !entries.is_empty())
+                .ok_or(format!("synthetic home manifest has no {list}"))?;
+            for entry in entries {
+                let id = entry["id"]
+                    .as_str()
+                    .ok_or("synthetic home entry without id")?;
+                if !ids.insert(id.to_owned()) {
+                    return Err(format!("synthetic home id {id} is listed twice"));
+                }
+                let paths = entry["paths"]
+                    .as_array()
+                    .filter(|paths| !paths.is_empty())
+                    .ok_or(format!("synthetic home entry {id} has no path"))?;
+                for path in paths {
+                    let path = Path::new(path.as_str().ok_or("synthetic home path")?);
+                    if !path
+                        .components()
+                        .all(|c| matches!(c, std::path::Component::Normal(_)))
+                    {
+                        return Err(format!("synthetic home entry {id} leaves the home"));
+                    }
+                    if fs::symlink_metadata(out.join("home").join(path)).is_err() {
+                        return Err(format!("synthetic home entry {id} is missing on disk"));
+                    }
+                }
+            }
+        }
+        if manifest["secrets"].as_array().is_none_or(Vec::is_empty) {
+            return Err("synthetic home manifest lists no planted values".into());
+        }
+        if generate(&args).is_ok() {
+            return Err("synthetic home generated into a filled folder".into());
+        }
+        Ok(())
+    })();
+    fs::remove_dir_all(work).map_err(|e| e.to_string())?;
+    result
 }

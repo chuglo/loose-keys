@@ -2,9 +2,12 @@
 mod sqlite_fixture;
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 const EXCLUDED: &[&str] = &[
@@ -32,6 +35,53 @@ const EXCLUDED: &[&str] = &[
     "Movies/TV",
     "Music/Music",
 ];
+/// `Command::output` with a deadline: a run that blocks, on a FIFO say,
+/// fails the test with a message instead of hanging it.
+fn output(command: &mut Command) -> Output {
+    finish(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("could not start the command"),
+    )
+}
+
+/// Waits for a started child, reading whichever of its outputs are piped.
+fn finish(mut child: Child) -> Output {
+    fn drain(pipe: Option<impl Read + Send + 'static>) -> Option<JoinHandle<Vec<u8>>> {
+        pipe.map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                pipe.read_to_end(&mut bytes).unwrap();
+                bytes
+            })
+        })
+    }
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the command did not finish within 60 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let read =
+        |pipe: Option<JoinHandle<Vec<u8>>>| pipe.map(|t| t.join().unwrap()).unwrap_or_default();
+    Output {
+        status,
+        stdout: read(stdout),
+        stderr: read(stderr),
+    }
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -56,12 +106,12 @@ impl Fixture {
         .unwrap();
     }
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-            .env("HOME", self.home())
-            .arg("scan")
-            .args(args)
-            .output()
-            .unwrap()
+        output(
+            Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+                .env("HOME", self.home())
+                .arg("scan")
+                .args(args),
+        )
     }
     fn json(&self, args: &[&str]) -> serde_json::Value {
         let mut args = args.to_vec();
@@ -151,11 +201,11 @@ fn help_works_without_a_home_or_a_scan() {
         vec!["scan", "--help"],
         vec!["scan", "-h"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-            .env_remove("HOME")
-            .args(args)
-            .output()
-            .unwrap();
+        let output = output(
+            Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+                .env_remove("HOME")
+                .args(args),
+        );
         assert!(output.status.success());
         assert!(String::from_utf8(output.stdout)
             .unwrap()
@@ -945,14 +995,14 @@ fn an_export_into_a_folder_that_shares_new_files_is_refused() {
     let (shared, plain) = (f.0.join("shared"), f.0.join("plain"));
     fs::create_dir(&shared).unwrap();
     fs::create_dir(&plain).unwrap();
-    let chmod = Command::new("/bin/chmod")
-        .args([
-            "+a",
-            "group:everyone allow read,readattr,readextattr,readsecurity,file_inherit",
-        ])
-        .arg(&shared)
-        .output()
-        .unwrap();
+    let chmod = output(
+        Command::new("/bin/chmod")
+            .args([
+                "+a",
+                "group:everyone allow read,readattr,readextattr,readsecurity,file_inherit",
+            ])
+            .arg(&shared),
+    );
     assert!(chmod.status.success(), "{chmod:?}");
     for flag in ["--export", "--feedback"] {
         let destination = shared.join(format!("report{flag}.json"));
@@ -1005,7 +1055,7 @@ fn an_export_that_cannot_be_written_in_full_leaves_no_file() {
                 Ok(())
             });
         }
-        let out = command.output().unwrap();
+        let out = output(&mut command);
         assert_eq!(out.status.code(), Some(2), "{flag}");
         assert!(
             fs::symlink_metadata(&destination).is_err(),
@@ -1192,11 +1242,11 @@ fn known_locations_linked_inside_home_are_checked_at_their_real_path() {
 
     // A home folder that is itself reached through a link is scanned as usual.
     symlink(f.home(), f.0.join("home-link")).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-        .env("HOME", f.0.join("home-link"))
-        .args(["scan", "--export", "-"])
-        .output()
-        .unwrap();
+    let out = output(
+        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", f.0.join("home-link"))
+            .args(["scan", "--export", "-"]),
+    );
     let linked: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(linked["findings"], r["findings"]);
     assert_eq!(linked["coverage"]["roots"], serde_json::json!(["~/"]));
@@ -1328,13 +1378,17 @@ fn output_no_one_reads_is_an_error() {
     let f = Fixture::new();
     f.csv(&f.home().join("export.csv"));
     for args in [&[][..], &["--export", "-"], &["--feedback", "-"]] {
-        let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-            .env("HOME", f.home())
-            .arg("scan")
-            .args(args)
-            .stdout(reader_gone())
-            .output()
-            .unwrap();
+        let out = finish(
+            Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+                .env("HOME", f.home())
+                .arg("scan")
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(reader_gone())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
         let said = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(2), "{args:?}: {said}");
         assert!(
@@ -1354,12 +1408,16 @@ fn output_no_one_reads_is_an_error_without_a_scan() {
         &["--version"],
         &["--list-rules"],
     ] {
-        let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-            .env_remove("HOME")
-            .args(args)
-            .stdout(reader_gone())
-            .output()
-            .unwrap();
+        let out = finish(
+            Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+                .env_remove("HOME")
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(reader_gone())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
         let said = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(2), "{args:?}: {said}");
         assert!(
@@ -1411,12 +1469,12 @@ fn export_reaches_its_folder_through_links_but_never_follows_its_name() {
     let out = f.run(&["--export", f.0.join("link/report.json").to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert!(outside.join("report.json").is_file());
-    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-        .env("HOME", f.home())
-        .current_dir(f.home())
-        .args(["scan", "--feedback", "../counts.json"])
-        .output()
-        .unwrap();
+    let out = output(
+        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", f.home())
+            .current_dir(f.home())
+            .args(["scan", "--feedback", "../counts.json"]),
+    );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert!(f.0.join("counts.json").is_file());
     symlink(outside.join("report.json"), f.0.join("named.json")).unwrap();
@@ -1946,12 +2004,12 @@ fn an_excluded_path_that_is_not_a_folder_is_refused() {
     }
     // A trailing slash made the file's lookup fail and the link's follow it.
     for path in ["export.csv/", "docs-link/"] {
-        let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-            .env("HOME", f.home())
-            .current_dir(f.home())
-            .args(["scan", "--exclude", path])
-            .output()
-            .unwrap();
+        let out = output(
+            Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+                .env("HOME", f.home())
+                .current_dir(f.home())
+                .args(["scan", "--exclude", path]),
+        );
         let said = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(2), "{path}: {said}");
         assert_eq!(
@@ -2065,13 +2123,13 @@ fn folders_named_through_a_linked_home_are_the_ones_in_it() {
     symlink(f.home().join("Documents"), f.home().join("docs-link")).unwrap();
     let at_link = |name: &str| link.join(name).to_str().unwrap().to_owned();
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-            .env("HOME", &link)
-            .arg("scan")
-            .args(args)
-            .args(["--export", "-"])
-            .output()
-            .unwrap()
+        output(
+            Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+                .env("HOME", &link)
+                .arg("scan")
+                .args(args)
+                .args(["--export", "-"]),
+        )
     };
     let json = |out: &Output| -> serde_json::Value { serde_json::from_slice(&out.stdout).unwrap() };
     let paths = |r: &serde_json::Value| {
@@ -2263,12 +2321,12 @@ fn a_repeated_excluded_folder_does_not_count_toward_the_limit() {
 fn limits_given_as_an_options_value_is_that_value() {
     let f = Fixture::new();
     f.csv(&f.home().join("--limits/export.csv"));
-    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-        .env("HOME", f.home())
-        .current_dir(f.home())
-        .args(["scan", "--select", "--limits", "--export", "-"])
-        .output()
-        .unwrap();
+    let out = output(
+        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", f.home())
+            .current_dir(f.home())
+            .args(["scan", "--select", "--limits", "--export", "-"]),
+    );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let r: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(
@@ -2278,11 +2336,11 @@ fn limits_given_as_an_options_value_is_that_value() {
     let out = f.run(&["--select", "--limits", f.home().to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     // Before the command, as anywhere else on its own, it still asks for the limits.
-    let out = Command::new(env!("CARGO_BIN_EXE_loose-keys"))
-        .env("HOME", f.home())
-        .args(["--limits", "scan"])
-        .output()
-        .unwrap();
+    let out = output(
+        Command::new(env!("CARGO_BIN_EXE_loose-keys"))
+            .env("HOME", f.home())
+            .args(["--limits", "scan"]),
+    );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert!(String::from_utf8_lossy(&out.stdout).contains("No archives"));
 }

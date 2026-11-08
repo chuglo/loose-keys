@@ -64,12 +64,15 @@ static void checkUnregister(unsigned char (*set)(bool), FakeLoginService *__stro
         result = set(false);
         dispatch_semaphore_signal(returned);
     });
-    assert(dispatch_semaphore_wait(invoked, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) == 0);
+    long called = dispatch_semaphore_wait(invoked, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+    assert(called == 0);
     assert(service.usedCompletion && "Unregister must wait for service cleanup, not synchronous acceptance");
-    assert(dispatch_semaphore_wait(returned, DISPATCH_TIME_NOW) != 0);
+    long early = dispatch_semaphore_wait(returned, DISPATCH_TIME_NOW);
+    assert(early != 0);
     service.status = SMAppServiceStatusNotRegistered;
     service.completion(fail ? [NSError errorWithDomain:@"synthetic" code:1 userInfo:nil] : nil);
-    assert(dispatch_semaphore_wait(returned, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) == 0);
+    long done = dispatch_semaphore_wait(returned, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+    assert(done == 0);
     assert(result == (fail ? 4 : 1));
     service.completion = nil;
     checkOtherUntouched(SMAppServiceStatusEnabled);
@@ -84,8 +87,10 @@ static void checkMissingCompletion(unsigned char (*set)(bool), FakeLoginService 
         result = set(false);
         dispatch_semaphore_signal(returned);
     });
-    assert(dispatch_semaphore_wait(invoked, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) == 0);
-    assert(dispatch_semaphore_wait(returned, dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC)) == 0);
+    long called = dispatch_semaphore_wait(invoked, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+    assert(called == 0);
+    long done = dispatch_semaphore_wait(returned, dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC));
+    assert(done == 0);
     assert(result == 4);
     // A late callback must remain safe after the bridge request has returned.
     service.completion(nil);
@@ -97,7 +102,8 @@ static void checkMissingCompletion(unsigned char (*set)(bool), FakeLoginService 
 static void checkRegister(unsigned char (*set)(bool), unsigned char (*status)(void), FakeLoginService *__strong *target) {
     fresh(target, SMAppServiceStatusNotRegistered);
     assert(status() == 1);
-    assert(set(true) == 2 && service.status == SMAppServiceStatusEnabled);
+    unsigned char registered = set(true);
+    assert(registered == 2 && service.status == SMAppServiceStatusEnabled);
     checkOtherUntouched(SMAppServiceStatusNotRegistered);
     // Each status reads its own service.
     other.status = SMAppServiceStatusRequiresApproval;
