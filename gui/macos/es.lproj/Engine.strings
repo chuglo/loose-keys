@@ -631,8 +631,6 @@
 "%@ The file's permissions let other users on this Mac read it, unless a folder above it or an access list blocks them." = "%@ Los permisos del archivo dejan que otros usuarios de tu Mac lo lean, salvo que se lo impida una carpeta superior o una lista de acceso.";
 
 /* not_checked reason permission-denied: label, then help */
-"Permission Denied" = "Permiso denegado";
-"File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again." = "Los permisos del archivo o los ajustes de privacidad de macOS bloquearon el acceso. Revisa los permisos del archivo o de la carpeta y vuelve a analizar.";
 
 /* not_checked reason cloud-only-file: label, then help */
 "Stored Only in the Cloud" = "Guardado solo en la nube";
@@ -642,6 +640,8 @@
 "Too Large to Check" = "Demasiado grande para comprobar";
 
 /* not_checked reason unreadable: label, then help */
+"No Access" = "Sin acceso";
+"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some." = "La protección de privacidad de macOS o los permisos de archivo no permiten que Loose Keys los lea. Casi todos los Mac tienen alguno.";
 "Couldn't Be Read" = "No se pudo leer";
 "If an app such as a browser is using any of these, quit the app, then scan again." = "Si una app, como un navegador, está usando alguno de estos, sal de la app y vuelve a analizar.";
 

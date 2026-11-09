@@ -1778,8 +1778,8 @@ fn gap_text(reason: &str, root: bool) -> (&str, &str) {
     match reason {
         // Labels are headings in the window, so they use title case.
         "permission-denied" => (
-            "Permission Denied",
-            "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.",
+            "No Access",
+            "macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.",
         ),
         "unreadable" => (
             "Couldn't Be Read",
@@ -3382,8 +3382,8 @@ mod tests {
     #[test]
     fn a_permission_gap_does_not_guess_which_access_control_denied_it() {
         let (label, help) = gap_text("permission-denied", false);
-        assert_eq!(label, "Permission Denied");
-        assert_eq!(help, "File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.");
+        assert_eq!(label, "No Access");
+        assert_eq!(help, "macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.");
     }
 
     #[test]

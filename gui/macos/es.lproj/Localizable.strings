@@ -602,6 +602,8 @@
 
 /* [Settings.swift:175] */
 "Last Full Scan" = "Último análisis completo";
+"Last scan: %@" = "Último análisis: %@";
+"Last automatic scan: %@" = "Último análisis automático: %@";
 
 /* Check details, beside Last Completed Full Scan: no full scan by the helper has finished. [Settings.swift:176] */
 "Not completed yet" = "Aún sin finalizar";
@@ -614,12 +616,9 @@
 
 "Show Places Not Checked" = "Mostrar lugares sin comprobar";
 
-"Last Automatic Scan" = "Último análisis automático";
-
-"Last Manual Scan" = "Último análisis manual";
 
 
-"Nothing was skipped in this automatic scan." = "En este análisis automático no se omitió nada.";
+
 
 "This list is full, so it doesn't show every place Loose Keys couldn't check." = "Esta lista está llena, así que no muestra todos los lugares que Loose Keys no pudo comprobar.";
 

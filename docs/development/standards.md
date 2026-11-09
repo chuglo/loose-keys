@@ -1662,9 +1662,10 @@ is replaced (macOS behaviour).
   directly, because the system's `SidebarCommands` did not open it against
   the first page's hiding in the window check.
   Scan Automatically is offered on the Overview after an answer [17]. The heading never says "nothing" for
-  a list that was not read, nor before anything was checked. "Nothing Worth
-  Reviewing" adds that some places couldn't be checked when any were, and
-  Worth Reviewing's empty states say the same [22]. While the helper makes
+  a list that was not read, nor before anything was checked. Under "Nothing
+  Worth Reviewing", Show Places Not Checked says that some places couldn't be
+  checked when any were, so the heading's line does not say it again; Worth
+  Reviewing's empty states, which have no such link, say it in words [22]. While the helper makes
   its first full pass and this window has not scanned, the heading says
   Checking Your Files… or, once items turn up, Still checking your files…;
   after it, the line is when the helper last checked. "From earlier scans."
@@ -1682,6 +1683,10 @@ is replaced (macOS behaviour).
 - What the last manual scan and the helper's last full pass could not read
   is in one popover, opened only by Show Places Not Checked under the
   Overview's answer [23]. The link shows only when something went unread.
+  It is one list: each place once under its reason, from either scan, as
+  which scan missed it changes nothing a person does; long paths are cut in
+  the middle. Checked by the window check's line for places both scans
+  missed.
   The engine's `blocked` names which of Desktop, Documents and Downloads
   the scan was denied, as those fixed words matched against its
   `permission-denied` gaps, never a path; the window shows Finder's name

@@ -164,10 +164,9 @@ struct OverviewView: View {
                     reviewButton
                 }
             } else {
-                // An empty list never reads as clean when a place went unread.
-                let unread = model.nothingChecked || !model.somePlacesNotChecked ? nil : NotCheckedText.some
-                let line = [scanned, unread].compactMap { $0 }.joined(separator: " ")
-                headerRow(.quiet, emptyTitle, line.isEmpty ? nil : line) {}
+                // An empty list never reads as clean when a place went unread:
+                // Show Places Not Checked below says so, so this line doesn't.
+                headerRow(.quiet, emptyTitle, scanned) {}
             }
         } else {
             // The list has not come yet: no title says what it holds.

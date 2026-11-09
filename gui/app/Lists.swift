@@ -269,71 +269,91 @@ extension ReviewTable {
 struct PlacesNotChecked: View {
     @EnvironmentObject private var model: AppModel
 
+    /// One heading's places, from the last scan and automatic scanning together.
+    private struct Place: Identifiable {
+        let label: String
+        let help: String
+        var paths: [String]
+        /// The most places either scan counted under this heading.
+        var count: Int
+        var id: String { label }
+        var more: Int { max(0, count - paths.count) }
+    }
+
+    /// Each place once, under its heading. Which scan missed it changes
+    /// nothing a person does, so it is not said. The headings keep the last
+    /// scan's order, then automatic scanning's.
+    private var places: [Place] {
+        var merged: [Place] = []
+        let automatic = model.hasAutomaticCoverage ? model.automaticCoverage?.unreadGaps ?? [] : []
+        for gap in (model.results?.gaps ?? []) + automatic {
+            if let at = merged.firstIndex(where: { $0.label == gap.label }) {
+                merged[at].paths += gap.paths.filter { !merged[at].paths.contains($0) }
+                merged[at].count = max(merged[at].count, gap.count)
+            } else {
+                merged.append(Place(label: gap.label, help: gap.help, paths: gap.paths, count: gap.count))
+            }
+        }
+        return merged
+    }
+
+    /// When each list was made: the last scan's, and automatic scanning's last full pass.
+    private var when: String {
+        var parts: [String] = []
+        if let results = model.results, !results.gaps.isEmpty {
+            parts.append(String(localized: "Last scan: \(localTime(results.generatedAt))",
+                                comment: "Places Not Checked, under its title: when the last scan ran. %@ is a date and time."))
+        }
+        if model.hasAutomaticCoverage, let date = model.automaticCoverage?.fullPass {
+            parts.append(String(localized: "Last automatic scan: \(localTime(date))",
+                                comment: "Places Not Checked, under its title: when automatic scanning last read every file. %@ is a date and time."))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
-        let gaps = model.results?.gaps ?? []
         Form {
-            if let error = model.automaticCoverageError {
-                Section("Last Automatic Scan") {
+            Section {
+                Text("These places couldn't be read, so the scan may have missed something in them.")
+                if !when.isEmpty {
+                    Text(when).foregroundStyle(.secondary)
+                }
+                if let error = model.automaticCoverageError {
                     Text("Couldn't update these details, so they may be out of date.")
                     Text(EngineText.shown(error)).foregroundStyle(.secondary)
                     Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
                 }
-            }
-            if model.hasAutomaticCoverage, let health = model.automaticCoverage {
-                Section("Last Automatic Scan") {
-                    if let date = health.fullPass {
-                        Text(localTime(date)).foregroundStyle(.secondary)
-                    }
-                    Text("Automatic scanning doesn't include added folders and drives. Use Scan Now to check them.")
-                    if let automatic = health.unreadGaps {
-                        if automatic.isEmpty && health.unreadTruncated != true {
-                            Text("Nothing was skipped in this automatic scan.")
-                        }
-                        if health.unreadTruncated == true {
+                if model.hasAutomaticCoverage {
+                    if model.automaticCoverage == nil && model.automaticCoverageError == nil {
+                        ProgressView("Loading Details…")
+                    } else if let health = model.automaticCoverage {
+                        if health.unreadGaps == nil {
+                            Text("Details will appear after the next full automatic scan.")
+                        } else if health.unreadTruncated {
                             Text("This list is full, so it doesn't show every place Loose Keys couldn't check.")
                         }
-                        ForEach(automatic) { gap in
-                            LazyVStack(alignment: .leading, spacing: 8) {
-                                Text(EngineText.shown(gap.label)).font(.headline)
-                                if !gap.help.isEmpty { Text(EngineText.shown(gap.help)) }
-                                ForEach(gap.paths, id: \.self) { path in
-                                    Text(path).font(.callout.monospaced()).textSelection(.enabled)
-                                }
-                            }
-                        }
-                    } else {
-                        Text("Details will appear after the next full automatic scan.")
                     }
                 }
             }
-            if model.hasAutomaticCoverage && model.automaticCoverage == nil && model.automaticCoverageError == nil {
-                Section("Last Automatic Scan") { ProgressView("Loading Details…") }
-            }
-            if let results = model.results, !gaps.isEmpty {
+            ForEach(places) { place in
                 Section {
-                    if model.hasAutomaticCoverage {
-                        Text("Last Manual Scan").font(.headline)
-                        Text(localTime(results.generatedAt)).foregroundStyle(.secondary)
+                    ForEach(place.paths, id: \.self) { path in
+                        Text(path)
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
                     }
-                    Text("These places couldn't be read, so the scan may have missed something in them.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(gaps) { gap in
-                    Section {
-                        ForEach(gap.paths, id: \.self) { path in
-                            Text(path).font(.callout.monospaced()).textSelection(.enabled)
-                        }
-                        if gap.more > 0 {
-                            Text(String(localized: "and \(gap.more) more",
-                                        comment: "Places Not Checked, below the places listed under one heading: how many more there are. Export has them all."))
-                                .foregroundStyle(.secondary)
-                        }
-                    } header: {
-                        Text(EngineText.shown(gap.label))
-                    } footer: {
-                        if !gap.help.isEmpty {
-                            Text(EngineText.shown(gap.help))
-                        }
+                    if place.more > 0 {
+                        Text(String(localized: "and \(place.more) more",
+                                    comment: "Places Not Checked, below the places listed under one heading: how many more there are. Export has them all."))
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text(EngineText.shown(place.label))
+                } footer: {
+                    if !place.help.isEmpty {
+                        Text(EngineText.shown(place.help))
                     }
                 }
             }

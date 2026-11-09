@@ -281,8 +281,9 @@ the helper last checked a file and last finished a full pass.
 For places automatic scanning could not read, **Show Places Not Checked**
 lists what it saved and does not run another scan. That list is dated to the
 last completed automatic full pass; later file or permission changes do not
-rewrite that result. Manual-scan details are listed separately, and saved
-reports still contain only the manual scan. The automatic list keeps up to
+rewrite that result. It is one list with the last manual scan's places: each
+place once under its reason, whichever scan missed it. Saved reports still
+contain only the manual scan. The automatic list keeps up to
 4096 paths with their reasons, within 512 KiB, and says when it is incomplete.
 It leaves out work limits (`scan-limit`), so a place every automatic pass
 stops short of is not listed there; **Scan Now** lists the work limits it
@@ -290,7 +291,8 @@ reaches. Older versions saved only the count; their details become available
 after the next automatic full pass. A scan in the app keeps up to 4096 places
 not checked; when there are more, the last of them is `~/` with the reason
 `scan-limit`. **Show Places Not Checked** lists up to 20 of them under each
-reason, then how many more; a saved report has them all.
+reason, then how many more (the larger of the two scans' counts when both
+missed places under it); a saved report has them all.
 
 If registering the helper fails, the app shows an error and keeps your
 consent, and the status still says whether the helper is running. While it

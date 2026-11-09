@@ -353,7 +353,7 @@ final class SampleEngine: Engine {
        "items":[{"index":0,"path":"~/.codex/auth.json","line":null,"subject":"Codex","actionable":true},{"index":1,"path":"~/.claude/.credentials.json","line":null,"subject":"Claude Code","actionable":true},{"index":4,"path":"~/.gemini/oauth_creds.json","line":null,"subject":null,"actionable":true}]},
       {"kind":"inventory","severity":"medium","title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null,
        "items":[{"index":2,"path":"~/.config/gh/hosts.yml","line":null,"subject":"github.com","actionable":true},{"index":3,"path":"~/.config/glab-cli/config.yml","line":null,"subject":null,"actionable":true}]}],
-     "gaps":[{"label":"Permission Denied","help":"File permissions or macOS privacy settings blocked access. Check the file or folder's permissions, then scan again.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
+     "gaps":[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
      "blocked":[],
      "roots":["~","/Volumes/Backup"],"excluded":["node_modules",".git","target","Caches",".Trash"],
      "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. Finding nothing does not mean this Mac is safe."}
@@ -361,7 +361,7 @@ final class SampleEngine: Engine {
 
     private static var automaticCoverage: String {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
-        let gaps = unread > 0 ? #"[{"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
+        let gaps = unread > 0 ? #"[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":1,"paths":["~/Library/Mail"],"more":0},{"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
         return """
         {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
         """
@@ -1113,7 +1113,7 @@ enum Checks {
                     until: { model.showingPlaces && written().contains("~/Library/Mail") })
         // A section's heading may reach assistive software as a name, not a value.
         let listed = written() + everything().flatMap(names)
-        let missing = ["Permission Denied", "and 118 more"].filter { !listed.contains($0) }
+        let missing = ["No Access", "and 118 more"].filter { !listed.contains($0) }
         expect(missing.isEmpty && !listed.contains { $0.contains("(123)") },
                "the places not checked are listed under a title-case heading, with no count beside it (missing: \(missing))")
         model.showingPlaces = false
@@ -1797,8 +1797,15 @@ enum Checks {
         let scansBeforeDetails = SampleEngine.scanRequests
         await press(linkButton("Show Places Not Checked"), "opening unread places from the Overview",
                     until: { model.showingPlaces && written().contains("~/Library/SyntheticUnread") })
-        expect(written().contains("Couldn't Be Read") && !written().contains { $0.contains("(3)") },
+        // A section's heading may reach assistive software as a name, not a value.
+        let automaticListed = written() + everything().flatMap(names)
+        expect(automaticListed.contains("Couldn't Be Read") && !automaticListed.contains { $0.contains("(3)") },
                "the automatic scan's places are listed under a title-case heading, with no count beside it")
+        // A place both scans missed is listed once, under one heading, with no
+        // word on which scan missed which.
+        expect(written().filter { $0 == "~/Library/Mail" }.count == 1
+                   && !written().contains { $0.contains("Last Manual Scan") || $0.contains("Last Automatic Scan") },
+               "places both scans missed are listed once, in one list")
         expect(SampleEngine.scanRequests == scansBeforeDetails,
                "opening unread places does not run a scan")
         SampleEngine.coverageFails = true
@@ -2031,10 +2038,10 @@ enum Checks {
                "a scan that could not check everything and found nothing says so, and does not say there is nothing to review")
         // The Overview's answer says it too, beside the link to the places.
         await open(.overview)
-        let answer = "Last scanned \(localTime(model.results?.generatedAt)). \(NotCheckedText.some)"
+        let answer = "Last scanned \(localTime(model.results?.generatedAt))."
         expect(await eventually { written().contains("Nothing Worth Reviewing") && written().contains(answer) }
-               && linkButton("Show Places Not Checked") != nil,
-               "an empty Overview after a scan that could not read everything says some places couldn't be checked")
+               && linkButton("Show Places Not Checked") != nil && !written().contains { $0.contains(NotCheckedText.some) },
+               "an empty Overview after a scan that could not read everything says so once, with Show Places Not Checked")
         SampleEngine.nothingFound = false
         await press(toolbarButton("Scan Now"), "pressing Scan Now to bring the sample findings back")
         for _ in 0..<50 where model.results?.review == 0 || model.phase == .scanning { await settle() }
