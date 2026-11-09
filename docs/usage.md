@@ -8,9 +8,11 @@ On the first page, click **Scan Now**. When the scan finishes, the Overview
 says what it found and offers **Scan Automatically**: turned on, a helper
 checks your home folder on its own, and its findings appear without a manual
 scan. If macOS requires approval, Overview offers **Open System Settings**
-to give it. For alerts while the app is closed, click **Allow
-Notifications…**, on the Overview or in Settings; once macOS has your answer,
-Settings offers **Open System Settings** to change it.
+to give it. For alerts while the app is closed, click **Set Up
+Notifications…**, on the Overview or in Settings, and choose Allow in the
+request macOS shows in a corner of the screen. If macOS answers no, the
+Overview says notifications are off, with **Open System Settings** to turn
+them on there. Settings offers the same once macOS has an answer.
 
 **Scan Now** gives a detailed point-in-time report. The sidebar lists
 what is worth reviewing and the sign-ins that are stored. When a scan could

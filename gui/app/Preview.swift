@@ -93,6 +93,8 @@ final class SampleEngine: Engine {
     /// An error the helper kept from before checks were turned off.
     static var helperError = false
     static var notificationRequests = 0
+    /// The person's answer to macOS's request is no.
+    static var declinesNotifications = false
     static var permission = "denied"
     /// Places the helper's last full pass did not read. Set by the checks.
     static var unread = 0
@@ -205,7 +207,7 @@ final class SampleEngine: Engine {
         case "enable_notifications":
             Self.notificationRequests += 1
             // As if the person chose Allow. Once blocked, macOS answers without asking.
-            if Self.permission == "not requested" { Self.permission = "allowed" }
+            if Self.permission == "not requested" { Self.permission = Self.declinesNotifications ? "denied" : "allowed" }
             onEvent?("notification-permission", Data("null".utf8))
             return Data("null".utf8)
         case "refresh_notifications":
@@ -1015,16 +1017,31 @@ enum Checks {
         SampleEngine.permission = "not requested"
         await model.refreshReview()
         await settle()
-        await press(button("Allow Notifications…"), "requesting notifications from Overview")
+        await press(button("Set Up Notifications…"), "requesting notifications from Overview")
         expect(await eventually { SampleEngine.notificationRequests == 1 && !model.awaitingPermission },
                "Overview requests notifications only on a separate press, and stops waiting once macOS answers")
         SampleEngine.permission = "denied"
         await model.refreshReview()
         await settle()
         model.openURL = { Checks.opened.append($0) }
-        expect(await eventually { button("Allow Notifications…") == nil && button("Open System Settings") == nil
+        expect(await eventually { button("Set Up Notifications…") == nil && button("Open System Settings") == nil
                    && !written().contains("Notifications") },
                "once macOS has an answer, the Overview stops asking about notifications")
+        // Asked about them, macOS said no: the Overview says they are off,
+        // with the way to turn them on, and opens nothing by itself.
+        SampleEngine.permission = "not requested"
+        SampleEngine.declinesNotifications = true
+        await model.refreshReview()
+        await settle()
+        Checks.opened.removeAll()
+        await press(button("Set Up Notifications…"), "asking for notifications that macOS then turns down")
+        expect(await eventually { written().contains("Off in System Settings") && button("Open System Settings") != nil }
+                   && Checks.opened.isEmpty,
+               "notifications turned down after Set Up Notifications… stay on the Overview as off, with Open System Settings")
+        await press(button("Open System Settings"), "opening System Settings for notifications turned down")
+        expect(Checks.opened.contains { $0.absoluteString.hasPrefix("x-apple.systempreferences:com.apple.Notifications-Settings") },
+               "Open System Settings beside notifications that are off opens Loose Keys' notifications")
+        SampleEngine.declinesNotifications = false
         await press(button("Review Items"), "opening background findings before a manual scan")
         expect(model.pane == .review && model.results == nil, "background findings can be reviewed without a manual scan")
         SampleEngine.monitoring = false
@@ -1803,14 +1820,14 @@ enum Checks {
         await press(button("Settings…"), "returning to Settings")
         // Once they are off, macOS answers a request without asking: the
         // switch is in System Settings.
-        expect(settingsWindow != nil && button("Allow Notifications…", in: settingsWindow) == nil
+        expect(settingsWindow != nil && button("Set Up Notifications…", in: settingsWindow) == nil
                    && button("Open System Settings", in: settingsWindow) != nil,
                "Settings offers System Settings, not a request, for notifications that are off")
         // Neither while the answer is not known yet: asking might not be possible.
         SampleEngine.permission = "checking"
         await model.refreshReview()
         await settle()
-        expect(button("Allow Notifications…", in: settingsWindow) == nil
+        expect(button("Set Up Notifications…", in: settingsWindow) == nil
                    && button("Open System Settings", in: settingsWindow) == nil,
                "Settings offers neither before macOS has said whether it can ask")
         SampleEngine.permission = "denied"

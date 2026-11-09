@@ -70,7 +70,7 @@ enum FailureTitle {
         String(localized: "Couldn't Change Update Checks", comment: "The title of an alert: turning Check for Updates Automatically on or off failed.")
     }
     static var askNotifications: String {
-        String(localized: "Couldn't Ask About Notifications", comment: "The title of an alert: Allow Notifications… could not show macOS's request.")
+        String(localized: "Couldn't Ask About Notifications", comment: "The title of an alert: Set Up Notifications… could not show macOS's request.")
     }
     static var sendNotification: String {
         String(localized: "Couldn't Send the Notification", comment: "The title of an alert: Try Again beside a pending notification failed.")

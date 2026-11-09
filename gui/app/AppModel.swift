@@ -243,6 +243,9 @@ final class AppModel: ObservableObject {
     @Published var notice: String?
     private var decisionTurn = 0
     @Published var awaitingPermission = false
+    /// macOS answered no to the request the person just made with Set Up
+    /// Notifications…, until it says anything else.
+    @Published var notificationsTurnedDown = false
     private var placesOrder = RequestOrder()
     private let reviewReads = ReadTurns()
     private let monitorReads = ReadTurns()
@@ -871,8 +874,16 @@ final class AppModel: ObservableObject {
         case "monitor-status":
             Task { await refreshMonitor(); await refreshReview() }
         case "notification-permission":
+            let asked = awaitingPermission
             awaitingPermission = false
-            Task { await refreshReview(); await refreshMonitor() }
+            Task {
+                await refreshReview()
+                // Asked about them, macOS said no, which it also says to a
+                // prompt that was missed: the Overview keeps saying so, with
+                // the way to turn them on.
+                if asked, review?.permission == "denied" { notificationsTurnedDown = true }
+                await refreshMonitor()
+            }
         default:
             break
         }
@@ -1270,6 +1281,13 @@ final class AppModel: ObservableObject {
     /// Settings, and an unknown permission may not be askable.
     var canAskForNotifications: Bool {
         ["not requested", "request failed"].contains(review?.permission ?? "")
+    }
+
+    /// Whether the Overview still shows the turned-down request: only while
+    /// macOS says notifications are off. Off by the person's own hand later,
+    /// in System Settings, they are not asked about again.
+    var showsTurnedDownNotifications: Bool {
+        notificationsTurnedDown && review?.permission == "denied"
     }
 
     // MARK: Background checks

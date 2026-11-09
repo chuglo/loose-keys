@@ -339,9 +339,16 @@ struct OverviewView: View {
                     }
                 }
                 // Asked once. After an answer, the switch is in System Settings.
-                if monitor.enabled, model.canAskForNotifications {
+                if monitor.enabled, model.showsTurnedDownNotifications {
                     LabeledContent {
-                        Button("Allow Notifications…") { model.enableNotifications() }
+                        Button("Open System Settings") { model.openNotificationSettings() }
+                    } label: {
+                        Text("Notifications")
+                        Text("Off in System Settings")
+                    }
+                } else if monitor.enabled, model.canAskForNotifications {
+                    LabeledContent {
+                        Button("Set Up Notifications…") { model.enableNotifications() }
                             .disabled(model.awaitingPermission)
                     } label: {
                         Text("Notifications")

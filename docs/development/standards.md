@@ -843,6 +843,18 @@ Power Mode holds, is not saved: a restart then leaves it to the weekly pass.
 Verification: `a_full_pass_under_way_is_made_after_a_restart` and
 `a_pass_that_ends_with_another_owed_leaves_it_saved`.
 
+**Set Up Notifications…** asks with macOS's prompt, which appears in a
+corner of the screen and can be missed or taken for a confirmation; macOS
+then answers no. A no to the person's own request keeps the Overview's
+Notifications row, as "Off in System Settings" with **Open System Settings**
+(`notificationsTurnedDown`), until macOS says anything else; notifications
+turned off later in System Settings are not raised there again. The button
+is not titled Allow, as Apple's guidelines ask of a button that leads to
+macOS's prompt. A provisional request needs no prompt, but macOS delivered
+those notifications to Notification Center only, without a banner, in a
+macOS 26 guest. Verification: the window check's lines for **Set Up
+Notifications…**. Not verified: macOS versions other than 26.
+
 While notifications are not allowed and something waits to be sent, the
 helper asks macOS again at most once a quarter-hour, and at once after the app
 changes the shared state, which it does when notifications are allowed there.

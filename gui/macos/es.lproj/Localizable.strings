@@ -523,7 +523,7 @@
 "Open Settings to restart the helper." = "Abre Ajustes para reiniciar el proceso auxiliar.";
 
 /* [Overview.swift:281, Settings.swift:106] */
-"Allow Notifications…" = "Permitir notificaciones…";
+"Set Up Notifications…" = "Configurar notificaciones…";
 
 /* [Overview.swift:284, Settings.swift:109] */
 "Open System Settings" = "Abrir Ajustes del Sistema";

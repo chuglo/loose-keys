@@ -187,7 +187,7 @@ struct SettingsView: View {
             // Once macOS has an answer it no longer asks: the switch is in
             // System Settings, either way.
             if model.canAskForNotifications {
-                Button("Allow Notifications…") { model.enableNotifications(from: .settings) }
+                Button("Set Up Notifications…") { model.enableNotifications(from: .settings) }
                     .disabled(model.awaitingPermission)
             } else if permission == "denied" || permission == "allowed" {
                 Button("Open System Settings") { model.openNotificationSettings() }
