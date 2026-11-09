@@ -1,11 +1,12 @@
 ---
 name: documentation
-description: Audit Loose Keys' documentation (README.md, docs/, the AGENTS.md files, skill files) for drift from the code and for slop, and fix what the person picks. Finds broken links and anchors; paths, flags and code names that no longer exist; versions, limits, commands and window labels that disagree with the code; and prose that breaks the docs' rules, such as filler, repeats, run records, history and internals nobody acts on. Use when asked to check, audit, review, tidy, trim, clean up or fact-check the docs or their code references, or whether the docs are up to date; before any push and before committing a docs change; and after a change that renames or removes files, flags, settings or window labels the docs mention.
+description: Audit Loose Keys' documentation (README.md, docs/, the AGENTS.md files, skill files) for drift from the code and for slop, and fix what the person picks. Finds broken links and anchors; paths, flags and code names that no longer exist; versions, limits, commands and window labels that disagree with the code; and prose that breaks the docs' rules, such as filler, repeats, run records, history and internals nobody acts on. Use when asked to check, audit, review, tidy, trim, clean up or fact-check the docs or their code references, or whether the docs are up to date; before each commit; and after a change that renames or removes files, flags, settings or window labels the docs mention.
 ---
 
 Read `AGENTS.md` first. The audit only reads, so it may run in the main
 checkout. Change nothing until the person has seen the findings and said
-which to fix.
+which to fix, except before a commit: what that commit's change made wrong
+is fixed in it.
 
 The docs are every tracked Markdown file: `README.md`, `docs/`, the
 `AGENTS.md` files (each nested one is relative to its own folder) and the
@@ -15,11 +16,11 @@ are not docs; AGENTS.md has their rules.
 
 ## 1. Start from the change
 
-When the request is about a change (a diff, a branch, a push, "I
+When the request is about a change (a diff, a branch, a commit, "I
 renamed…"), list the old names and values from `git diff` or `git log -p`
 and `git grep` the docs for each. This finds more than the scripts do.
-Before a push, the change is what the remote lacks, such as
-`git log -p origin/main..HEAD`.
+Before a commit, the change is what is staged (`git diff --cached`); before
+a squash merge, the whole branch (`git diff main...BRANCH`).
 
 ## 2. Run the checks
 

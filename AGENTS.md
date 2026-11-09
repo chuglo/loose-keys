@@ -79,9 +79,10 @@ The shipped-bundle and native-helper checks run only in the disposable macOS
 guest. `docs/testing/guest.md` has its setup and the shipped-bundle check,
 and `docs/testing/native-helper-tests.md` the helper check.
 
-There is no CI. Before any push, check the docs against the commits being
-pushed with the `documentation` skill (`.agents/skills/documentation/`) and
-report what it finds. Before a push to `main` that is not prose-only, also run
+There is no CI. Before each commit, check the docs against the change being
+committed with the `documentation` skill (`.agents/skills/documentation/`),
+fix in that commit what the change made wrong, and report the rest. Before a
+push to `main` that is not prose-only, run
 `sh tests/check-all.sh` on the exact commit and report each check's exit
 status ("Before a push to `main`" in `docs/testing/local-verification.md`).
 Run the shipped-app and native-helper guest checks only when the person
