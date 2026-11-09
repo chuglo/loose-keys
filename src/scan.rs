@@ -91,15 +91,82 @@ pub const EXCLUDED: &[&str] = &[
     "Library/Containers",
     "Movies/TV",
     "Music/Music",
+    // Data macOS keeps from other programs without Full Disk Access, which
+    // Loose Keys never asks for. Listing one is refused on nearly every Mac and
+    // was a gap after every scan. No rule reads them. Listed only where logs
+    // of refusals from 2022 to macOS 14.5 show them; a protected folder not
+    // here is still a gap.
+    "Library/Mail",
+    "Library/Messages",
+    "Library/Safari",
+    "Library/Cookies",
+    "Library/HomeKit",
+    "Library/IdentityServices",
+    "Library/Suggestions",
+    "Library/Biome",
+    "Library/PersonalizationPortrait",
+    "Library/Accounts",
+    "Library/Sharing",
+    "Library/Shortcuts",
+    "Library/StatusKit",
+    "Library/CoreFollowUp",
+    "Library/DuetExpertCenter",
+    "Library/Metadata/CoreSpotlight",
+    "Library/Metadata/com.apple.IntelligentSuggestions",
+    "Library/Assistant/SiriVocabulary",
+    "Library/Application Support/CallHistoryDB",
+    "Library/Application Support/CallHistoryTransactions",
+    "Library/Application Support/Knowledge",
+    "Library/Application Support/com.apple.TCC",
+    "Library/Application Support/MobileSync",
+    "Library/Application Support/com.apple.sharedfilelist",
+    "Library/Application Support/com.apple.avfoundation/Frecents",
+    "Library/Application Support/FileProvider",
+    "Library/Application Support/CloudDocs/session/db",
+    "Library/Application Support/FaceTime",
+    "Library/DoNotDisturb",
+    "Library/Trial",
+    "Library/AppleMediaServices",
+    "Library/IntelligencePlatform",
+    "Library/com.apple.aiml.instrumentation",
+    "Library/Weather",
+    "Library/Daemon Containers",
+    // Refused in a macOS 26 guest with System Integrity Protection on;
+    // ContainerManager is in an older log too.
+    "Library/Application Support/DifferentialPrivacy",
+    "Library/ContainerManager",
+    "Library/WebDriver",
+    // Refused there too, and on macOS 14 and later generally, though they
+    // hold the person's own files: deleted ones, and unsaved documents. Left
+    // out on purpose, and named in the limitations, so the places not checked
+    // are the ones nobody expected.
+    ".Trash",
+    "Library/Autosave Information",
 ];
 
 /// Settings files macOS guards as it does their app's data: opening the
-/// Contacts app's asks for the contacts, the TV app's for the media library.
-/// Discovery passes them.
+/// Contacts app's asks for the contacts, the TV app's for the media library,
+/// and Messages' and Home's are refused, as they were in a macOS 26 guest
+/// with System Integrity Protection on. Discovery passes them.
 const ASKS: &[&str] = &[
     "Library/Preferences/com.apple.AddressBook.plist",
     "Library/Preferences/com.apple.TV.plist",
+    "Library/Preferences/com.apple.MobileSMS.plist",
+    "Library/Preferences/com.apple.madrid.plist",
+    "Library/Preferences/com.apple.homed.plist",
+    "Library/Preferences/com.apple.homed.notbackedup.plist",
 ];
+
+/// Whether a scan by this build leaves out `rel`, a place below the home
+/// folder: a folder on `EXCLUDED` itself, or a settings file on `ASKS`. Not
+/// a place inside such a folder, as a known location there is still read.
+/// A refusal an older build saved for one of these is no longer a gap.
+pub fn not_tried(rel: &Path) -> bool {
+    EXCLUDED
+        .iter()
+        .chain(ASKS)
+        .any(|place| rel.ends_with(place))
+}
 
 /// Home folders that discovery reaches last: large, and rarely where a
 /// credential file is left. Known locations inside them are checked first.

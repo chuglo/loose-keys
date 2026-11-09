@@ -147,6 +147,29 @@ fn helper_running(pid: u32) -> bool {
     matches!((theirs, ours), (Ok(a), Ok(b)) if a.dev() == b.dev() && a.ino() == b.ino())
 }
 
+/// Whether a refusal the helper saved still stands. One that an older
+/// build's pass saved, for a place this build leaves out, would be shown
+/// until the next weekly pass. Paths are saved below the home as `~/…`.
+fn still_unread(path: &str, reason: &str) -> bool {
+    reason != "permission-denied"
+        || !path
+            .strip_prefix("~/")
+            .is_some_and(|rel| scan::not_tried(Path::new(rel)))
+}
+
+/// The helper's count of places it couldn't read, less the saved ones that
+/// no longer stand.
+fn unread_count(agent: &review::Agent) -> usize {
+    let gone = agent.unread_places.as_ref().map_or(0, |snapshot| {
+        snapshot
+            .places
+            .iter()
+            .filter(|(path, reason)| !still_unread(path, reason))
+            .count()
+    });
+    agent.unread.saturating_sub(gone)
+}
+
 fn health(agent: &review::Agent) -> Health {
     Health {
         running: helper_running(agent.pid),
@@ -158,7 +181,7 @@ fn health(agent: &review::Agent) -> Health {
         },
         full_pass: agent.baseline.clone(),
         left: agent.left,
-        unread: agent.unread,
+        unread: unread_count(agent),
         unread_truncated: agent.unread_places.as_ref().is_some_and(|p| p.truncated),
         changes: agent.changes,
         error: agent.error.clone(),
@@ -177,10 +200,10 @@ struct AutomaticCoverage {
 fn automatic_coverage(agent: &review::Agent) -> AutomaticCoverage {
     AutomaticCoverage {
         full_pass: agent.baseline.clone(),
-        unread: agent.unread,
+        unread: unread_count(agent),
         unread_gaps: agent.unread_places.as_ref().map(|snapshot| {
             let mut grouped = std::collections::BTreeMap::<&str, Vec<String>>::new();
-            for (path, reason) in &snapshot.places {
+            for (path, reason) in snapshot.places.iter().filter(|(p, r)| still_unread(p, r)) {
                 grouped
                     .entry(reason)
                     .or_default()
@@ -5307,6 +5330,35 @@ mod tests {
             assert!(indexes.insert(item.index));
         }
         assert_eq!(indexes.len(), 10_000);
+    }
+
+    /// An older build's pass saved refusals of places this build leaves out.
+    /// They are not shown or counted, so an update takes effect before the
+    /// next full pass; any other saved refusal still is.
+    #[test]
+    fn saved_refusals_of_places_no_longer_tried_are_left_out() {
+        let mut saved = serde_json::to_value(review::Agent::default()).unwrap();
+        saved["unread"] = json!(4);
+        saved["unread_places"] = json!({
+            "places": [
+                ["~/Library/Accounts", "permission-denied"],
+                ["~/Library/Preferences/com.apple.madrid.plist", "permission-denied"],
+                ["~/locked", "permission-denied"],
+                ["~/Library/Accounts", "unreadable"],
+            ],
+            "truncated": false,
+        });
+        let agent: review::Agent = serde_json::from_value(saved).unwrap();
+        let output = serde_json::to_value(automatic_coverage(&agent)).unwrap();
+        let shown: Vec<_> = output["unread_gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|g| g["paths"].as_array().unwrap().clone())
+            .collect();
+        assert_eq!(shown, [json!("~/locked"), json!("~/Library/Accounts")]);
+        assert_eq!(output["unread"], 2);
+        assert_eq!(health(&agent).unread, 2);
     }
 
     #[test]

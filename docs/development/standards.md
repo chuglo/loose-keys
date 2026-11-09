@@ -471,6 +471,54 @@ The threats are a local user racing a root run with links, and hostile files
   `exclusions_and_detection_boundaries_are_visible` in `tests/scan_scope.rs`.
   Not verified: that the prompts are gone in a guest with SIP on, and that
   `Music/Music` is guarded as the TV library is.
+- The last block of `EXCLUDED` is app data macOS refuses to a program
+  without Full Disk Access, which Loose Keys never asks for: Mail, Messages,
+  Safari, call history, iPhone backups and the like. Listing one was a
+  `permission-denied` gap after every scan, so **Show Places Not Checked**
+  carried no signal. Discovery, record trees and change checks leave these
+  folders out, and the limitations say so. Known locations are still read
+  wherever they are, a refused one is still a gap, and so is a protected
+  folder the list leaves out. Messages' and Home's settings files, refused
+  the same way, are passed by as `ASKS` passes the Contacts and TV ones. A
+  folder or file is listed only when logs of refusals from 2022 to macOS 14.5
+  or a macOS 26 guest with SIP on show it, no rule names a location in it and it is
+  not where the person keeps or edits their own files, so
+  `Library/Mobile Documents`, `Library/CloudStorage`, Desktop, Documents and
+  Downloads stay gaps when refused. `~/.Trash` and `Library/Autosave
+  Information` are the exception, chosen by the person: refused on nearly
+  every Mac, they kept Show Places Not Checked showing after every scan, so
+  they are left out and the limitations name them. Tests: `app_data_macos_protects_is_neither_read_nor_a_gap`, which
+  locks each listed folder and an unlisted one and checks that a scan and a
+  sweep report only the unlisted one, that a change in a listed folder
+  reports nothing while a change of the unlisted one is its gap, and that no
+  rule target or Chromium browser folder is inside the list,
+  `messages_and_home_settings_macos_protects_are_not_a_gap`, and
+  `exclusions_and_detection_boundaries_are_visible`. The helper's saved
+  refusals of a listed folder or file itself, which an older build's pass
+  kept until the next weekly one, are neither shown nor counted
+  (`scan::not_tried`, `still_unread` in `gui/src/lib.rs`), while a refused
+  known location inside a listed folder still is; tests
+  `places_this_build_does_not_try_are_known` and
+  `saved_refusals_of_places_no_longer_tried_are_left_out`.
+  Remaining risks:
+  - The list is checked against a macOS 26 guest with SIP on, not against
+    macOS 15 or 27. A folder
+    macOS starts guarding is a gap until listed, and one it stops guarding
+    stays unread while listed.
+  - A key file deleted to the Trash but not emptied, or one in an unsaved
+    document's autosave, is not found, even with Full Disk Access.
+  - Mail and Messages attachments, shortcuts and iPhone and iPad backups
+    are not read, even when the terminal has Full Disk Access, so a key or
+    password export sent as an attachment is missed.
+  - Entries match path endings, so a folder such as `x/Library/Mail` inside
+    a scanned folder is left out too.
+  - Fewer gaps mean more scans end `complete`, with exit status 0, though
+    these folders were not read.
+  - On macOS 27, known locations in the folders XProtect guards (several
+    browsers' and wallets', unverified) are still gaps when refused.
+
+  Not verified: whether looking up a known location inside a listed folder
+  makes macOS ask.
 - The app's `prepare_access` command takes only an index into Desktop,
   Documents and Downloads under the scan home. It lists the folder through
   `fsutil::list_dir` with a budget of zero entries, which is enough for macOS

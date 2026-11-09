@@ -3080,6 +3080,180 @@ fn other_apps_data_and_media_stores_are_not_entered() {
     assert!(changed(tv).findings.is_empty());
 }
 
+/// macOS refuses these to a program without Full Disk Access, which Loose
+/// Keys never asks for, so each was a gap after every scan and hid the gaps
+/// nobody expected. They are left out and said to be; a folder not listed
+/// is still a gap.
+#[test]
+fn app_data_macos_protects_is_neither_read_nor_a_gap() {
+    use std::os::unix::fs::PermissionsExt;
+    let protected = [
+        "Library/Mail",
+        "Library/Messages",
+        "Library/Safari",
+        "Library/Cookies",
+        "Library/HomeKit",
+        "Library/IdentityServices",
+        "Library/Suggestions",
+        "Library/Biome",
+        "Library/PersonalizationPortrait",
+        "Library/Accounts",
+        "Library/Sharing",
+        "Library/Shortcuts",
+        "Library/StatusKit",
+        "Library/CoreFollowUp",
+        "Library/DuetExpertCenter",
+        "Library/Metadata/CoreSpotlight",
+        "Library/Metadata/com.apple.IntelligentSuggestions",
+        "Library/Assistant/SiriVocabulary",
+        "Library/Application Support/CallHistoryDB",
+        "Library/Application Support/CallHistoryTransactions",
+        "Library/Application Support/Knowledge",
+        "Library/Application Support/com.apple.TCC",
+        "Library/Application Support/MobileSync",
+        "Library/Application Support/com.apple.sharedfilelist",
+        "Library/Application Support/com.apple.avfoundation/Frecents",
+        "Library/Application Support/FileProvider",
+        "Library/Application Support/CloudDocs/session/db",
+        "Library/Application Support/FaceTime",
+        "Library/DoNotDisturb",
+        "Library/Trial",
+        "Library/AppleMediaServices",
+        "Library/IntelligencePlatform",
+        "Library/com.apple.aiml.instrumentation",
+        "Library/Weather",
+        "Library/Daemon Containers",
+        "Library/Application Support/DifferentialPrivacy",
+        "Library/ContainerManager",
+        "Library/WebDriver",
+        ".Trash",
+        "Library/Autosave Information",
+    ];
+    // No known location is inside one, so leaving them out hides none.
+    for rule in RULES {
+        for target in rule.targets {
+            let at = match *target {
+                Target::File(p)
+                | Target::Dir(p)
+                | Target::Tree(p)
+                | Target::Each(p, _)
+                | Target::Present(p, _) => p,
+                _ => continue,
+            };
+            for folder in protected {
+                assert!(!Path::new(at).starts_with(folder), "{}: {at}", rule.id);
+            }
+        }
+    }
+    for browser in CHROMIUM {
+        for folder in protected {
+            assert!(!Path::new(browser).starts_with(folder), "{browser}");
+        }
+    }
+    let f = Fixture::new("protected-app-data");
+    let locked: Vec<_> = protected
+        .iter()
+        .chain(["locked"].iter())
+        .map(|p| f.0.join(p))
+        .collect();
+    let lock = |mode| {
+        for dir in &locked {
+            fs::set_permissions(dir, fs::Permissions::from_mode(mode)).unwrap();
+        }
+    };
+    for dir in &locked {
+        files(dir, 0);
+        fs::write(dir.join("export.csv"), "url,username,password\n").unwrap();
+    }
+    let cancel = || Arc::new(AtomicBool::new(false));
+    lock(0o000);
+    let scanned = full(&f.0);
+    let mut swept = (Vec::new(), Vec::new());
+    let mut resume = None;
+    loop {
+        let (r, pending) = Scan::sweep(&f.0, &[], resume, limits(100_000), cancel(), digest);
+        let (found, gaps) = seen(r);
+        swept.0.extend(found);
+        swept.1.extend(gaps);
+        if pending.is_empty() {
+            break;
+        }
+        resume = Some(pending);
+    }
+    let changed: Vec<_> = protected
+        .iter()
+        .map(|p| (p, change(&f.0, &[], &format!("{p}/export.csv"))))
+        .collect();
+    let unlisted = change(&f.0, &[], "locked");
+    lock(0o700);
+    let expected = [("~/locked".to_string(), "permission-denied")];
+    for ((found, gaps), check) in [(scanned, "scan"), (swept, "sweep"), (unlisted, "change")] {
+        assert!(found.is_empty(), "{check}: {found:?}");
+        assert_eq!(gaps, expected, "{check}");
+    }
+    for (p, (found, gaps)) in changed {
+        assert!(
+            found.is_empty() && gaps.is_empty(),
+            "{p}: {found:?} {gaps:?}"
+        );
+    }
+    assert!(report::LIMITATIONS
+        .contains("app data macOS protects, the Trash and unsaved document autosaves"));
+}
+
+/// Messages' and Home's settings files, which macOS refuses as it does their
+/// apps' data, are passed by; a refused settings file beside them is a gap.
+#[test]
+fn messages_and_home_settings_macos_protects_are_not_a_gap() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new("protected-settings");
+    let settings = f.0.join("Library/Preferences");
+    files(&settings, 0);
+    let names = [
+        "com.apple.MobileSMS.plist",
+        "com.apple.madrid.plist",
+        "com.apple.homed.plist",
+        "com.apple.homed.notbackedup.plist",
+        "com.example.locked.plist",
+    ];
+    let lock = |mode| {
+        for name in names {
+            fs::set_permissions(settings.join(name), fs::Permissions::from_mode(mode)).unwrap();
+        }
+    };
+    for name in names {
+        fs::write(settings.join(name), "url,username,password\n").unwrap();
+    }
+    lock(0o000);
+    let scanned = full(&f.0);
+    let changed = change(&f.0, &[], "Library/Preferences/com.apple.madrid.plist");
+    lock(0o600);
+    let expected = [(
+        "~/Library/Preferences/com.example.locked.plist".to_string(),
+        "permission-denied",
+    )];
+    assert!(scanned.0.is_empty(), "{:?}", scanned.0);
+    assert_eq!(scanned.1, expected);
+    assert!(changed.0.is_empty() && changed.1.is_empty(), "{changed:?}");
+}
+
+/// A place an older build's pass saved as refused, which this build no
+/// longer tries: a folder left out, or a settings file passed by. A refused
+/// file inside a left-out folder, as a known location is, still counts.
+#[test]
+fn places_this_build_does_not_try_are_known() {
+    assert!(super::not_tried(Path::new("Library/Accounts")));
+    assert!(super::not_tried(Path::new("Library/WebDriver")));
+    assert!(super::not_tried(Path::new(
+        "Library/Preferences/com.apple.madrid.plist"
+    )));
+    assert!(!super::not_tried(Path::new("Library/AccountsArchive")));
+    assert!(!super::not_tried(Path::new("Library/Accounts/inside.json")));
+    assert!(!super::not_tried(Path::new("project/.git/config")));
+    assert!(super::not_tried(Path::new(".Trash")));
+    assert!(!super::not_tried(Path::new("Library/Mobile Documents")));
+}
+
 #[test]
 fn a_changed_repository_config_is_checked_and_the_rest_of_git_is_not() {
     let f = Fixture::new("repo-changed");

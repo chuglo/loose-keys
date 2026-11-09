@@ -41,8 +41,12 @@ Desktop, Documents and Downloads, one at a time. The rest are still checked
 when you deny one. After the scan, the Overview names the folder it could not
 read, with **Open System Settings** to allow it under Privacy & Security, Files
 & Folders; scan again after allowing it. **Cancel Preparation**
-stops once the open prompt is answered. Other protected folders may still
-prompt later. Full Disk Access is not needed.
+stops once the open prompt is answered. The app data macOS protects, such as
+Mail, Messages and Safari, isn't checked, nor are the Trash and unsaved
+document autosaves, which macOS protects too, and Full Disk Access is never
+needed; [Supported checks](#supported-checks) lists those folders. Other
+protected folders may still prompt later, and one that macOS refuses appears
+under **Show Places Not Checked**.
 
 The app never writes over a file. If you choose to replace one when saving,
 the app writes the new file beside it and then moves the old one to the Trash.
@@ -467,7 +471,8 @@ stored sign-in counts once its file's permissions let other users read it, and
 a test-mode key never counts. The summary also says what a finding concerns,
 such as the AWS profile or registry host; the JSON report leaves that out and
 names only the kind of token. Not covered: browser cookies and sessions,
-Safari, Notes, the Keychain, images and password-manager vaults. The rules for
+Safari, Notes, Mail, Messages and other app data macOS protects, iPhone and
+iPad backups, the Trash, unsaved document autosaves, the Keychain, images and password-manager vaults. The rules for
 known files read simple literal fields at the listed paths: not full YAML or
 INI syntax, not a config kept somewhere else, and not a reference or an
 environment placeholder. In `.env*`, shell, MCP and AI tool settings files, a
@@ -515,9 +520,30 @@ libraries (`Movies/TV`, `Music/Music`), and does not open the Contacts or TV
 settings files (`Library/Preferences/com.apple.AddressBook.plist`,
 `Library/Preferences/com.apple.TV.plist`): no rule reads them, and for each
 one macOS would ask you for your calendar, contacts, reminders, photos,
-media library or other apps' data in the scanner's name. A known sign-in
-location inside them, such as Telegram's App Store copy, is still read, and
-macOS may ask then. Links and special files that discovery meets are passed
+media library or other apps' data in the scanner's name. It also skips the
+app data macOS refuses without Full Disk Access, which would otherwise be
+listed as not checked after every scan: in `Library`, `Mail`, `Messages`,
+`Safari`, `Cookies`, `HomeKit`, `IdentityServices`, `Suggestions`, `Biome`,
+`PersonalizationPortrait`, `Accounts`, `Sharing`, `Shortcuts`, `StatusKit`,
+`CoreFollowUp`, `DuetExpertCenter`, `Metadata/CoreSpotlight`,
+`Metadata/com.apple.IntelligentSuggestions`, `Assistant/SiriVocabulary`,
+`DoNotDisturb`, `Trial`, `AppleMediaServices`, `IntelligencePlatform`,
+`com.apple.aiml.instrumentation`, `Weather`, `Daemon Containers`,
+`ContainerManager` and `WebDriver`; in `Library/Application Support`,
+`CallHistoryDB`, `CallHistoryTransactions`, `Knowledge`, `com.apple.TCC`,
+`MobileSync` (iPhone and iPad backups), `com.apple.sharedfilelist`,
+`com.apple.avfoundation/Frecents`, `FileProvider`, `CloudDocs/session/db`,
+`FaceTime` and `DifferentialPrivacy`; and Messages' and Home's settings files
+in `Library/Preferences` (`com.apple.MobileSMS.plist`,
+`com.apple.madrid.plist`, `com.apple.homed.plist`,
+`com.apple.homed.notbackedup.plist`). It also skips the Trash (`.Trash`) and
+unsaved document autosaves (`Library/Autosave Information`), which macOS
+protects though they hold your own files: a key file you deleted but haven't
+emptied from the Trash isn't found. Any other place macOS refuses is still
+listed as not checked; a refusal that an older version's automatic scan
+saved for one of these is no longer shown. A known sign-in location inside any
+of these folders, such as Telegram's App Store copy, is still read, and macOS
+may ask then. Links and special files that discovery meets are passed
 over without a gap, as is macOS's `.com.apple.containermanagerd.metadata.plist`.
 Where a repository's
 `.git` is a file pointing elsewhere (a worktree or submodule) or a link, it is
