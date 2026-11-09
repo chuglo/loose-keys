@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>%lld Items Worth Reviewing</key>
+	<key>%lld Loose Keys Worth Reviewing</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
 		<string>%#@items@</string>
@@ -13,9 +13,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>lld</string>
 			<key>one</key>
-			<string>%lld elemento para revisar</string>
+			<string>%lld clave suelta para revisar</string>
 			<key>other</key>
-			<string>%lld elementos para revisar</string>
+			<string>%lld claves sueltas para revisar</string>
 		</dict>
 	</dict>
 	<key>%lld copies</key>
@@ -154,10 +154,10 @@
 			<string>%lld elementos · Siguen incluidos en los resultados del análisis</string>
 		</dict>
 	</dict>
-	<key>%lld loose keys to review</key>
+	<key>%lld loose keys worth reviewing</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@keys@ por revisar</string>
+		<string>%#@keys@ para revisar</string>
 		<key>keys</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>
@@ -170,10 +170,10 @@
 			<string>%lld claves sueltas</string>
 		</dict>
 	</dict>
-	<key>%lld loose keys to review, list full</key>
+	<key>%lld loose keys worth reviewing, list full</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@keys@ por revisar, lista llena</string>
+		<string>%#@keys@ para revisar, lista llena</string>
 		<key>keys</key>
 		<dict>
 			<key>NSStringFormatSpecTypeKey</key>

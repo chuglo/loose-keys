@@ -812,7 +812,7 @@ enum Checks {
         await open(.overview)
         expect(await eventually {
             let text = written()
-            return text.contains("6 Items Worth Reviewing") && text.contains("From earlier scans.")
+            return text.contains("6 Loose Keys Worth Reviewing") && text.contains("From earlier scans.")
                 && button("Review Items") != nil && linkButton("Show Places Not Checked") == nil
         }, "before a scan, the Overview answers from saved findings")
         // Before any scan this window has no report to save, so a list that
@@ -1659,7 +1659,7 @@ enum Checks {
         let fromScan = model.results?.review ?? 0
         expect(await eventually {
             let text = written()
-            return fromScan > 1 && text.contains("\(fromScan) Items Worth Reviewing")
+            return fromScan > 1 && text.contains("\(fromScan) Loose Keys Worth Reviewing")
                 && text.contains("Loose Keys couldn't open its saved list, so the Worth Reviewing count is from the last scan.")
                 && !text.contains("Nothing Worth Reviewing")
         }, "with the review list unreadable, the Overview answers with the scan's own count and says why")
@@ -1972,18 +1972,18 @@ enum Checks {
         SampleEngine.allSetAside = true
         await model.refreshReview()
         let plainMarked = await marked(.plain)
-        expect(model.menuBarMark == .plain && model.menuBarLine == "0 loose keys to review" && plainMarked,
+        expect(model.menuBarMark == .plain && model.menuBarLine == "0 loose keys worth reviewing" && plainMarked,
                "with everything set aside, the menu bar counts none to review")
         SampleEngine.listFull = true
         await model.refreshReview()
         let fullMarked = await marked(.full)
-        expect(model.menuBarMark == .full && model.menuBarLine == "0 loose keys to review, list full" && fullMarked,
+        expect(model.menuBarMark == .full && model.menuBarLine == "0 loose keys worth reviewing, list full" && fullMarked,
                "with everything set aside and the list full, the menu bar says the list is full")
         SampleEngine.listFull = false
         SampleEngine.allSetAside = false
         await model.refreshReview()
         let openMarked = await marked(.open)
-        expect(model.openCount > 0 && model.menuBarMark == .open && model.menuBarLine == "\(model.openCount) loose \(model.openCount == 1 ? "key" : "keys") to review" && openMarked,
+        expect(model.openCount > 0 && model.menuBarMark == .open && model.menuBarLine == "\(model.openCount) loose \(model.openCount == 1 ? "key" : "keys") worth reviewing" && openMarked,
                "with items open, the menu bar is marked and the menu counts them")
         // A minimized window is one to come back to: with it, turning the
         // menu bar off or closing another window neither quits nor hides the app.

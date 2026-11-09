@@ -235,8 +235,8 @@ struct OverviewView: View {
     }
 
     private func itemsTitle(_ count: Int) -> String {
-        String(localized: "\(count) Items Worth Reviewing",
-               comment: "Overview title: how many items in Worth Reviewing need a decision. A plural rule.")
+        String(localized: "\(count) Loose Keys Worth Reviewing",
+               comment: "Overview title: how many items in Worth Reviewing need a decision, as the menu bar menu says it. A loose key is a credential left in a plain file. A plural rule.")
     }
 
     /// How far the scan has got.

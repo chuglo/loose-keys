@@ -636,10 +636,10 @@ final class AppModel: ObservableObject {
                 : String(localized: "No scan this session",
                          comment: "The menu bar menu's first line when the list is empty and nothing has been checked since the app opened: no scan, and no check by the helper.")
         case .open, .plain:
-            return String(localized: "\(openCount) loose keys to review",
+            return String(localized: "\(openCount) loose keys worth reviewing",
                           comment: "The menu bar menu's first line: how many findings in Worth Reviewing need the person's attention. A loose key is a credential left in a plain file.")
         case .full:
-            return String(localized: "\(openCount) loose keys to review, list full",
+            return String(localized: "\(openCount) loose keys worth reviewing, list full",
                           comment: "The menu bar menu's first line: how many findings need attention, when the list is full and left some out.")
         case .problem:
             return String(localized: "Couldn't open Worth Reviewing",

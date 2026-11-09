@@ -1495,7 +1495,7 @@ func initialWindowFitsScreen() {
     check(model.reviewRows.map(\.id) == [1] && model.reviewCount == 1 && model.openCount == 1,
           "stored: Worth Reviewing and its count leave stored sign-ins out")
     check(model.reviewSummary == "1 to review, 1 set aside", "stored: Worth Reviewing's subtitle leaves stored sign-ins out (\(model.reviewSummary))")
-    check(model.menuBarLine == "1 loose key to review", "stored: the menu bar counts no stored sign-in")
+    check(model.menuBarLine == "1 loose key worth reviewing", "stored: the menu bar counts no stored sign-in")
     model.pane = .setAside
     check(Set(model.reviewRows.map(\.id)) == [2, 4] && model.setAsideCount == 2,
           "stored: Set Aside lists both kinds, and its count sums them")
@@ -1828,26 +1828,26 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
           "menu bar: a list that could not be read is a problem, not nothing")
     let one = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(one, .success(reviewList(1)))
-    check(model.menuBarLine == "1 loose key to review", "menu bar: one open item is one loose key")
+    check(model.menuBarLine == "1 loose key worth reviewing", "menu bar: one open item is one loose key")
     let two = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(two, .success(reviewList(2)))
-    check(model.menuBarMark == .open && model.menuBarLine == "2 loose keys to review", "menu bar: open items are counted")
+    check(model.menuBarMark == .open && model.menuBarLine == "2 loose keys worth reviewing", "menu bar: open items are counted")
     let lost = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
     await bench.answer(lost, refused)
     check(model.menuBarMark == .problem && !model.menuBarLine.contains("2"),
           "menu bar: a failure after a good read does not show the old count")
     let decided = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(decided, .success(reviewStates(["set-aside", "fixed"])))
-    check(model.menuBarMark == .plain && model.menuBarLine == "0 loose keys to review",
+    check(model.menuBarMark == .plain && model.menuBarLine == "0 loose keys worth reviewing",
           "menu bar: everything set aside or fixed is a count of none, never a claim of safety")
     // A full list left findings out: it is not a list with nothing open.
     let crowded = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(crowded, .success(reviewStates(["set-aside"], full: true)))
-    check(model.menuBarMark == .full && model.menuBarLine == "0 loose keys to review, list full",
+    check(model.menuBarMark == .full && model.menuBarLine == "0 loose keys worth reviewing, list full",
           "menu bar: a full list with nothing open says it is full")
     let crowdedOpen = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(crowdedOpen, .success(reviewStates(["open", "open"], full: true)))
-    check(model.menuBarMark == .full && model.menuBarLine == "2 loose keys to review, list full",
+    check(model.menuBarMark == .full && model.menuBarLine == "2 loose keys worth reviewing, list full",
           "menu bar: a full list with items open counts them and says it is full")
     // Checks that are not known to be running say so, as Settings does.
     model.monitor = nil
@@ -1897,9 +1897,9 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
                         "app_login": 2, "health": ["running": true, "last_scan": "2026-11-03T05:39:00Z"],
                         "pending_delivery": false, "attempts": 0])
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(checked.utf8))
-    check(model.menuBarLine == "0 loose keys to review", "menu bar: after a helper check, the empty list is counted")
+    check(model.menuBarLine == "0 loose keys worth reviewing", "menu bar: after a helper check, the empty list is counted")
     model.monitor = nil
-    check(model.menuBarLine == "0 loose keys to review", "menu bar: an unread helper status changes nothing")
+    check(model.menuBarLine == "0 loose keys worth reviewing", "menu bar: an unread helper status changes nothing")
 }
 
 @MainActor func automaticCoverageReads() async {
