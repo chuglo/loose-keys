@@ -173,7 +173,7 @@ home folder with a plain ASCII path; to leave out part of an added folder or
 drive, remove it and add a narrower one. Up to 32 folders can be skipped; past
 that, the app asks you to remove one first. Saved reports and the copied
 summary name a skipped folder as left out by you, which does not make the
-scan incomplete, and Settings lists it under Places to Check as Skipped, where
+scan incomplete, and Settings lists it under Skipped Folders, where
 **Include Again** brings it back. Known sign-in
 files in it, and
 the files directly in an AI tool's own folder, are still read by a scan and by

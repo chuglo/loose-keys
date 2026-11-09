@@ -1744,12 +1744,13 @@ enum Checks {
         let removing = SampleEngine.folderRequest
         expect(removing["index"] as? Int == 0 && removing["shown"] as? String == "/Volumes/Backup",
                "Remove in Settings says which folder it was shown for (it sent \(removing["shown"] ?? "nothing"))")
-        // A folder left out with Stop Checking is listed with the places to
-        // check, and named by its place and by what is shown, as Remove is.
-        let placesText = written(in: settingsWindow)
-        expect(placesText.contains("~/Movies/Raw") && placesText.contains("Skipped")
+        // A folder left out with Stop Checking is listed apart from the places
+        // to check, and named by its place and by what is shown, as Remove is.
+        // A section's heading may reach assistive software as a name, not a value.
+        let placesText = written(in: settingsWindow) + everything(in: settingsWindow).flatMap(names)
+        expect(placesText.contains("~/Movies/Raw") && placesText.contains("Skipped Folders")
                && placesText.contains(FolderScopeText.exceptions),
-               "Settings lists a skipped folder with the places to check, and what full scans still read in it")
+               "Settings lists a skipped folder under Skipped Folders, with what full scans still read in it")
         SampleEngine.folderRequest = [:]
         await press(button("Include Again", in: settingsWindow), "pressing Include Again beside a skipped folder in Settings")
         for _ in 0..<10 where SampleEngine.folderRequest.isEmpty { await settle() }

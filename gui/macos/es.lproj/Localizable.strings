@@ -311,7 +311,7 @@
 "Include Again" = "Volver a incluir";
 
 /* Settings, under a folder in Places to Check that scans skip because the person chose Stop Checking. The folder is feminine. */
-"Skipped" = "Omitida";
+"Skipped Folders" = "Carpetas omitidas";
 
 /* Exceptions to excluding a folder from discovery. */
 "Known sign-in files and files directly in AI tools' folders are still read by full scans." = "Los archivos de inicio de sesión conocidos y los archivos directamente en las carpetas de herramientas de IA se siguen leyendo en los análisis completos.";

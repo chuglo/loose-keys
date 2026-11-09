@@ -34,6 +34,7 @@ struct SettingsView: View {
                 }
             }
             places
+            skippedFolders
             if let monitor = model.monitor {
                 menuBar(monitor)
                 updates(monitor)
@@ -97,13 +98,9 @@ struct SettingsView: View {
         }
     }
 
-    /// The folders every scan includes, and those the person chose to skip.
-    /// Added folders are kept until removed; the helper watches only the
-    /// home folder.
+    /// The folders every scan includes. Added folders are kept until removed;
+    /// the helper watches only the home folder.
     @ViewBuilder private var places: some View {
-        // Skipped folders are kept in the review list. One that could not be
-        // read says nothing about which folders are skipped.
-        let skipped = model.reviewProblem == nil ? model.review?.skipped ?? [] : []
         Section {
             if let places = model.places {
                 if let home = places.home {
@@ -123,30 +120,41 @@ struct SettingsView: View {
                     }
                 }
             }
-            // Left out with Stop Checking in the inspector. Known by path,
-            // which the engine keeps unique: the added folders above are
-            // numbered from 0 too, and rows in one section share their IDs.
-            ForEach(Array(skipped.enumerated()), id: \.element) { index, folder in
-                LabeledContent {
-                    Button("Include Again") { model.checkFolderAgain(index, shown: folder, from: .settings) }
-                } label: {
-                    Label(folder, systemImage: "folder.badge.minus")
-                    Text("Skipped", comment: "Settings, under a folder in Places to Check that scans skip because the person chose Stop Checking.")
-                }
-            }
             if model.placesProblem != nil {
                 Text("Couldn't read the list of folders you added.")
-            }
-            if model.reviewProblem != nil {
-                Text("Couldn't read the list of folders you skipped.")
             }
             Button("Add Folder or Drive…") { model.addFolder(from: .settings) }
         } header: {
             Text("Places to Check")
         } footer: {
             Text("Automatic scanning doesn't include added folders and drives. Use Scan Now to check them.")
-            if !skipped.isEmpty {
-                Text(FolderScopeText.exceptions)
+        }
+    }
+
+    /// The folders left out with Stop Checking in the inspector, apart from the
+    /// places to check. Shown only when there are some, or their list, kept in
+    /// the review list, could not be read: then it says nothing of which.
+    @ViewBuilder private var skippedFolders: some View {
+        let skipped = model.reviewProblem == nil ? model.review?.skipped ?? [] : []
+        if !skipped.isEmpty || model.reviewProblem != nil {
+            Section {
+                // Known by path, which the engine keeps unique.
+                ForEach(Array(skipped.enumerated()), id: \.element) { index, folder in
+                    LabeledContent {
+                        Button("Include Again") { model.checkFolderAgain(index, shown: folder, from: .settings) }
+                    } label: {
+                        Label(folder, systemImage: "folder.badge.minus")
+                    }
+                }
+                if model.reviewProblem != nil {
+                    Text("Couldn't read the list of folders you skipped.")
+                }
+            } header: {
+                Text("Skipped Folders", comment: "Settings, the heading over the folders scans leave out because the person chose Stop Checking.")
+            } footer: {
+                if !skipped.isEmpty {
+                    Text(FolderScopeText.exceptions)
+                }
             }
         }
     }
