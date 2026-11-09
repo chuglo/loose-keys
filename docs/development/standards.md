@@ -1678,12 +1678,15 @@ is replaced (macOS behaviour).
   `access_preparation_is_bounded_and_does_not_claim_coverage` and the window
   check, which records the link instead of opening it. Unverified: that
   macOS 26 and later still open that pane from the link.
-- The Filter field is in the toolbar on every page, on purpose. Taken out and
-  put back as the page changed, it stopped the app about one run in five in
-  the window check: AppKit refuses a second search field in a toolbar, and
-  the first was not always gone by then. Do not make a toolbar's search field
-  depend on the page. The first page hides the whole toolbar instead
-  (`.toolbar(.hidden, for: .windowToolbar)`), which leaves the field in it.
+- The Filter field is on the three lists and not on the Overview, which has
+  nothing to filter. It is AppKit's search field in an ordinary toolbar item
+  (`FilterField`), which comes and goes with the page as the Inspector button
+  does. Do not use `.searchable` for it: taken out and put back as the page
+  changed, its toolbar item stopped the app about one run in five in the
+  window check, as AppKit refuses a second one and the first was not always
+  gone by then. The window check switches pages five times over and checks
+  that the field is on each list and not on the Overview. Not verified:
+  focusing the field with Command-F, which the window check cannot press.
 - Filtering a review group checks every listed path, including fixed and
   set-aside copies. Matching secondary paths are display-only context below
   the representative path; the row's id, revision, sort key and file-action

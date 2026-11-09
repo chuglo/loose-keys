@@ -1517,15 +1517,17 @@ enum Checks {
             expect(false, "the stored list is a table with a row for each sign-in")
         }
 
-        // The Filter field is on every page. Used on one it does not filter, it opens the first list.
-        await open(.overview)
-        expect(everything().contains { role($0) == kAXTextFieldRole },
-               "the Filter field is in the toolbar on a page without a list")
-        model.search = "token"
-        await settle(after: "filtering from a page without a list")
-        expect(model.pane == .review, "a filter set on a page without a list opens Worth Reviewing")
-        model.search = ""
-        await settle(after: "clearing the filter")
+        // The Filter field is on the lists it filters and not on the Overview.
+        // Taken out and put back as the page changes, it must not stop the app.
+        let filterShown = { everything().contains { value($0, kAXSubroleAttribute) as? String == kAXSearchFieldSubrole } }
+        for round in 1...5 {
+            await open(.overview)
+            expect(await eventually { !filterShown() }, "the Overview has no Filter field (round \(round))")
+            for pane in [Pane.review, .setAside, .stored] {
+                await open(pane)
+                expect(await eventually { filterShown() }, "the Filter field is in the toolbar on \(pane.rawValue) (round \(round))")
+            }
+        }
 
         // A file's name is whatever its maker chose. Copied for pasting after a command, it is quoted.
         expect(model.quotedIfNeeded("/Users/me/.aws/credentials") == "/Users/me/.aws/credentials"

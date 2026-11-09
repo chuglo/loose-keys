@@ -223,12 +223,7 @@ final class AppModel: ObservableObject {
     @Published var reviewSort = [KeyPathComparator(\ReviewItem.statusRank)]
     @Published var storedSort: [KeyPathComparator<ReviewItem>] = []
     @Published var search = "" {
-        didSet {
-            dropHiddenSelection()
-            // The Filter field is on every page and filters the finding lists.
-            // Typed into anywhere else, it opens the first of them.
-            if !search.isEmpty, pane != .review, pane != .setAside, pane != .stored { pane = .review }
-        }
+        didSet { dropHiddenSelection() }
     }
     @Published var inspectorShown = false
 

@@ -15,11 +15,6 @@ struct MainView: View {
                 .navigationTitle(title)
                 .navigationSubtitle(model.notice ?? subtitle)
                 .toolbar { toolbar }
-                // The Filter field stays in the toolbar on every page. Taken out
-                // and put back as the page changes, it has stopped the app:
-                // AppKit refuses a second one, and the first is not always
-                // gone by then.
-                .searchable(text: $model.search, prompt: "Filter")
                 .inspector(isPresented: inspectorShown) {
                     Inspector()
                         .inspectorColumnWidth(min: 270, ideal: 320, max: 460)
@@ -27,8 +22,7 @@ struct MainView: View {
                 .background(UpdateAlertPresenter(value: updateAlert, makeAlert: makeUpdateAlert,
                                                  respond: answerUpdateAlert))
                 // The first page's one step is its own Scan Now, so the toolbar
-                // is hidden there with all it holds. Hidden, not taken apart:
-                // the Filter field stays in it.
+                // is hidden there with all it holds.
                 .toolbar(welcomeShown ? .hidden : .visible, for: .windowToolbar)
         }
         // A sidebar the person has used is not hidden from them again: not on
@@ -221,6 +215,13 @@ struct MainView: View {
                 .help("Show or hide the inspector")
             }
         }
+        // Only on the lists it filters: the Overview has nothing to filter.
+        if model.pane != .overview {
+            ToolbarItem {
+                FilterField(text: $model.search)
+                    .frame(width: 180)
+            }
+        }
     }
 }
 
@@ -288,5 +289,38 @@ struct PathText: View {
                 Text(folder).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
             }
         }
+    }
+}
+
+/// AppKit's search field in an ordinary toolbar item, so it can come and go
+/// with the page as the Inspector button does. Not `.searchable`: its toolbar
+/// item stopped the app when taken out and put back, as AppKit refuses a
+/// second one and the first was not always gone by then.
+struct FilterField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = String(localized: "Filter", comment: "The placeholder of the toolbar field that filters the list.")
+        field.sendsSearchStringImmediately = true
+        field.stringValue = text
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.changed(_:))
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        /// Each keystroke, and the field's clear button.
+        @objc func changed(_ field: NSSearchField) { text.wrappedValue = field.stringValue }
     }
 }
