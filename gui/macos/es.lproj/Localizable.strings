@@ -514,7 +514,7 @@
 "Checks your files whenever they change, even when the app is closed." = "Comprueba tus archivos cada vez que cambian, incluso con la app cerrada.";
 
 /* [Overview.swift:261] */
-"Checking existing files…" = "Comprobando los archivos existentes…";
+"Checking your files…" = "Comprobando tus archivos…";
 
 /* Beside Open System Settings while the helper needs approval. Allow in the Background is the name of a list in System Settings' Login Items pane; use macOS's own name for it. */
 "Turn on Loose Keys under Allow in the Background." = "Activa Loose Keys en la sección Permitir en segundo plano.";

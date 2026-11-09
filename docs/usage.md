@@ -318,7 +318,7 @@ nothing is open in what was checked, or the list is still being read, not
 that nothing is exposed. Its menu shows the count, and the state of automatic
 scanning unless it is running, and opens the window or Settings; it changes
 nothing. Before any check, with nothing on the list, the menu says **No scan
-this session**, or **Checking existing files…** while automatic scanning
+this session**, or **Checking your files…** while automatic scanning
 makes its first pass, instead of a count.
 
 While it is on, closing the window leaves the app in the menu bar, with no Dock icon

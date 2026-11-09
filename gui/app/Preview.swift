@@ -988,9 +988,9 @@ enum Checks {
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
                "background consent neither runs a manual scan nor asks for notification permission")
         // Check timing, Pause and notifications that are off are in Settings.
-        expect(written().contains("Checking existing files…") && !written().contains("Last Check")
+        expect(!written().contains("Checking existing files…") && !written().contains("Last Check")
                && button("Show Details") == nil && button("Pause") == nil,
-               "the Overview shows initial checking, and leaves check timing and Pause to Settings")
+               "the switch says only its state, and the Overview leaves check timing and Pause to Settings")
         // Findings that turn up during the first pass are not "from earlier scans".
         expect(written().contains("Still checking your files…") && !written().contains("From earlier scans."),
                "during the first full pass, the Overview's answer says checking goes on")
@@ -1006,7 +1006,7 @@ enum Checks {
         SampleEngine.completedPass = true
         SampleEngine.lastCheck = "2026-10-14T12:30:00Z"
         await model.refreshMonitor()
-        expect(await eventually { written().contains(BackgroundState.active.text) && !written().contains("Checking existing files…") },
+        expect(await eventually { written().contains(BackgroundState.active.text) && !written().contains("Still checking your files…") },
                "completed initial checking leaves a simple active status")
         // After the helper's pass, the answer says when it last checked.
         let checkedAt = "Last checked \(localTime("2026-10-14T12:30:00Z"))."

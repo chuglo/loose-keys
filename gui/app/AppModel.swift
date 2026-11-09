@@ -633,8 +633,8 @@ final class AppModel: ObservableObject {
         switch menuBarMark {
         case .plain where nothingChecked:
             return backgroundState == .active
-                ? String(localized: "Checking existing files…",
-                         comment: "The menu bar menu's first line while the helper first reads the home folder, as the Overview says it.")
+                ? String(localized: "Checking your files…",
+                         comment: "The menu bar menu's first line while automatic scanning reads every file for the first time, as the Overview's heading says it.")
                 : String(localized: "No scan this session",
                          comment: "The menu bar menu's first line when the list is empty and nothing has been checked since the app opened: no scan, and no check by the helper.")
         case .open, .plain:

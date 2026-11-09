@@ -326,13 +326,8 @@ struct OverviewView: View {
                     Text(monitor.enabled ? model.backgroundState.text
                          : String(localized: "Checks your files whenever they change, even when the app is closed.",
                                   comment: "Under the Scan Automatically switch while it is off, and under Automatic Scanning in Overview: what turning it on does."))
-                    if monitor.enabled {
-                        if model.backgroundState == .active, monitor.health.fullPass == nil {
-                            Text("Checking existing files…")
-                        }
-                        if model.backgroundState == .helperNotRunning {
-                            Text("Open Settings to restart the helper.")
-                        }
+                    if monitor.enabled, model.backgroundState == .helperNotRunning {
+                        Text("Open Settings to restart the helper.")
                     }
                 }
                 .disabled(model.monitorFailure != nil || (!monitor.enabled && model.places?.home == nil))

@@ -1891,7 +1891,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     check(model.menuBarMark == .plain && model.menuBarLine == "No scan this session",
           "menu bar: an empty list with no scan and no helper check is not a count")
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true, running: true).utf8))
-    check(model.menuBarLine == "Checking existing files…",
+    check(model.menuBarLine == "Checking your files…",
           "menu bar: the helper's first pass is checking, not a count")
     let checked = json(["enabled": true, "paused": false, "scanning": false, "login": 2, "menu_bar": true,
                         "app_login": 2, "health": ["running": true, "last_scan": "2026-11-03T05:39:00Z"],
