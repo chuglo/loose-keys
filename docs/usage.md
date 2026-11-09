@@ -22,12 +22,12 @@ open only pages the rules list. The **Export** menu has **Save Report…** for
 the full report, **Save Counts Only…**, and **Copy Summary** for the text
 summary. Opening the app does not turn on automatic scanning or notifications.
 
-Manual scan details, including Stored Sign-ins and the places a manual scan
-could not read, last only until you quit the app. Saved review findings and
-decisions remain available. Use **Scan Now** for current details, and
-**Export** to save the report before quitting. After a new launch, Stored
-Sign-ins says **No Manual Scan This Session**, not that this Mac has never
-been scanned, and the Overview counts Worth Reviewing from saved findings.
+Worth Reviewing, Stored Sign-ins and Set Aside are saved, and both **Scan
+Now** and automatic scanning fill them, so they keep their items and your
+choices after you quit. Only the full report and the places a manual scan
+could not read last until you quit the app: use **Export** to save the report
+before quitting. After a new launch, the Overview counts Worth Reviewing from
+saved findings.
 
 The app follows the language macOS uses for it: English or Spanish, with
 the words Latin American macOS uses, such as Configuración del Sistema, in
@@ -57,10 +57,12 @@ Worth Reviewing has one item for a password or token the app can pick out,
 however many files it is in. Other findings, such as a private key file, are
 not matched across files: the same key in two key files is two items. The saved report
 and the copied summary list each finding, so their count can be higher.
-Worth Reviewing and Set Aside together hold up to 4096 items that aren't
-fixed, fewer when their saved details near 6 MiB. When the list is full,
+Worth Reviewing, Stored Sign-ins and Set Aside together hold up to 4096 items
+that aren't fixed, fewer when their saved details near 6 MiB. Stored sign-ins
+take at most 512 of those items and 768 KiB. When Worth Reviewing is full,
 the Overview says so; save the report to see the rest, up to the findings
-limit below.
+limit below. When Stored Sign-ins is full, the subtitle under its title says
+so.
 
 **Filter** matches each row's name, what it concerns (such as a profile or
 host) and every listed copy's path, including fixed and set-aside copies.
@@ -76,10 +78,10 @@ Inspector** (Option-Command-I), can show or hide it at any time.
 Every toolbar button is also in the menu bar. The File menu's **Scan Now** is
 Command-R, **Stop Scan** Command-period and **Save Report…** Command-S;
 **View > Show Sidebar** is Control-Command-S. The **Item** menu has **Show
-in Finder**, **Copy Path** (Option-Command-C), **Set Aside** and **Move to
-Worth Reviewing** for the items selected in the list. Double-click a row in
-Worth Reviewing or Set Aside to show its file in Finder, or Control-click a
-row there or in Stored Sign-ins for **Show in Finder** and **Copy Path**.
+in Finder**, **Copy Path** (Option-Command-C), **Set Aside**, **Move to
+Worth Reviewing** and **Move to Stored Sign-ins** for the items selected in
+the list. Double-click a row in any of the three lists to show its file in
+Finder, or Control-click it for **Show in Finder** and **Copy Path**.
 
 ### Reviewing findings
 
@@ -138,7 +140,21 @@ lists each.
 organization lists the finding's rule and file. It covers only that file; a
 different kind of credential there is still reported. **Move to Worth
 Reviewing** reviews it anyway, and it stays in Worth Reviewing until your
-organization's list changes.
+organization's list changes. The list sets stored sign-ins aside too, and
+**Move to Stored Sign-ins** lists one anyway.
+
+A stored sign-in can be set aside only as **Keeping It Here on Purpose**. It
+covers that file and still applies when the app that keeps the sign-in
+refreshes it. It ends if a different kind of sign-in appears in the file, or
+after six months, when the sign-in comes back to Stored Sign-ins without an
+alert. **Move to Stored Sign-ins** undoes it. With items of both kinds
+selected in Set Aside, the inspector offers both moves, and each moves only
+its own kind. If the file becomes readable by others, the sign-in leaves
+Stored Sign-ins and shows up in Worth Reviewing as a new finding. A stored
+sign-in that is no longer found leaves the list; none is shown as fixed. An
+older version of the app drops stored sign-ins and your choices about them
+when it saves its list; the next scan lists the sign-ins again, without those
+choices.
 
 Setting an item aside moves it out of Worth Reviewing into **Set Aside**, under
 Findings in the sidebar. You stay in Worth Reviewing. The inspector of a

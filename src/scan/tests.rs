@@ -3636,6 +3636,50 @@ fn recheck_reports_what_is_still_there_or_that_nothing_is_known() {
     assert_eq!(recheck("key.ssh.private", &key, &f.0, None), Some(vec![]));
 }
 
+/// A recheck for a stored sign-in keeps what a scan would list as one: a
+/// protected key while only its owner can read it, and a test credential
+/// in a record. A recheck for review keeps what it always has.
+#[test]
+fn a_recheck_for_stored_sign_ins_keeps_what_a_scan_would_list_as_one() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new("recheck-stored");
+    let digest = |_: &str, _: &[u8], _: bool| String::new();
+    let ask = |rule, path: &Path, want| {
+        recheck_identities(rule, path, &f.0, None, &digest, want, &|| false)
+    };
+    let key = f.0.join("key");
+    fs::write(&key, "-----BEGIN ENCRYPTED PRIVATE KEY-----\nsynthetic\n").unwrap();
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
+    let rule = "key.ssh.private";
+    assert_eq!(ask(rule, &key, Want::Stored), Some(vec![(None, None)]));
+    assert_eq!(ask(rule, &key, Want::Review), Some(vec![]));
+    // Readable by others, it is worth reviewing and no longer stored.
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(ask(rule, &key, Want::Stored), Some(vec![]));
+    assert_eq!(ask(rule, &key, Want::Review), Some(vec![(None, None)]));
+    // A record read through: only the test credential is a stored sign-in.
+    let test_key = concat!("sk_", "test_", "0123456789abcdefghijABCDEF");
+    let live = format!("gh{}_0123456789abcdefghijABCDEFGHIJ012345", "p");
+    let rel = ".claude/projects/p/s.jsonl";
+    let body = format!("{{\"out\":\"{test_key}\"}}\n{{\"out\":\"{live}\"}}\n");
+    put(&f.0, rel, body.as_bytes());
+    let record = f.0.join(rel);
+    let labelled = |name: &str| (Some(name.to_string()), Some(String::new()));
+    let (stripe, github) = (
+        labelled("Stripe test secret key"),
+        labelled("GitHub personal access token"),
+    );
+    let records = "secret.agent-record";
+    assert_eq!(
+        ask(records, &record, Want::Stored),
+        Some(vec![stripe.clone()])
+    );
+    assert_eq!(
+        ask(records, &record, Want::Review),
+        Some(vec![stripe, github])
+    );
+}
+
 #[test]
 fn a_recheck_says_which_values_are_still_there() {
     let f = Fixture::new("recheck-values");

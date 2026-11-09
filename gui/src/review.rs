@@ -3,6 +3,7 @@
 //! on the item, applied when deciding what to bring to the person's attention.
 use crate::fsutil;
 use crate::report::{Finding, Report};
+use crate::scan::Want;
 use serde::{Deserialize, Serialize};
 use std::ffi::{CStr, CString};
 use std::fs::File;
@@ -10,6 +11,13 @@ use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
+
+mod list;
+mod stored;
+use list::*;
+pub use stored::Stored;
+#[cfg(test)]
+pub use stored::MAX_STORED;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Item {
@@ -254,6 +262,11 @@ pub struct Review {
     /// builds drop it when saving, so their labels are invalidated again.
     #[serde(default)]
     pub(crate) registry_labels: u8,
+    /// The sign-ins apps keep, apart from what is worth reviewing. Builds
+    /// before it drop it when they save, and it is filled again by the next
+    /// scan.
+    #[serde(default)]
+    pub stored: Stored,
 }
 
 /// What the background agent last did, and where its file-change history is.
@@ -409,7 +422,7 @@ impl Review {
 
     fn upgrade_registry_labels(&mut self) {
         if self.registry_labels == 0 {
-            for item in &mut self.items {
+            for item in self.items.iter_mut().chain(&mut self.stored.items) {
                 if registry_rule(&item.rule) {
                     item.subject = None;
                     item.scope = None;
@@ -418,6 +431,7 @@ impl Review {
             // Include orphaned decisions: a future scope must not inherit
             // one merely because its safe label happens to match.
             self.decisions.retain(|d| !registry_rule(&d.rule));
+            self.stored.decisions.retain(|d| !registry_rule(&d.rule));
             for expected in &mut self.expected {
                 if registry_rule(&expected.rule) {
                     expected.subject = None;
@@ -437,15 +451,32 @@ impl Review {
     /// with the store locked. An item that is no longer listed is each
     /// action's own to answer for.
     pub fn as_shown(&self, id: u64, revision: u64) -> Result<(), String> {
-        match self.items.iter().find(|i| i.id == id) {
-            Some(item) if item.revision != revision => Err(CHANGED.into()),
+        match self.locate(id) {
+            Some((_, item)) if item.revision != revision => Err(CHANGED.into()),
             _ => Ok(()),
         }
     }
 
+    /// The item with this id, and whether it is a stored sign-in. An id is
+    /// in one list only.
+    pub fn locate(&self, id: u64) -> Option<(bool, &Item)> {
+        let stored = self.stored.items.iter().map(|i| (true, i));
+        let mut all = self.items.iter().map(|i| (false, i)).chain(stored);
+        all.find(|(_, i)| i.id == id)
+    }
+
+    /// Whether both lists together hold no more items than the limit, and
+    /// the stored sign-ins no more than their share.
+    fn within_item_limits(&self) -> bool {
+        self.stored.items.len() <= stored::MAX_STORED
+            && self.items.len().saturating_add(self.stored.items.len()) <= MAX_ITEMS
+    }
+
     /// Give every item an id. State written before ids existed has none.
+    /// Stored sign-ins take theirs from the same counter, which builds that
+    /// drop them keep.
     pub fn number(&mut self) {
-        for item in &mut self.items {
+        for item in self.items.iter_mut().chain(&mut self.stored.items) {
             if item.id == 0 {
                 self.next_id = self.next_id.saturating_add(1);
                 item.id = self.next_id;
@@ -462,34 +493,29 @@ impl Review {
         if self.next_id.checked_add(2 * MAX_ITEMS as u64).is_none() {
             return false;
         }
+        let all = self.items.iter().chain(&self.stored.items);
         let mut seen = std::collections::HashSet::with_capacity(self.items.len());
-        self.items
-            .iter()
+        all.into_iter()
             .all(|i| i.id == 0 || (i.id <= self.next_id && seen.insert(i.id)))
-    }
-
-    /// The other places the same credential is stored, plus this one.
-    fn copies(&self, id: u64) -> Vec<usize> {
-        let Some(at) = self.items.iter().position(|i| i.id == id) else {
-            return Vec::new();
-        };
-        let secret = self.items[at].secret.clone();
-        (0..self.items.len())
-            .filter(|n| *n == at || (secret.is_some() && self.items[*n].secret == secret))
-            .collect()
     }
 
     /// The other copies of this item's value in its own file, found there
     /// by another rule or under another name. The window shows them as
     /// places of one entry, and Kept, which is about a file, covers them
-    /// with it.
+    /// with it. Only copies of the same kind: a stored sign-in and a
+    /// finding worth reviewing are never one entry.
     pub fn copies_in_its_file(&self, id: u64) -> Vec<u64> {
-        let Some(item) = self.items.iter().find(|i| i.id == id) else {
+        let Some((stored, item)) = self.locate(id) else {
             return Vec::new();
         };
-        self.copies(id)
+        let items = if stored {
+            &self.stored.items
+        } else {
+            &self.items
+        };
+        copies(items, id)
             .into_iter()
-            .map(|n| &self.items[n])
+            .map(|n| &items[n])
             .filter(|copy| copy.id != id && copy.path == item.path)
             .map(|copy| copy.id)
             .collect()
@@ -500,8 +526,7 @@ impl Review {
     /// about the value: that is what the person said of this very credential.
     pub fn decision(&self, item: &Item, now: u64) -> Option<&Decision> {
         let mut applying = self.decisions.iter().chain(&self.expected).filter(|d| {
-            let place =
-                d.rule == item.rule && d.path == item.path && d.identity() == item.identity();
+            let place = same_place(d, item);
             match d.reason {
                 // The organization's: the rule at the file, whatever it concerns.
                 Reason::Expected => d.rule == item.rule && d.path == item.path,
@@ -513,15 +538,7 @@ impl Review {
                     Some(secret) => item.secret.as_ref() == Some(secret),
                     None => place && d.fingerprint == item.fingerprint,
                 },
-                // About the place: a rotated value of the same kind stays
-                // quiet, but not anything worse than what was agreed to.
-                Reason::Kept => {
-                    place
-                        && d.token_type == item.token_type
-                        && (d.shared || !item.shared)
-                        && rank(&item.severity) >= rank(&d.severity)
-                        && now < d.decided_at.saturating_add(RECONFIRM)
-                }
+                Reason::Kept => kept_covers(d, item, now),
             }
         });
         let first = applying.next()?;
@@ -596,44 +613,43 @@ impl Review {
         if reason == Reason::Expected {
             return Err("That reason is set by your organization's settings.".into());
         }
-        let item = self
-            .items
-            .iter()
-            .find(|i| i.id == id)
-            .ok_or("That item is no longer in the list.")?
-            .clone();
-        self.forget(&item);
-        self.returned
-            .retain(|r| !(r.rule == item.rule && r.path == item.path));
+        let (stored, item) = self
+            .locate(id)
+            .ok_or("That item is no longer in the list.")?;
+        let item = item.clone();
+        if stored {
+            return self.decide_stored(item, reason, now, stamp);
+        }
+        // The organization's entry for this place covers a stored sign-in
+        // there too, which may have been moved back on its own.
+        let shared_place = |i: &Item| i.rule == item.rule && i.path == item.path;
+        if !self.stored.items.iter().any(shared_place) {
+            self.returned
+                .retain(|r| !(r.rule == item.rule && r.path == item.path));
+        }
+        forget(&mut self.decisions, &item);
         let value = reason != Reason::Kept;
         if value {
             // About the value, so about every place it is in: a place that
             // was kept must not go on saying the credential is real.
-            for n in self.copies(id) {
-                let copy = self.items[n].clone();
-                self.forget(&copy);
+            for n in copies(&self.items, id) {
+                forget(&mut self.decisions, &self.items[n]);
             }
         }
-        let decision = Decision {
-            reason,
-            secret: item.secret.clone().filter(|_| value),
-            rule: item.rule,
-            path: item.path,
-            scope: item.scope,
-            subject: item.subject,
-            fingerprint: item.fingerprint,
-            token_type: item.token_type,
-            shared: item.shared,
-            severity: item.severity,
-            decided: stamp,
-            decided_at: now,
-        };
+        let decision = Decision::about(item, reason, now, stamp);
         // With the comma before it in the stored list.
         let size = stored_size(&decision) + 1;
-        if !self.fits(size) {
-            self.make_room(now, size);
+        let (others, other_bytes) = (
+            self.stored.decisions.len(),
+            contents(&self.stored.decisions),
+        );
+        let room = |count: usize, bytes: usize| {
+            count + others < MAX_ITEMS && bytes + other_bytes + size <= DECISION_BYTES
+        };
+        if !room(self.decisions.len(), stored_size(&self.decisions)) {
+            make_room(&mut self.decisions, &self.items, now, room);
         }
-        if !self.fits(size) {
+        if !room(self.decisions.len(), stored_size(&self.decisions)) {
             return Err(
                 "Too many findings are set aside. Move some back to Worth Reviewing.".into(),
             );
@@ -642,71 +658,21 @@ impl Review {
         Ok(())
     }
 
-    /// Whether one more decision of `size` stored bytes fits, by number and
-    /// by size.
-    fn fits(&self, size: usize) -> bool {
-        self.decisions.len() < MAX_ITEMS && stored_size(&self.decisions) + size <= DECISION_BYTES
-    }
-
-    /// Room for one more decision of `size` stored bytes, made from those no
-    /// listed item uses. A decision stays when what it was about leaves the
-    /// list, where the person can no longer move it back. Such a decision
-    /// only sets aside a credential found again, so dropping one can make
-    /// that ask for attention again, never hide it. A Kept that has run out
-    /// sets nothing aside, so those go first; then the oldest. A decision a
-    /// listed item uses stays, even a Kept that has run out: `ingest` reads
-    /// that one to tell whether a copy of a credential is news.
-    fn make_room(&mut self, now: u64, size: usize) {
-        let secrets: std::collections::HashSet<&String> = self
-            .items
-            .iter()
-            .filter_map(|i| i.secret.as_ref())
-            .collect();
-        let places: std::collections::HashSet<_> = self
-            .items
-            .iter()
-            .map(|i| (&i.rule, &i.path, i.identity()))
-            .collect();
-        // As `forget` matches them: by value where there is one, else by place.
-        let used = |d: &Decision| match &d.secret {
-            Some(secret) => secrets.contains(secret),
-            None => places.contains(&(&d.rule, &d.path, d.identity())),
-        };
-        let run_out = |d: &Decision| {
-            d.reason == Reason::Kept && now >= d.decided_at.saturating_add(RECONFIRM)
-        };
-        self.decisions.retain(|d| used(d) || !run_out(d));
-        let mut bytes = stored_size(&self.decisions);
-        while self.decisions.len() >= MAX_ITEMS || bytes + size > DECISION_BYTES {
-            let Some(oldest) = self.decisions.iter().position(|d| !used(d)) else {
-                break;
-            };
-            let gone = self.decisions.remove(oldest);
-            bytes = bytes.saturating_sub(stored_size(&gone) + 1);
-        }
-    }
-
-    /// Remove the person's decisions that set this item aside. The
-    /// organization's list is left as it is.
-    fn forget(&mut self, item: &Item) {
-        self.decisions.retain(|d| {
-            let place =
-                d.rule == item.rule && d.path == item.path && d.identity() == item.identity();
-            match &d.secret {
-                Some(secret) => item.secret.as_ref() != Some(secret),
-                None => !place,
-            }
-        });
-    }
-
-    /// Move to Worth Reviewing: remove whatever sets this item aside, the
-    /// person's decision or the organization's entry, which is then kept as
-    /// returned so the list sent again does not set it aside once more.
+    /// Move to Worth Reviewing, or to Stored Sign-ins: remove whatever sets
+    /// this item aside, the person's decision or the organization's entry,
+    /// which is then kept as returned so the list sent again does not set
+    /// it aside once more.
     pub fn undo(&mut self, id: u64) {
-        let Some(item) = self.items.iter().find(|i| i.id == id).cloned() else {
+        let Some((stored, item)) = self.locate(id) else {
             return;
         };
-        self.forget(&item);
+        let item = item.clone();
+        let decisions = if stored {
+            &mut self.stored.decisions
+        } else {
+            &mut self.decisions
+        };
+        forget(decisions, &item);
         let before = self.expected.len();
         self.expected
             .retain(|d| !(d.rule == item.rule && d.path == item.path));
@@ -748,18 +714,14 @@ impl Review {
     /// Whether another finding would fit: fewer open items than the limit,
     /// and space for one more as large as the largest of them. Fixed items
     /// do not count, because `ingest` drops them when it needs their room.
+    /// Open stored sign-ins take their room too, and never more than
+    /// their share of it.
     pub fn has_room(&self) -> bool {
-        let sizes: Vec<usize> = self
-            .items
-            .iter()
-            .filter(|i| !i.resolved)
-            .map(stored_size)
-            .collect();
-        // As a stored list: each item, a comma between two, and the brackets.
-        let used = sizes.iter().sum::<usize>() + sizes.len() + 1;
+        let sizes = open_sizes(&self.items);
+        let (others, other_bytes) = open_room(&self.stored.items);
         // With the allowance `ingest` makes for a new item's two numbers.
         let largest = sizes.iter().copied().max().unwrap_or(0) + 48;
-        sizes.len() < MAX_ITEMS && used + largest <= ITEM_BYTES
+        sizes.len() + others < MAX_ITEMS && list_bytes(&sizes) + other_bytes + largest <= ITEM_BYTES
     }
 
     pub fn ingest(&mut self, report: &Report) -> bool {
@@ -774,46 +736,12 @@ impl Review {
             .iter()
             .filter(|f| f.kind == "review")
             .collect();
-        // One place can hold several credentials of one kind: two tokens in
-        // one session record are two findings with the same rule, path and
-        // subject. Each is its own item, known by its value. A finding goes
-        // to the item that holds its value. Failing that, it takes an item at
-        // its place that no finding of this report claims and whose value is
-        // gone, which is a value changed in place. Failing that, it is a new
-        // item. The items claimed by value are settled first, so that a new
-        // value met earlier in the report does not take the item of one that
-        // is still there.
-        //
-        // That a report leaves a value out does not show the value is gone:
-        // the report says what its scan read, and an older scan can be saved
-        // after a newer one. So the item taken is one already marked fixed,
-        // which `resolve` does on a fresh read (`merge` asks it first), or
-        // one stored with no value to lose. An open item keeps its value, and
-        // what was decided about another value cannot come to cover it.
-        let place = |i: &Item, f: &Finding| {
-            i.rule == f.rule && i.path == f.path && i.identity() == f.identity()
-        };
-        let mut claimed: std::collections::HashSet<u64> = self
-            .items
-            .iter()
-            .filter(|i| {
-                i.secret.is_some() && findings.iter().any(|f| place(i, f) && f.secret == i.secret)
-            })
-            .map(|i| i.id)
-            .collect();
+        let mut claimed = claimed_by_value(&self.items, &findings);
+        // What the stored sign-ins take of the room the items share.
+        let mut others = room_taken(&self.stored.items);
         for f in findings {
-            let at = self
-                .items
-                .iter()
-                .position(|i| f.secret.is_some() && place(i, f) && i.secret == f.secret)
-                // A finding with no value to go by takes the item at its place.
-                .or_else(|| {
-                    self.items.iter().position(|i| {
-                        let free = !claimed.contains(&i.id) && (i.resolved || i.secret.is_none());
-                        place(i, f) && (f.secret.is_none() || free)
-                    })
-                });
-            if let Some(item) = at.map(|at| &mut self.items[at]) {
+            if let Some(at) = matching(&self.items, f, &claimed) {
+                let item = &mut self.items[at];
                 claimed.insert(item.id);
                 // Where the value itself is known, only its changing counts:
                 // another line of the same file changing does not. Old shipped
@@ -826,75 +754,32 @@ impl Review {
                             && item.fingerprint != f.fingerprint
                     }
                 };
-                let changed = item.resolved || differs || (f.shared && !item.shared);
-                // Another value taking the item was first seen now.
-                if matches!((&item.secret, &f.secret), (Some(old), Some(now)) if old != now) {
-                    item.first_seen = Some(report.generated_at.clone());
-                }
-                if changed {
+                if item.resolved || differs || (f.shared && !item.shared) {
                     self.revision = self.revision.saturating_add(1);
                     item.revision = self.revision;
                     new = true;
                 }
-                item.fingerprint = f.fingerprint.clone();
-                item.secret = f.secret.clone();
-                item.detail = f.detail.clone();
-                item.token_type = f.token_type.map(str::to_string);
-                item.shared = f.shared;
-                // A finding that could not tell leaves what was known.
-                item.mount = f.mount.or(item.mount);
-                item.resolved = false;
-                item.resolved_at = None;
-                item.line = f.line;
-                item.subject = f.subject.clone();
-                item.title = f.title.into();
-                item.explanation = f.explanation.into();
-                item.reason = f.reason.clone();
-                item.next_step = f.next_step.map(str::to_string);
-                item.severity = f.severity.into();
-                item.steps = f.steps.iter().map(|s| s.to_string()).collect();
-                item.link = f.link.map(str::to_string);
+                fill(item, f, &report.generated_at);
                 continue;
             }
-            let mut item = Item {
-                fingerprint: f.fingerprint.clone(),
-                resolved: false,
-                // The revision and id are given once it is known to fit.
-                revision: 0,
-                rule: f.rule.into(),
-                path: f.path.clone(),
-                line: f.line,
-                title: f.title.into(),
-                explanation: f.explanation.into(),
-                reason: f.reason.clone(),
-                next_step: f.next_step.map(str::to_string),
-                severity: f.severity.into(),
-                steps: f.steps.iter().map(|s| s.to_string()).collect(),
-                link: f.link.map(str::to_string),
-                scope: f.scope.clone(),
-                subject: f.subject.clone(),
-                first_seen: Some(report.generated_at.clone()),
-                resolved_at: None,
-                deferred: false,
-                id: 0,
-                secret: f.secret.clone(),
-                detail: f.detail.clone(),
-                token_type: f.token_type.map(str::to_string),
-                shared: f.shared,
-                mount: f.mount,
-            };
+            let mut item = Item::new(f, &report.generated_at);
             // Its two numbers are not known yet; allow for their digits.
             let size = stored_size(&item) + 48;
             let mut used = *bytes.get_or_insert_with(|| stored_size(&self.items));
-            let fits = |count: usize, used: usize| count < MAX_ITEMS && used + size <= ITEM_BYTES;
-            // Make room by dropping items already fixed. If that is not
-            // enough, say so instead of leaving findings out silently.
-            if !fits(self.items.len(), used) && !made_room {
+            let fits = |count: usize, used: usize, (n, b): (usize, usize)| {
+                count + n < MAX_ITEMS && used + b + size <= ITEM_BYTES
+            };
+            // Make room by dropping items already fixed, and stored sign-ins
+            // no longer found, which are not shown. If that is not enough,
+            // say so instead of leaving findings out silently.
+            if !fits(self.items.len(), used, others) && !made_room {
                 self.items.retain(|i| !i.resolved);
+                self.stored.items.retain(|i| !i.resolved);
                 used = stored_size(&self.items);
+                others = room_taken(&self.stored.items);
                 made_room = true;
             }
-            if !fits(self.items.len(), used) {
+            if !fits(self.items.len(), used, others) {
                 // Set here and never cleared here. A report can be one slice
                 // of the agent's pass or one batch of changed files, and a
                 // finding of its own that fits says nothing about one left
@@ -907,17 +792,16 @@ impl Review {
             // Another copy of a credential already on the list is not news.
             // A copy the person keeps where it is does not count: "kept"
             // covers that place and nowhere else. Nor does a copy at a place
-            // the organization expects, for the same reason.
+            // the organization expects, for the same reason. A stored
+            // sign-in is on another list, and never makes a copy quiet.
             let kept = |i: &Item| {
-                self.decisions.iter().any(|d| {
-                    d.reason == Reason::Kept
-                        && d.rule == i.rule
-                        && d.path == i.path
-                        && d.identity() == i.identity()
-                }) || self
-                    .expected
+                self.decisions
                     .iter()
-                    .any(|d| d.rule == i.rule && d.path == i.path)
+                    .any(|d| d.reason == Reason::Kept && same_place(d, i))
+                    || self
+                        .expected
+                        .iter()
+                        .any(|d| d.rule == i.rule && d.path == i.path)
             };
             let known = f.secret.as_ref().and_then(|secret| {
                 self.items
@@ -952,12 +836,23 @@ impl Review {
             && self.items.iter().any(|i| self.alerting(i, now))
     }
 
-    /// Take in what a check found: `resolve`, then `ingest`. In that order a
-    /// value changed in place is one item, changed: the old value is marked
-    /// fixed on a fresh read, and the new one then takes its item.
-    pub fn merge(&mut self, report: &Report, recheck: impl Fn(&Item) -> Option<Still>) -> bool {
-        self.resolve(report, recheck);
-        self.ingest(report)
+    /// Take in what a check found: `resolve`, then `ingest`, for what is
+    /// worth reviewing and then for stored sign-ins. In that order a value
+    /// changed in place is one item, changed: the old value is marked fixed
+    /// on a fresh read, and the new one then takes its item. What is worth
+    /// reviewing goes first, so it has the first of the time `recheck` is
+    /// given. `recheck` is told which kind of item it reads the file for.
+    /// Returns whether anything is news, which a stored sign-in never is.
+    pub fn merge(
+        &mut self,
+        report: &Report,
+        recheck: impl Fn(&Item, Want) -> Option<Still>,
+    ) -> bool {
+        self.resolve(report, |item| recheck(item, Want::Review));
+        let new = self.ingest(report);
+        self.resolve_stored(report, |item| recheck(item, Want::Stored));
+        self.ingest_stored(report);
+        new
     }
 
     /// Mark items resolved when their own file was checked again and no longer
@@ -967,82 +862,23 @@ impl Review {
     /// the report: a report says what its scan read, and it can be saved
     /// after a later check of the same file has been.
     pub fn resolve(&mut self, report: &Report, recheck: impl Fn(&Item) -> Option<Still>) {
-        // The values the report holds at each place, and how much it holds
-        // for each file.
-        let mut seen: std::collections::HashMap<_, Vec<Option<&str>>> = Default::default();
-        let mut hits: std::collections::HashMap<&str, usize> = Default::default();
-        for f in report.findings.iter().filter(|f| f.kind == "review") {
-            seen.entry((f.rule, f.path.as_str(), f.identity()))
-                .or_default()
-                .push(f.secret.as_deref());
-            *hits.entry(f.path.as_str()).or_default() += 1;
-        }
-        // The places this scan was asked to read and could not: a drive that
-        // is not connected, a share that is not mounted. A file under one is
-        // not there either, and that is not the file having been removed. A
-        // place the scan was stopped in is not one of these: it is there, and
-        // a file in it can be looked at.
-        let unread: Vec<&str> = report
-            .coverage
-            .roots
-            .iter()
-            .filter(|root| {
-                report.not_checked.iter().any(|g| {
-                    g.path == **root && matches!(g.reason, "unreadable" | "permission-denied")
-                })
-            })
-            .map(String::as_str)
-            .collect();
-        // In a folder the person asked not to be checked, a scan reads only
-        // the known locations it reads whatever is skipped. An item there is
-        // looked at again as a scan would look at it, and no other is.
+        let skipped = self.not_read(&self.items);
+        resolve_in(&mut self.items, &skipped, report, "review", recheck);
+    }
+
+    /// For each item, whether a scan leaves its file unread: in a folder the
+    /// person asked not to be checked, a scan reads only the known locations
+    /// it reads whatever is skipped. An item there is looked at again as a
+    /// scan would look at it, and no other is.
+    fn not_read(&self, items: &[Item]) -> Vec<bool> {
         let read = |i: &Item| {
             let rel = i.path.strip_prefix("~/").map(Path::new);
             rel.is_some_and(|rel| crate::scan::read_when_skipped(&i.rule, rel))
         };
-        let skipped: Vec<bool> = self
-            .items
+        items
             .iter()
             .map(|i| self.skips(&i.path) && !read(i))
-            .collect();
-        for (i, skipped) in self.items.iter_mut().zip(skipped) {
-            if i.resolved || skipped {
-                continue;
-            }
-            if let Some(values) = seen.get(&(i.rule.as_str(), i.path.as_str(), i.identity())) {
-                // The file was read and had something of this kind. A value
-                // the report leaves out may be gone from it, unless the
-                // report cannot tell: a finding with no value to compare, a
-                // file it says it did not finish, or as many hits for the
-                // file as the scanner keeps.
-                let left_out = i.secret.is_some()
-                    && values
-                        .iter()
-                        .all(|v| v.is_some() && *v != i.secret.as_deref())
-                    && hits[i.path.as_str()] < HITS_PER_FILE
-                    && !report.not_checked.iter().any(|g| g.path == i.path);
-                // Whether it is gone is asked of the file as it is now, and
-                // of its values: the others of its kind are still there.
-                if left_out && recheck(i).is_some_and(|still| absent(i, &still)) {
-                    i.resolved = true;
-                    i.resolved_at = Some(report.generated_at.clone());
-                }
-                continue;
-            }
-            if unread
-                .iter()
-                .any(|root| Path::new(&i.path).starts_with(root))
-            {
-                continue;
-            }
-            // The report has nothing at this place, and may not have come by
-            // the file. Asked of the file's values here too: another value
-            // of its kind there does not keep this one open.
-            if recheck(i).is_some_and(|still| absent(i, &still)) {
-                i.resolved = true;
-                i.resolved_at = Some(report.generated_at.clone());
-            }
-        }
+            .collect()
     }
 
     /// A notification was delivered, for everything found up to `revision`.
@@ -1344,7 +1180,7 @@ impl Store {
         {
             return Err("The review list file is damaged or in an unknown format.".into());
         }
-        if review.items.len() > MAX_ITEMS
+        if !review.within_item_limits()
             || review
                 .agent
                 .unread_places
@@ -1362,7 +1198,7 @@ impl Store {
     }
 
     pub fn save(&self, review: &Review) -> Result<(), String> {
-        if review.items.len() > MAX_ITEMS
+        if !review.within_item_limits()
             || !review.ids_hold()
             || !review.selected_places_valid()
             || review
@@ -1463,7 +1299,7 @@ mod tests {
     use crate::report::{Finding, NotChecked};
     use std::os::unix::fs::{symlink, PermissionsExt};
 
-    fn report(findings: &[(&str, &str)]) -> Report {
+    pub(super) fn report(findings: &[(&str, &str)]) -> Report {
         Report {
             schema: "loose-keys/report/1",
             tool_version: "0.1.0",
@@ -1543,7 +1379,7 @@ mod tests {
     }
 
     /// A report of review findings: (rule, path, subject, secret).
-    fn found(findings: &[(&'static str, &str, Option<&str>, Option<&str>)]) -> Report {
+    pub(super) fn found(findings: &[(&'static str, &str, Option<&str>, Option<&str>)]) -> Report {
         let mut r = report(&[]);
         r.findings = findings
             .iter()
@@ -1565,15 +1401,19 @@ mod tests {
         r
     }
 
-    fn seen(state: &mut Review) {
+    pub(super) fn seen(state: &mut Review) {
         state.notified_revision = state.revision;
     }
 
     /// What reading a file again finds when it has not changed since the
-    /// report's scan read it: what the report lists there.
-    fn as_reported(report: &Report) -> impl Fn(&Item) -> Option<Still> + '_ {
-        |item| {
-            let there = report.findings.iter();
+    /// report's scan read it: what the report lists there of the kind asked.
+    fn as_reported(report: &Report) -> impl Fn(&Item, Want) -> Option<Still> + '_ {
+        |item, want| {
+            let kind = match want {
+                Want::Review => "review",
+                Want::Stored => "inventory",
+            };
+            let there = report.findings.iter().filter(|f| f.kind == kind);
             let there = there.filter(|f| f.rule == item.rule && f.path == item.path);
             Some(
                 there
@@ -1585,7 +1425,7 @@ mod tests {
 
     /// Save a report as the app and the helper do, for a file that has not
     /// changed since it was read.
-    fn checked(state: &mut Review, report: &Report) -> bool {
+    pub(super) fn checked(state: &mut Review, report: &Report) -> bool {
         state.merge(report, as_reported(report))
     }
 
@@ -2071,8 +1911,8 @@ mod tests {
             found(&[at("digest-a")]),
             found(&[at("digest-a"), at("digest-b")]),
         );
-        state.merge(&newer, |_| there(&["digest-a", "digest-b"]));
-        state.merge(&older, |_| there(&["digest-a", "digest-b"]));
+        state.merge(&newer, |_, _| there(&["digest-a", "digest-b"]));
+        state.merge(&older, |_, _| there(&["digest-a", "digest-b"]));
         assert_eq!(open(&state), ["digest-a", "digest-b"]);
         // Nor is it fixed where the file cannot be read again, where the
         // read cannot tell what one of that kind holds, or where it returns
@@ -2083,7 +1923,7 @@ mod tests {
             .chain(there(&["digest-a"]).unwrap())
             .collect();
         for still in [None, Some(unknown), Some(many)] {
-            state.merge(&older, |_| still.clone());
+            state.merge(&older, |_, _| still.clone());
             assert_eq!(open(&state), ["digest-a", "digest-b"]);
         }
         // The first value is replaced by a third, and the report that says
@@ -2091,13 +1931,13 @@ mod tests {
         // report does not put its value back over the one in the file, where
         // what was said of the first would have covered the third.
         let rotated = found(&[at("digest-c"), at("digest-b")]);
-        assert!(state.merge(&rotated, |_| there(&["digest-c", "digest-b"])));
+        assert!(state.merge(&rotated, |_, _| there(&["digest-c", "digest-b"])));
         assert_eq!(open(&state), ["digest-c", "digest-b"]);
         assert_eq!(
             state.items[0].id, id,
             "a value changed in place is one item"
         );
-        state.merge(&newer, |_| there(&["digest-c", "digest-b"]));
+        state.merge(&newer, |_, _| there(&["digest-c", "digest-b"]));
         let third = state.items.iter().find(|i| i.id == id).unwrap();
         assert_eq!(third.secret.as_deref(), Some("digest-c"));
         assert!(!third.resolved && state.decision(third, 200).is_none());
@@ -2271,19 +2111,19 @@ mod tests {
             Some(many),
             there(&["digest-a", "digest-b"]),
         ] {
-            state.merge(&elsewhere, |_| still.clone());
+            state.merge(&elsewhere, |_, _| still.clone());
             assert_eq!(open(&state), ["digest-a", "digest-b"]);
         }
         // Read again, the file holds the new value alone: the old one is
         // fixed, and the one that is there stays open.
-        assert!(!state.merge(&elsewhere, |_| there(&["digest-b"])));
+        assert!(!state.merge(&elsewhere, |_, _| there(&["digest-b"])));
         assert_eq!(open(&state), ["digest-b"]);
         assert_eq!(state.items.len(), 2);
         // What was agreed about the place still stands for what is there.
         let kept = state.decision(&state.items[1], 200).map(|d| d.reason);
         assert_eq!(kept, Some(Reason::Kept));
         // That one is taken out too.
-        state.merge(&elsewhere, |_| there(&[]));
+        state.merge(&elsewhere, |_, _| there(&[]));
         assert!(open(&state).is_empty());
         // An item stored with no value to go by cannot be told from what is
         // there now, whatever value that has.
@@ -2582,14 +2422,6 @@ mod tests {
     }
 
     #[test]
-    fn normal_credentials_and_gaps_do_not_alert() {
-        let mut review = Review::default();
-        assert!(!review.ingest(&report(&[("inventory", "~/.aws/credentials")])));
-        assert!(!review.ingest(&report(&[])));
-        assert!(review.items.is_empty());
-    }
-
-    #[test]
     fn missing_matches_do_not_resolve_or_repeat() {
         let mut review = Review::default();
         let r = report(&[("review", "~/one.csv")]);
@@ -2672,7 +2504,7 @@ mod tests {
         }
     }
 
-    fn synthetic_home(name: &str) -> std::path::PathBuf {
+    pub(super) fn synthetic_home(name: &str) -> std::path::PathBuf {
         let root =
             std::env::temp_dir().join(format!("credential-review-{name}-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();

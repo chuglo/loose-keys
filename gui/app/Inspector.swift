@@ -5,18 +5,24 @@ struct Inspector: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        if model.pane == .review || model.pane == .setAside, let item = model.currentReview {
+        if model.hasInspector, let item = model.currentReview {
             ReviewInspector(item: item)
-        } else if (model.pane == .review || model.pane == .setAside), model.currentReviews.count > 1 {
+        } else if model.hasInspector, model.currentReviews.count > 1 {
             Form {
                 Section {
                     Text(String(localized: "\(model.currentReviews.count) items selected",
                                 comment: "Inspector heading when several findings are selected."))
                     if model.pane == .setAside {
-                        Button("Move to Worth Reviewing") { model.decideSelection(reason: nil) }
+                        // Each moves only the chosen items of its kind.
+                        if model.currentReviews.contains(where: { !$0.isStored }) {
+                            Button("Move to Worth Reviewing") { model.decideSelection(reason: nil, stored: false) }
+                        }
+                        if model.currentReviews.contains(where: \.isStored) {
+                            Button("Move to Stored Sign-ins") { model.decideSelection(reason: nil, stored: true) }
+                        }
                     } else if model.currentReviews.contains(where: { $0.status != "fixed" }) {
                         Menu("Set Aside…") {
-                            ForEach(SetAsideReason.all) { reason in
+                            ForEach(model.setAsideReasons) { reason in
                                 Button(reason.label) { model.decideSelection(reason: reason.id) }
                             }
                         }
@@ -27,13 +33,11 @@ struct Inspector: View {
                 .disabled(model.decidingSelection)
             }
             .formStyle(.grouped)
-        } else if model.pane == .stored, let row = model.currentStored {
-            StoredInspector(row: row)
         } else {
             ContentUnavailableView {
                 Label("No Selection", systemImage: "sidebar.trailing")
             } description: {
-                Text(model.pane == .review || model.pane == .setAside || model.pane == .stored
+                Text(model.hasInspector
                      ? "Select an item to see what it is and what you can do."
                      : "Details of a selected finding appear here.")
             }
@@ -50,13 +54,16 @@ private struct ReviewInspector: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(item.shownTitle).font(.headline)
-                    HStack(spacing: 10) {
-                        RiskLabel(severity: item.severity)
-                        if item.status != "set-aside" {
-                            Text(item.statusText).foregroundStyle(.secondary)
+                    // Stored Sign-ins has no Risk column, and lists only what is open.
+                    if !item.isStored {
+                        HStack(spacing: 10) {
+                            RiskLabel(severity: item.severity)
+                            if item.status != "set-aside" {
+                                Text(item.statusText).foregroundStyle(.secondary)
+                            }
                         }
+                        .font(.subheadline)
                     }
-                    .font(.subheadline)
                     // What it concerns, or failing that a count the rule gives, as
                     // for a browser's saved logins.
                     if let about = item.shownAbout {
@@ -82,7 +89,7 @@ private struct ReviewInspector: View {
                     } else {
                         Text(summary)
                     }
-                    Button("Move to Worth Reviewing") { model.decide(item, reason: nil) }
+                    Button(item.isStored ? "Move to Stored Sign-ins" : "Move to Worth Reviewing") { model.decide(item, reason: nil) }
                         .disabled(model.decidingSelection)
                 } header: {
                     Text("Set Aside")
@@ -96,7 +103,7 @@ private struct ReviewInspector: View {
                         .textSelection(.enabled)
                     Text(unusualName).foregroundStyle(.secondary)
                 } else {
-                    FileRow(path: item.path, line: item.line, index: item.id, review: true)
+                    FileRow(path: item.path, line: item.line, id: item.id)
                 }
                 let locations = item.locations
                 if locations.count > 1 {
@@ -118,7 +125,7 @@ private struct ReviewInspector: View {
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
                             if place.actionable == true {
-                                FileActions(index: place.id, review: true)
+                                FileActions(id: place.id)
                             } else if place.actionable == false {
                                 Text(unusualName).foregroundStyle(.secondary)
                             }
@@ -127,7 +134,9 @@ private struct ReviewInspector: View {
                 }
             }
 
-            if item.status != "set-aside" {
+            if item.isStored {
+                storedAdvice
+            } else if item.status != "set-aside" {
                 Section {
                     Text(item.nextStep.map(EngineText.shown)
                          ?? String(localized: "Find out why this file is here before you change it.",
@@ -143,7 +152,7 @@ private struct ReviewInspector: View {
                 }
             }
 
-            if item.status != "set-aside" {
+            if item.status != "set-aside", !item.isStored {
                 if item.status != "fixed", let folder = item.folder {
                     Section {
                         if folderSkipped(folder) {
@@ -169,12 +178,15 @@ private struct ReviewInspector: View {
 
             // What to do comes first. The reasons and the record stay one press away.
             Section {
-                Button(model.inspectorWhy ? "Hide Explanation" : "Show Explanation") {
-                    model.inspectorWhy.toggle()
-                }
-                if model.inspectorWhy {
-                    Text(EngineText.shown(item.explanation))
-                    if let reason = item.reason { Text(EngineText.shown(reason)) }
+                // A stored sign-in's explanation is under What It Is.
+                if !item.isStored {
+                    Button(model.inspectorWhy ? "Hide Explanation" : "Show Explanation") {
+                        model.inspectorWhy.toggle()
+                    }
+                    if model.inspectorWhy {
+                        Text(EngineText.shown(item.explanation))
+                        if let reason = item.reason { Text(EngineText.shown(reason)) }
+                    }
                 }
                 Button(model.inspectorDetails ? "Hide Details" : "Show Details") {
                     model.inspectorDetails.toggle()
@@ -197,7 +209,28 @@ private struct ReviewInspector: View {
     }
 
     private var reason: SetAsideReason? {
-        (SetAsideReason.all + [SetAsideReason.legacy, SetAsideReason.expected]).first { $0.id == item.setAside }
+        let known = item.isStored ? [SetAsideReason.storedKept, SetAsideReason.storedExpected]
+            : SetAsideReason.all + [SetAsideReason.legacy, SetAsideReason.expected]
+        return known.first { $0.id == item.setAside }
+    }
+
+    /// What a stored sign-in is, and what can be done about it. Apps keep
+    /// these files on purpose, so this says how to manage the sign-in, not
+    /// how to revoke it.
+    @ViewBuilder private var storedAdvice: some View {
+        Section("What It Is") {
+            Text(EngineText.shown(item.explanation))
+            if let reason = item.reason { Text(EngineText.shown(reason)) }
+        }
+        if item.status != "set-aside", item.nextStep != nil || !(item.steps ?? []).isEmpty || item.link != nil {
+            Section("What You Can Do") {
+                if let next = item.nextStep { Text(EngineText.shown(next)) }
+                StepList(steps: item.steps ?? [])
+                if let link = item.link {
+                    Button("Open the Page to Manage It") { model.openLink(link) }
+                }
+            }
+        }
     }
 
     /// A folder is left out by itself or along with a folder above it.
@@ -207,7 +240,7 @@ private struct ReviewInspector: View {
 
     private var decisions: some View {
         Menu {
-            ForEach(SetAsideReason.all) { reason in
+            ForEach(item.isStored ? [SetAsideReason.storedKept] : SetAsideReason.all) { reason in
                 Button(reason.label) { model.decide(item, reason: reason.id) }
             }
         } label: {
@@ -220,46 +253,6 @@ private struct ReviewInspector: View {
         .menuStyle(.button)
         .buttonStyle(.bordered)
         .fixedSize()
-    }
-}
-
-private struct StoredInspector: View {
-    @EnvironmentObject private var model: AppModel
-    let row: StoredRow
-
-    var body: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(row.shownTitle).font(.headline)
-                    if let subject = row.file.subject {
-                        Text(EngineText.about(subject)).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Section("Where") {
-                if row.file.actionable {
-                    FileRow(path: row.file.path, line: row.file.line, index: row.file.index, review: false)
-                } else {
-                    Text(row.file.path).font(.callout.monospaced()).textSelection(.enabled)
-                    Text(unusualName).foregroundStyle(.secondary)
-                }
-            }
-            Section("What It Is") {
-                Text(EngineText.shown(row.group.explanation))
-                if let reason = row.group.reason { Text(EngineText.shown(reason)) }
-            }
-            if row.group.nextStep != nil || !row.group.steps.isEmpty {
-                Section("What You Can Do") {
-                    if let next = row.group.nextStep { Text(EngineText.shown(next)) }
-                    StepList(steps: row.group.steps)
-                    if let link = row.group.link {
-                        Button("Open the Page to Manage It") { model.openLink(link) }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
     }
 }
 
@@ -278,28 +271,26 @@ private func pathAndLine(_ path: String, _ line: Int?) -> String {
 private struct FileRow: View {
     let path: String
     let line: Int?
-    let index: Int
-    let review: Bool
+    let id: ReviewItem.ID
 
     var body: some View {
         Text(pathAndLine(path, line))
             .font(.callout.monospaced())
             .textSelection(.enabled)
-        FileActions(index: index, review: review)
+        FileActions(id: id)
     }
 }
 
 private struct FileActions: View {
     @EnvironmentObject private var model: AppModel
-    let index: Int
-    let review: Bool
+    let id: ReviewItem.ID
 
     var body: some View {
         HStack {
-            Button("Show in Finder") { model.showInFinder(index, review: review) }
-                .accessibilityIdentifier("show-file-\(review ? "review" : "stored")-\(index)")
-            Button("Copy Path") { model.copyPath(index, review: review) }
-                .accessibilityIdentifier("copy-path-\(review ? "review" : "stored")-\(index)")
+            Button("Show in Finder") { model.showInFinder(id) }
+                .accessibilityIdentifier("show-file-review-\(id)")
+            Button("Copy Path") { model.copyPath(id) }
+                .accessibilityIdentifier("copy-path-review-\(id)")
         }
     }
 }

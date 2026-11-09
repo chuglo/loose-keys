@@ -4,10 +4,6 @@
 /* Lists.swift: matching secondary copy, already escaped by the engine. */
 "Matches: %@" = "Coincide: %@";
 
-/* Models.swift: full manual reports are not restored at the next launch. */
-"No Manual Scan This Session" = "Sin análisis manual en esta sesión";
-"Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting." = "Los detalles del análisis manual solo se conservan hasta que sales de la app. Los hallazgos y las decisiones guardados siguen disponibles. Usa Analizar ahora para obtener detalles actuales y guarda el informe antes de salir.";
-
 /* Lists.swift: the active filter, not the scan's findings. */
 "Clear Filter" = "Borrar filtro";
 "No Matches" = "Sin coincidencias";
@@ -64,6 +60,9 @@
 /* Last part of the Worth Reviewing subtitle, after the counts and a comma: the list had no room for some findings. [AppModel.swift:408] */
 "list full, so some findings are missing" = "lista llena, así que faltan algunos hallazgos";
 
+/* Last part of the Stored Sign-ins subtitle, after the count and a comma: the list had no room for some sign-ins. [MainView.swift] */
+"list full, so some sign-ins are missing" = "lista llena, así que faltan algunas credenciales";
+
 /* The button of the panel that chooses a folder or drive to include in scans. [AppModel.swift:668] */
 "Add" = "Añadir";
 
@@ -72,9 +71,6 @@
 
 /* In an alert: something other than a folder or drive was dropped on the window. [AppModel.swift:685] */
 "Only folders and drives can be added." = "Solo se pueden incluir carpetas y discos.";
-
-/* In an alert: Show in Finder or Copy Path was chosen for a stored sign-in during a scan. [AppModel.swift:725] */
-"Wait for the scan to finish, then try again." = "Espera a que termine el análisis y vuelve a intentarlo.";
 
 /* Shown for a moment under the window title after Copy Path. [AppModel.swift:759] */
 "Path copied" = "Ruta copiada";
@@ -123,6 +119,9 @@
 
 /* [Inspector.swift:56] */
 "Move to Worth Reviewing" = "Mover a Para revisar";
+
+/* A button and an Item menu command: return a set-aside stored sign-in to Stored Sign-ins. [Inspector.swift, Commands.swift] */
+"Move to Stored Sign-ins" = "Mover a Credenciales guardadas";
 
 /* The name of the list of findings the person set aside, in the sidebar and as its page's title. [Inspector.swift:58, MainView.swift:99, MainView.swift:215] */
 "Set Aside" = "Dejado a un lado";
@@ -280,8 +279,23 @@
 /* Worth Reviewing, empty after a scan that could not read some places. */
 "The last scan found nothing to review, but some places couldn't be checked." = "El último análisis no encontró nada que revisar, pero no pudo comprobar algunos lugares.";
 
-/* [Lists.swift:162] */
+/* Stored Sign-ins, empty before a scan has looked for stored sign-ins, with automatic scanning off. [Lists.swift] */
 "After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them." = "Después de un análisis, aquí verás las credenciales que guardan tus apps. Es normal, pero el malware puede copiarlas.";
+
+/* Stored Sign-ins' heading before a scan has looked for stored sign-ins. [Lists.swift] */
+"No Sign-ins Yet" = "Aún no hay credenciales";
+
+/* Stored Sign-ins, empty while automatic scanning has not yet read every file once. [Lists.swift] */
+"Sign-ins your apps have saved show up here as Loose Keys checks your files." = "Las credenciales que guardan tus apps aparecen aquí a medida que Loose Keys comprueba tus archivos.";
+
+/* Stored Sign-ins' heading when a scan looked and found none. [Lists.swift] */
+"No Stored Sign-ins" = "No hay credenciales guardadas";
+
+/* Stored Sign-ins' heading when every stored sign-in is set aside. [Lists.swift] */
+"No Sign-ins Waiting" = "No hay credenciales pendientes";
+
+/* Stored Sign-ins, empty because every stored sign-in is set aside. [Lists.swift] */
+"You set aside every stored sign-in." = "Dejaste a un lado todas las credenciales guardadas.";
 
 /* [Lists.swift:166] */
 "Sign-in" = "Credencial";
@@ -417,6 +431,12 @@
 
 /* Inspector details for a finding the organization's settings list as expected: what the choice covers and how to review it anyway. [Models.swift:341] */
 "Your organization expects this file to be here. To review it anyway, choose Move to Worth Reviewing." = "Tu organización espera que este archivo esté aquí. Para revisarlo de todos modos, elige Mover a Para revisar.";
+
+/* Inspector details for a stored sign-in the person keeps here on purpose: what the choice covers and when it comes back. [Models.swift] */
+"Covers this file only. It comes back to Stored Sign-ins in six months, or sooner if a different kind of sign-in shows up in it." = "Solo se aplica a este archivo. Vuelve a Credenciales guardadas dentro de seis meses, o antes si aparece en él otro tipo de credencial.";
+
+/* Inspector details for a stored sign-in the organization's settings list as expected: how to list it anyway. [Models.swift] */
+"Your organization expects this file to be here. To see it in Stored Sign-ins anyway, choose Move to Stored Sign-ins." = "Tu organización espera que este archivo esté aquí. Para verlo en Credenciales guardadas de todos modos, elige Mover a Credenciales guardadas.";
 
 /* The reason an older version of the app recorded for a set-aside finding: a test credential, or one that no longer works. [Models.swift:318] */
 "Testing or No Longer Working (Previous Choice)" = "Se usa para pruebas o ya no funciona (elección anterior)";
@@ -674,6 +694,9 @@
 "Couldn't Stop the Scan" = "No se pudo detener el análisis";
 "Couldn't Show the Findings" = "No se pudieron mostrar los hallazgos";
 "Couldn't Open Worth Reviewing" = "No se pudo abrir Para revisar";
+
+/* The heading of Stored Sign-ins when the saved list could not be read. [Failure.swift] */
+"Couldn't Open Stored Sign-ins" = "No se pudo abrir Credenciales guardadas";
 "Couldn't Save Your Choice" = "No se pudo guardar tu elección";
 "Couldn't Read the Places to Check" = "No se pudieron leer los lugares que comprobar";
 

@@ -58,19 +58,33 @@ struct ReviewList: Decodable {
     /// A finding was left out for lack of room, and no scan the person ran to
     /// its end has since found room on the list.
     let full: Bool?
+    /// The same for stored sign-ins, which have their own share of the room.
+    let storedFull: Bool?
+    /// A manual scan or the helper's full pass has ended since stored
+    /// sign-ins were saved, so an empty list of them is one looked for.
+    let storedChecked: Bool?
     let permission: String?
 }
 
+/// `open`, `setAside`, `kept` and `fixed` count what is worth reviewing only.
 struct ReviewCounts: Decodable {
     let open: Int
     let setAside: Int
     let kept: Int
     let fixed: Int
+    /// Stored sign-ins still listed, and those set aside.
+    let stored: Int?
+    let storedSetAside: Int?
+    /// Stored sign-ins saved and since no longer found, which aren't listed.
+    let storedGone: Int?
 }
 
-/// A finding worth reviewing, kept between scans with what the person decided.
+/// A finding worth reviewing or a stored sign-in, kept between scans with
+/// what the person decided.
 struct ReviewItem: Decodable, Identifiable {
     let id: Int
+    /// "review", or "inventory" for a stored sign-in. None from older engines.
+    let kind: String?
     let rule: String
     let path: String
     let line: Int?
@@ -356,10 +370,33 @@ struct SetAsideReason: Identifiable {
         returns: String(localized: "Your organization expects this file to be here. To review it anyway, choose Move to Worth Reviewing.",
                         comment: "Inspector details for a finding the organization's settings list as expected: what the choice covers and how to review it anyway."))
 
+    /// The one reason offered for a stored sign-in. It is about the file, so
+    /// it outlasts a token refresh, and covers no copy of the value in a file
+    /// worth reviewing.
+    static let storedKept = SetAsideReason(
+        id: "kept",
+        label: String(localized: "Keeping It Here on Purpose",
+                      comment: "Menu item under Set Aside…: why the person sets the finding aside. The credential is real and stays in this file on purpose."),
+        summary: String(localized: "Keeping it here on purpose",
+                        comment: "Inspector, Set Aside section: the reason the person gave for setting the finding aside (the person keeps the credential here)."),
+        returns: String(localized: "Covers this file only. It comes back to Stored Sign-ins in six months, or sooner if a different kind of sign-in shows up in it.",
+                        comment: "Inspector details for a stored sign-in the person keeps here on purpose: what the choice covers and when it comes back. Stored Sign-ins is the list's name in the sidebar."))
+
+    static let storedExpected = SetAsideReason(
+        id: "expected",
+        label: String(localized: "Expected by Your Organization",
+                      comment: "The reason an organization's settings give for a set-aside finding; not offered in the menu."),
+        summary: String(localized: "Expected by your organization",
+                        comment: "Inspector, Set Aside section: the finding is on the list the person's organization set."),
+        returns: String(localized: "Your organization expects this file to be here. To see it in Stored Sign-ins anyway, choose Move to Stored Sign-ins.",
+                        comment: "Inspector details for a stored sign-in the organization's settings list as expected: how to list it anyway. Stored Sign-ins is the list's name in the sidebar; Move to Stored Sign-ins is a button."))
 }
 
 extension ReviewItem {
     var status: String { state ?? (resolved == true ? "fixed" : "open") }
+
+    /// A stored sign-in rather than a finding worth reviewing.
+    var isStored: Bool { kind == "inventory" }
 
     var statusText: String {
         switch status {
@@ -438,24 +475,12 @@ extension ReviewItem {
     }
 }
 
-/// Shared wording for the manual report, distinct from saved review history.
-enum ManualReportText {
-    static var noScanTitle: String {
-        String(localized: "No Manual Scan This Session",
-               comment: "Stored Sign-ins and Overview when this launch has no manual report. Saved review findings may exist.")
-    }
-    static var lifetime: String {
-        String(localized: "Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting.",
-               comment: "Explains that full manual reports are session-only, unlike saved review history. Scan Now is a button name.")
-    }
-}
-
 /// Said where an empty list or answer could read as complete. No count:
 /// nearly every Mac has places macOS keeps private.
 enum NotCheckedText {
     static var some: String {
         String(localized: "Some places couldn't be checked.",
-               comment: "Overview and Worth Reviewing, after a sentence saying nothing was found: the last scan could not read some places.")
+               comment: "Overview, Worth Reviewing and Stored Sign-ins, after a sentence or heading saying nothing was found: the last scan could not read some places.")
     }
 }
 

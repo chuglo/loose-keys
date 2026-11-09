@@ -49,6 +49,13 @@ final class SampleEngine: Engine {
     static var kept: Set<Int> = []
     /// Decisions on the sample's single-location findings.
     static var decisions: [Int: String] = [6: "kept"]
+    /// The stored sign-ins set aside as kept. decide_review changes it, and
+    /// the checks put it back.
+    static var storedKept: Set<Int> = []
+    /// Whether a scan has looked for stored sign-ins since they were saved.
+    static var storedChecked = true
+    /// The ids of the sample's stored sign-ins, in the order of the scan's.
+    static let storedIds = 20...24
     /// When every sample decision was made.
     static let setAsideAt = "2026-10-24T18:00:00Z"
     /// Consent to background checks, with the helper running while it is
@@ -147,7 +154,7 @@ final class SampleEngine: Engine {
         case "pending_review" where Self.refused:
             throw EngineError(message: "That action stopped unexpectedly.")
         case "pending_review" where Self.nothingFound:
-            return Data(#"{"items":[],"counts":{"open":0,"set_aside":0,"kept":0,"fixed":0},"skipped":[],"error":null,"full":false,"route":false,"permission":"denied"}"#.utf8)
+            return Data(#"{"items":[],"counts":{"open":0,"set_aside":0,"kept":0,"fixed":0,"stored":0,"stored_set_aside":0},"skipped":[],"error":null,"full":false,"stored_full":false,"stored_checked":\#(Self.storedChecked),"route":false,"permission":"denied"}"#.utf8)
         case "pending_review" where Self.allSetAside: return Data(Self.everythingSetAside.utf8)
         case "pending_review": return Data(Self.review.utf8)
         case "decide_review" where Self.saveFails:
@@ -156,6 +163,14 @@ final class SampleEngine: Engine {
         case "decide_review" where !(args["revision"] is Int):
             // As the engine: a press says which drawing of the row it was made on.
             throw EngineError(message: "The request has no usable \"revision\".")
+        case "decide_review" where Self.storedIds.contains(args["id"] as? Int ?? 0):
+            // As the engine: a stored sign-in takes only Keeping It Here on Purpose.
+            switch args["reason"] as? String {
+            case "kept": Self.storedKept.insert(args["id"] as? Int ?? 0)
+            case nil: Self.storedKept.remove(args["id"] as? Int ?? 0)
+            default: throw EngineError(message: "That reason doesn't apply to a stored sign-in.")
+            }
+            return Data("null".utf8)
         case "decide_review":
             // "Kept" covers one place, so it can leave another copy to decide.
             if let id = args["id"] as? Int {
@@ -258,8 +273,41 @@ final class SampleEngine: Engine {
     private static var everythingSetAside: String {
         """
         {"items":[\(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open", aside: "kept"))],
-         "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0},"skipped":[],"error":null,"full":\(listFull),"route":false,"permission":"\(permission)"}
+         "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0,"stored":0,"stored_set_aside":0},"skipped":[],"error":null,"full":\(listFull),
+         "stored_full":false,"stored_checked":\(storedChecked),"route":false,"permission":"\(permission)"}
         """
+    }
+
+    /// A stored sign-in, as the engine lists it after what is worth reviewing:
+    /// one of the scan's sign-ins below, with its rule's advice.
+    /// A second copy of one sample sign-in, under its own id.
+    static let storedCopy = "~/backup/gh/hosts.yml"
+
+    private static func storedItem(_ id: Int, _ path: String, subject: String?, aiTool: Bool, copy: (id: Int, path: String)? = nil) -> String {
+        let quoted = { (text: String?) in text.map { "\"\($0)\"" } ?? "null" }
+        let aside = storedKept.contains(id)
+        let copies = [(id: id, path: path)] + (copy.map { [$0] } ?? [])
+        let places = copies.map {
+            #"{"id":\#($0.id),"path":"\#($0.path)","line":null,"fixed":false,"set_aside":\#(aside),"actionable":true}"#
+        }
+        let advice = aiTool
+            ? #""title":"Sign-in stored by an AI tool","explanation":"This tool keeps you signed in with a token in this file. That is how it is meant to work.","reason":"Any program running as you can read it, and stealers look for it by name.","next_step":"Sign out of the tool when you stop using it.","steps":["Sign out in the tool, which removes this file.","Sign in again when you next need it."],"link":"\#(managePage)""#
+            : #""title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null"#
+        return """
+        {"id":\(id),"kind":"inventory","revision":\(id),"rule":"sample.stored","path":"\(path)","line":null,\(advice),
+         "severity":"medium","subject":\(quoted(subject)),"detail":null,"first_seen":"2026-10-0\(id % 9 + 1)T21:40:00Z","resolved_at":null,
+         "resolved":false,"state":"\(aside ? "set-aside" : "open")","set_aside":\(aside ? #""kept""# : "null"),"set_aside_at":\(quoted(aside ? setAsideAt : nil)),
+         "places":[\(places.joined(separator: ","))],"folder":null,"actionable":true}
+        """
+    }
+
+    /// The scan's five sign-ins, saved.
+    private static var storedItems: String {
+        [storedItem(20, "~/.codex/auth.json", subject: "Codex", aiTool: true),
+         storedItem(21, "~/.claude/.credentials.json", subject: "Claude Code", aiTool: true),
+         storedItem(22, "~/.gemini/oauth_creds.json", subject: nil, aiTool: true),
+         storedItem(23, "~/.config/gh/hosts.yml", subject: "github.com", aiTool: false, copy: (25, storedCopy)),
+         storedItem(24, "~/.config/glab-cli/config.yml", subject: nil, aiTool: false)].joined(separator: ",\n")
     }
 
     /// The pages the sample's rules name, which open_link hands back.
@@ -284,8 +332,10 @@ final class SampleEngine: Engine {
         \(tokenInTwoFiles),
         \(item(5, "Passwords saved in a browser", "~/Library/Application Support/Google/Chrome/Default/Login Data", "medium", "open", detail: "214 saved logins")),
         \(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open")),
-        \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false))
-        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1},"skipped":\(skippedList),"error":\(error),"full":\(listFull),"route":false,"permission":"\(permission)"}
+        \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false)),
+        \(storedItems)
+        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1,"stored":\(storedIds.count - storedKept.count),"stored_set_aside":\(storedKept.count)},
+         "skipped":\(skippedList),"error":\(error),"full":\(listFull),"stored_full":false,"stored_checked":\(storedChecked),"route":false,"permission":"\(permission)"}
         """
     }
 
@@ -374,7 +424,7 @@ enum Snapshots {
             model.selectedReview = model.reviewRows.first?.id
             await shot("3-set-aside")
             model.pane = .stored
-            model.selectedStored = model.storedRows.first?.id
+            model.selectedReview = model.reviewRows.first?.id
             await shot("4-stored")
             model.pane = .overview
             model.showingPlaces = true
@@ -749,10 +799,13 @@ enum Checks {
                "the sidebar has no Not Checked row")
 
         #if PREVIEW
+        // Stored sign-ins are saved, so the list has them before this window scans.
         await open(.stored)
         expect(await eventually {
-            written().contains("No Manual Scan This Session") && written().contains(ManualReportText.lifetime)
-        }, "stored distinguishes session-only manual details from saved review history")
+            guard model.results == nil, let table = list() else { return false }
+            return rows(table).count == SampleEngine.storedIds.count && model.storedCount == SampleEngine.storedIds.count
+                && written().contains("auth.json")
+        }, "before a scan, Stored Sign-ins lists the saved sign-ins, and its badge counts them")
         // The Overview's answer comes from the saved list.
         await open(.overview)
         expect(await eventually {
@@ -777,6 +830,28 @@ enum Checks {
         let unscanned = written()
         expect(model.results == nil && unscanned.contains("No Scan Yet") && !unscanned.contains("Nothing to Review"),
                "before any scan, an empty review list says there has been no scan, not that there is nothing to review")
+        // Stored Sign-ins says "none" only once a scan has looked for them.
+        SampleEngine.storedChecked = false
+        await model.refreshReview()
+        await open(.stored)
+        expect(await eventually {
+            written().contains("No Sign-ins Yet")
+                && written().contains("After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them.")
+        } && !written().contains("No Stored Sign-ins"),
+               "before a scan has looked for them, an empty Stored Sign-ins says there are none yet, not none")
+        SampleEngine.monitoring = true
+        await model.refreshMonitor()
+        expect(await eventually {
+            written().contains("No Sign-ins Yet")
+                && written().contains("Sign-ins your apps have saved show up here as Loose Keys checks your files.")
+        }, "with automatic scanning on, an empty Stored Sign-ins says sign-ins show up as it checks")
+        SampleEngine.monitoring = false
+        await model.refreshMonitor()
+        SampleEngine.storedChecked = true
+        await model.refreshReview()
+        expect(await eventually { written().contains("No Stored Sign-ins") } && !written().contains("No Sign-ins Yet"),
+               "once a scan has looked for them, an empty Stored Sign-ins says there are none")
+        await open(.review)
         // With background checks on, "Yet" lasts only until their first full
         // pass, and a pass that could not read everything says so.
         SampleEngine.monitoring = true
@@ -998,19 +1073,22 @@ enum Checks {
         for _ in 0..<100 where model.phase == .scanning { await settle() }
         SampleEngine.scanSeconds = 0.3
         #endif
-        // The details' lifetime is said on Stored Sign-ins, where they are missed.
+        // That the report lasts only until quitting is in docs/usage.md, not the window.
         expect(!written().contains { $0.contains("Save the report") },
                "after a manual scan, Overview has no note about saving the report")
         // Where the link is not found, say what assistive software was told it is.
         let linkRoles = everything().filter { element in
             names(element).contains("Show Places Not Checked") || value(element, kAXValueAttribute) as? String == "Show Places Not Checked"
         }.map(role)
-        // What a scan found is in the sidebar, which has the same names and counts.
-        expect(button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
-               && button("Stored Sign-ins") == nil && button("Not Checked") == nil
-               && (linkButton("Show Places Not Checked") != nil) == model.somePlacesNotChecked
-               && button("Add Folder or Drive…") == nil,
-               "after a scan, Overview repeats no sidebar count, with folder controls left to Settings (the link's roles: \(linkRoles))")
+        // What a scan found is in the sidebar, which has the same names and
+        // counts. Looked for until the page has drawn the scan's end: one
+        // look as the scan ended missed the link in two guest runs.
+        expect(await eventually {
+            button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
+                && button("Stored Sign-ins") == nil && button("Not Checked") == nil
+                && (linkButton("Show Places Not Checked") != nil) == model.somePlacesNotChecked
+                && button("Add Folder or Drive…") == nil
+        }, "after a scan, Overview repeats no sidebar count, with folder controls left to Settings (the link's roles: \(linkRoles))")
 
         #if PREVIEW
         // The one way to what the scan could not read, without a count.
@@ -1050,6 +1128,13 @@ enum Checks {
                 && text.contains(".env")
                 && text.contains("2 copies")
         }, "filtering a secondary copy keeps the representative row and explains the matching path")
+        await open(.stored)
+        model.search = "backup"
+        expect(await eventually {
+            guard let table = list(), rows(table).count == 1 else { return false }
+            let text = written(in: rows(table)[0])
+            return model.reviewRows.first?.id == 23 && text.contains("Matches: \(SampleEngine.storedCopy)")
+        }, "on Stored Sign-ins, filtering a secondary copy explains the matching path")
         model.search = ""
         await settle(after: "clearing the grouped-copy filter")
         for pane in [Pane.review, .setAside, .stored] {
@@ -1368,50 +1453,66 @@ enum Checks {
         #endif
 
         await open(.stored)
-        if let list = list(), rows(list).count == model.storedRows.count, model.storedRows.count > 1 {
-            // With no heading pressed the sign-ins are in the order the scan
-            // listed them, each rule's together. The first few are also read
-            // from the window.
-            let listed = (model.results?.groups ?? []).filter { $0.kind == "inventory" }.flatMap(\.items)
-            let drawn = zip(rows(list), listed).prefix(5).allSatisfy { row, file in
-                written(in: row).contains((file.path as NSString).lastPathComponent)
+        if let list = list(), rows(list).count == model.reviewRows.count, model.reviewRows.count > 1 {
+            // With no heading pressed, sign-ins are in the order of their
+            // titles, each rule's together. The rows are read from the window.
+            let drawn = zip(rows(list), model.reviewRows).allSatisfy { row, item in
+                written(in: row).contains((item.path as NSString).lastPathComponent)
             }
-            expect(model.storedSort.isEmpty && model.storedRows.map(\.id) == listed.map(\.index) && drawn,
-                   "until a heading is pressed, the stored sign-ins are in the order the scan listed them (listed \(listed.map(\.index)), shown \(model.storedRows.map(\.id)))")
+            expect(model.storedSort.isEmpty && model.reviewRows.allSatisfy(\.isStored) && drawn
+                   && headingButtons(list).flatMap(names) == ["Sign-in", "Where"],
+                   "Stored Sign-ins lists only stored sign-ins, under Sign-in and Where (shown \(model.reviewRows.map(\.id)))")
             #if PREVIEW
             // Rows a pressed heading ranks the same keep that order: the
             // sample's sign-ins of one rule share a title.
             await press(headingButtons(list).first { names($0).contains("Sign-in") }, "pressing the Sign-in heading")
-            let place = Dictionary(uniqueKeysWithValues: listed.enumerated().map { ($0.element.index, $0.offset) })
-            let shown = model.storedRows
+            let shown = model.reviewRows
             let level = zip(shown, shown.dropFirst()).filter { pair in
                 model.storedSort.allSatisfy { $0.compare(pair.0, pair.1) == .orderedSame }
             }
-            expect(!model.storedSort.isEmpty && !level.isEmpty
-                   && level.allSatisfy { (place[$0.id] ?? 0) < (place[$1.id] ?? 0) },
-                   "sign-ins a pressed heading ranks the same stay in the order the scan listed them (shown \(shown.map(\.id)))")
+            expect(!model.storedSort.isEmpty && !level.isEmpty && level.allSatisfy { $0.id < $1.id },
+                   "sign-ins a pressed heading ranks the same stay in their first order (shown \(shown.map(\.id)))")
             model.storedSort = []
-            await settle(after: "putting the sign-ins back in the scan's order")
+            await settle(after: "putting the sign-ins back in their first order")
             #endif
-            let chosen = model.storedRows[1].id
-            await choose(rows(list)[1], "choosing a stored sign-in")
-            expect(model.selectedStored == chosen, "choosing a stored sign-in selects it")
+            let keys: [PartialKeyPath<ReviewItem>] = [\.shownTitle, \.path]
+            await headings(list, keys, sort: { model.storedSort }, rows: { model.reviewRows })
+            model.storedSort = []
+            await settle(after: "putting the sign-ins back in their first order")
+            let at = model.reviewRows.firstIndex { $0.link != nil } ?? 0
+            let chosen = model.reviewRows[at].id
+            await choose(rows(list)[at], "choosing a stored sign-in")
+            expect(model.selectedReview == chosen, "choosing a stored sign-in selects it")
             #if PREVIEW
             await press(button("Open the Page to Manage It"), "pressing Open the Page to Manage It",
                         until: { opened.last?.absoluteString == SampleEngine.managePage })
+            // The file actions name the sign-in by its id, as for a finding.
+            SampleEngine.pathRequest = [:]
+            await press(button("Copy Path"), "copying a stored sign-in's path",
+                        until: { SampleEngine.pathRequest["index"] as? Int == chosen && SampleEngine.pathRequest["review"] as? Bool == true })
+            expect(await eventually { menuEnabled("Show in Finder") == true && menuEnabled("Copy Path") == true },
+                   "the Item menu offers Show in Finder and Copy Path for the chosen sign-in")
+            // Only Keeping It Here on Purpose: the Item menu has no other reason here.
+            let kept = SetAsideReason.storedKept.label
+            expect(await eventually {
+                (written() + everything().flatMap(names)).contains("Set Aside…")
+                    && appMenuItem(kept) != nil && appMenuItem(SetAsideReason.all[0].label) == nil
+            } && model.setAsideReasons.map(\.id) == ["kept"],
+                   "a stored sign-in can be set aside only as Keeping It Here on Purpose")
             #endif
-            let keys: [PartialKeyPath<StoredRow>] = [\.shownTitle, \.file.path]
-            await headings(list, keys, sort: { model.storedSort }, rows: { model.storedRows })
             model.search = "no sign-in has this text"
             await settle(after: "filtering out the selected sign-in")
-            expect(model.selectedStored == nil && model.currentStored == nil, "a sign-in the filter hides is no longer selected")
+            expect(model.selectedReview == nil && model.currentReview == nil, "a sign-in the filter hides is no longer selected")
             #if PREVIEW
             model.search = "Claude Code"
             await settle(after: "filtering by what the inspector shows under a sign-in's title")
-            expect(model.storedRows.count == 1, "the filter finds a sign-in by what the inspector shows under its title (\(model.storedRows.count) of 1 rows)")
+            expect(model.reviewRows.count == 1, "the filter finds a sign-in by what the inspector shows under its title (\(model.reviewRows.count) of 1 rows)")
             #endif
             model.search = ""
             await settle(after: "clearing the filter")
+            #if PREVIEW
+            await storedSetAside(model, chosen: chosen, open: open)
+            #endif
         } else {
             expect(false, "the stored list is a table with a row for each sign-in")
         }
@@ -1446,6 +1547,11 @@ enum Checks {
         let advice = texts.first { $0.contains("reopen the app") } ?? ""
         expect(advice.contains("reopen the app") && advice.contains("Save the report"),
                "a review list that cannot be read says that quitting the app and opening it again reads it again, and that the report has the findings")
+        await open(.stored)
+        expect(await eventually { written().contains("Couldn't Open Stored Sign-ins") }
+               && !written().contains("No Stored Sign-ins") && list() == nil && model.storedCount == model.results?.stored,
+               "Stored Sign-ins that cannot be read says so, and the count beside it is the scan's own")
+        await open(.review)
         SampleEngine.storeFailed = false
         await model.refreshReview()
         await settle(after: "the review list returning")
@@ -1914,6 +2020,77 @@ enum Checks {
         for _ in 0..<50 where model.results?.review == 0 || model.phase == .scanning { await settle() }
         #endif
     }
+
+    #if PREVIEW
+    /// Setting a stored sign-in aside and moving it back, through the window.
+    private static func storedSetAside(_ model: AppModel, chosen: ReviewItem.ID, open: (Pane) async -> Void) async {
+        guard let stored = list(), let at = model.reviewRows.firstIndex(where: { $0.id == chosen }), at < rows(stored).count else {
+            return expect(false, "the chosen sign-in is still listed")
+        }
+        await choose(rows(stored)[at], "choosing the sign-in to set aside")
+        let before = (stored: model.storedCount, aside: model.setAsideCount)
+        await press(appMenuItem(SetAsideReason.storedKept.label), "setting a stored sign-in aside with the Item menu",
+                    until: { model.storedCount == before.stored - 1 && model.setAsideCount == before.aside + 1
+                        && !model.reviewRows.contains { $0.id == chosen } })
+        // The engine refuses any other reason. Checked on a model that is in
+        // no window, so that no alert is put on screen.
+        let refusing = AppModel(engine: model.engine)
+        refusing.pane = .stored
+        await refusing.refreshReview()
+        if let item = refusing.reviewRows.first {
+            refusing.decide(item, reason: "testing")
+            for _ in 0..<25 where refusing.failure == nil { await settle() }
+            expect(refusing.failure?.reason == "That reason doesn't apply to a stored sign-in."
+                   && refusing.reviewEntry(item.id)?.status == "open",
+                   "a reason other than Keeping It Here on Purpose is refused for a stored sign-in, and it stays listed")
+        } else {
+            expect(false, "Stored Sign-ins has another sign-in to decide")
+        }
+        func setAsideRows() async -> (table: AXUIElement, sign: Int, finding: Int)? {
+            await open(.setAside)
+            guard let table = list(), let sign = model.reviewRows.firstIndex(where: { $0.id == chosen }),
+                  let finding = model.reviewRows.firstIndex(where: { !$0.isStored }), max(sign, finding) < rows(table).count else {
+                expect(false, "Set Aside lists the set-aside sign-in beside a finding")
+                return nil
+            }
+            return (table, sign, finding)
+        }
+        guard let first = await setAsideRows() else { return }
+        await choose(rows(first.table)[first.sign], "choosing the set-aside sign-in")
+        expect(await eventually { menuEnabled("Move to Worth Reviewing") == false && menuEnabled("Move to Stored Sign-ins") == true },
+               "with only a sign-in chosen on Set Aside, the Item menu moves it to Stored Sign-ins only")
+        let returns = SetAsideReason.storedKept.returns
+        if button("Show Details") != nil { await press(button("Show Details"), "showing the set-aside sign-in's details") }
+        expect(await eventually { (written() + everything().flatMap(names)).joined(separator: "\n").contains(returns) },
+               "a set-aside sign-in's details say when it comes back to Stored Sign-ins")
+        await press(button("Hide Details"), "hiding the set-aside sign-in's details")
+        await press(button("Move to Stored Sign-ins"), "moving the sign-in back to Stored Sign-ins",
+                    until: { model.pane == .stored && model.currentReview?.id == chosen
+                        && model.storedCount == before.stored && model.setAsideCount == before.aside })
+        // Set aside again from the Item menu, then chosen with a finding: each
+        // kind has its own way back. Just after the page changes the Item
+        // menu doesn't have the item yet, so it is pressed once offered.
+        expect(await eventually { menuEnabled(SetAsideReason.storedKept.label) == true },
+               "after Move to Stored Sign-ins, the Item menu offers Keeping It Here on Purpose for the sign-in")
+        await press(appMenuItem(SetAsideReason.storedKept.label), "setting the sign-in aside again with the Item menu",
+                    until: { model.storedCount == before.stored - 1 && model.setAsideCount == before.aside + 1 })
+        guard let both = await setAsideRows() else { return }
+        begin("choosing a finding and a sign-in on Set Aside")
+        AXUIElementSetAttributeValue(both.table, kAXSelectedRowsAttribute as CFString,
+                                     [rows(both.table)[both.sign], rows(both.table)[both.finding]] as CFArray)
+        await settle(after: "choosing a finding and a sign-in on Set Aside")
+        expect(await eventually {
+            model.selectedReviews.count == 2 && button("Move to Worth Reviewing") != nil && button("Move to Stored Sign-ins") != nil
+                && menuEnabled("Move to Worth Reviewing") == true && menuEnabled("Move to Stored Sign-ins") == true
+        }, "with a finding and a sign-in chosen on Set Aside, each is offered its own way back")
+        await press(button("Move to Stored Sign-ins"), "moving only the sign-in of the two back",
+                    until: { !model.decidingSelection && model.storedCount == before.stored && model.setAsideCount == before.aside })
+        expect(model.pane == .setAside && model.reviewRows.contains { !$0.isStored },
+               "Move to Stored Sign-ins leaves the finding chosen with it in Set Aside")
+        model.selectedReview = nil
+        await settle(after: "choosing no sign-in")
+    }
+    #endif
 
     /// The buttons at the head of a list's columns.
     private static func headingButtons(_ list: AXUIElement) -> [AXUIElement] {

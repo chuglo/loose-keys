@@ -18,17 +18,6 @@ enum MenuBarMark {
     case unknown, open, plain, problem, full
 }
 
-/// A stored sign-in from the last scan, with its rule's advice.
-struct StoredRow: Identifiable {
-    let file: FindingFile
-    let group: FindingGroup
-    /// Where the engine listed it among the sign-ins: a rule at a time.
-    let place: Int
-    var id: Int { file.index }
-    /// The title as the window shows it, which the Sign-in heading sorts by.
-    var shownTitle: String { EngineText.shown(group.title) }
-}
-
 /// What automatic scanning is doing, as Overview, Settings and the menu bar
 /// say it. Logic and tests compare the case, never its words.
 enum BackgroundState {
@@ -172,7 +161,7 @@ final class AppModel: ObservableObject {
     @Published var pane: Pane? = .overview {
         didSet {
             if pane != oldValue { paneChanged = Date() }
-            if (pane == .setAside) != (oldValue == .setAside) { dropHiddenSelection() }
+            if Self.list(pane) != Self.list(oldValue) { dropHiddenSelection() }
         }
     }
     private var paneChanged = Date.distantPast
@@ -217,7 +206,7 @@ final class AppModel: ObservableObject {
     @Published var started: Date?
     @Published var selectedReviews: Set<ReviewItem.ID> = [] {
         didSet {
-            if selectedReviews != oldValue, pane == .review || pane == .setAside {
+            if selectedReviews != oldValue, pane == .review || pane == .setAside || pane == .stored {
                 showInspectorForSelection(!selectedReviews.isEmpty)
             }
         }
@@ -228,17 +217,11 @@ final class AppModel: ObservableObject {
         set { selectedReviews = newValue.map { [$0] } ?? [] }
     }
     @Published private(set) var decidingSelection = false
-    @Published var selectedStored: StoredRow.ID? {
-        didSet {
-            if selectedStored != oldValue, pane == .stored {
-                showInspectorForSelection(selectedStored != nil)
-            }
-        }
-    }
     /// The column headings each list is sorted by, the last one clicked first.
     /// Status is where the review list starts: open first, then by risk.
+    /// Stored Sign-ins has its own, since it has neither column.
     @Published var reviewSort = [KeyPathComparator(\ReviewItem.statusRank)]
-    @Published var storedSort: [KeyPathComparator<StoredRow>] = []
+    @Published var storedSort: [KeyPathComparator<ReviewItem>] = []
     @Published var search = "" {
         didSet {
             dropHiddenSelection()
@@ -436,9 +419,22 @@ final class AppModel: ObservableObject {
 
     // MARK: What the lists show
 
-    /// Decisions change which page lists an item, never the findings held or exported.
+    /// The list a page shows: Set Aside, Stored Sign-ins, or Worth Reviewing
+    /// for every other page, where the Filter field opens it.
+    private static func list(_ pane: Pane?) -> Pane {
+        pane == .setAside || pane == .stored ? pane ?? .review : .review
+    }
+
+    /// Decisions change which page lists an item, never the findings held or
+    /// exported. Set Aside lists both kinds.
     var reviewPaneItems: [ReviewItem] {
-        (review?.items ?? []).filter { ($0.status == "set-aside") == (pane == .setAside) }
+        (review?.items ?? []).filter { item in
+            switch Self.list(pane) {
+            case .setAside: return item.status == "set-aside"
+            case .stored: return item.isStored && item.status == "open"
+            default: return !item.isStored && item.status != "set-aside"
+            }
+        }
     }
 
     /// Whether the Filter field's text is in these texts, taken together:
@@ -470,24 +466,12 @@ final class AppModel: ObservableObject {
     }
 
     var reviewRows: [ReviewItem] {
-        arranged(reviewShown, by: reviewSort) { ($0.order, $0.id) < ($1.order, $1.id) }
-    }
-
-    /// The stored sign-ins the filter leaves, as the engine listed them.
-    /// Enough to find one of them or to count them.
-    var storedShown: [StoredRow] {
-        let wanted = search.trimmingCharacters(in: .whitespaces)
-        return storedItems.filter {
-            leaves(wanted, [$0.shownTitle, $0.file.path, $0.file.subject.map(EngineText.about), $0.group.title, $0.file.subject])
+        // Until a heading is clicked, and for rows the clicked headings rank
+        // the same, sign-ins with one title are together.
+        guard pane != .stored else {
+            return arranged(reviewShown, by: storedSort) { ($0.shownTitle, $0.id) < ($1.shownTitle, $1.id) }
         }
-    }
-
-    private var storedItems: [StoredRow] {
-        return (results?.groups ?? [])
-            .filter { $0.kind == "inventory" }
-            .flatMap { group in group.items.map { (file: $0, group: group) } }
-            .enumerated()
-            .map { StoredRow(file: $0.element.file, group: $0.element.group, place: $0.offset) }
+        return arranged(reviewShown, by: reviewSort) { ($0.order, $0.id) < ($1.order, $1.id) }
     }
 
     /// Filtered rows out of the usable list, never a scan or error count.
@@ -496,14 +480,10 @@ final class AppModel: ObservableObject {
         let shown: Int
         let total: Int
         switch pane {
-        case .review, .setAside:
+        case .review, .setAside, .stored:
             guard review != nil, reviewProblem == nil else { return nil }
             shown = reviewShown.count
             total = reviewPaneItems.count
-        case .stored:
-            guard results != nil else { return nil }
-            shown = storedShown.count
-            total = storedItems.count
         default:
             return nil
         }
@@ -514,24 +494,51 @@ final class AppModel: ObservableObject {
 
     var filterHasNoMatches: Bool {
         guard filterSummary != nil else { return false }
-        return pane == .stored ? storedShown.isEmpty : reviewShown.isEmpty
-    }
-
-    var storedRows: [StoredRow] {
-        // Until a heading is clicked, and for rows the clicked headings rank
-        // the same, the order the engine listed them in: each rule's together.
-        arranged(storedShown, by: storedSort) { $0.place < $1.place }
+        return reviewShown.isEmpty
     }
 
     var openCount: Int {
-        review?.counts?.open ?? (review?.items.filter { $0.status == "open" }.count ?? 0)
+        review?.counts?.open ?? (review?.items.filter { !$0.isStored && $0.status == "open" }.count ?? 0)
     }
 
-    /// No count while the list cannot be used: a scan knows nothing of
-    /// decisions, so it has no Set Aside count to fall back on.
+    /// The number beside Stored Sign-ins. When the list cannot be used it is
+    /// the last scan's own count, as for Worth Reviewing.
+    var storedCount: Int {
+        guard reviewProblem == nil else { return results?.stored ?? 0 }
+        return review?.counts?.stored ?? (review?.items.filter { $0.isStored && $0.status == "open" }.count ?? 0)
+    }
+
+    /// Why Stored Sign-ins is empty, when it is and its list can be used.
+    enum StoredEmpty: Equatable {
+        case allSetAside
+        /// The last scan found this many, and the list doesn't hold them.
+        case notListed(Int)
+        /// No scan has looked for every stored sign-in since they were saved.
+        case notLookedYet
+        case none
+    }
+
+    /// A scan this session that counted sign-ins comes before whether one
+    /// was recorded as looking: an older helper saves the list without them.
+    /// Those saved and since no longer found account for the scan's count.
+    var storedEmpty: StoredEmpty {
+        if setAside(stored: true) > 0 { return .allSetAside }
+        if let found = results?.stored, found > review?.counts?.storedGone ?? 0 { return .notListed(found) }
+        if review?.storedChecked != true { return .notLookedYet }
+        return .none
+    }
+
+    /// Both kinds. No count while the list cannot be used: a scan knows
+    /// nothing of decisions, so it has no Set Aside count to fall back on.
     var setAsideCount: Int {
+        setAside(stored: false) + setAside(stored: true)
+    }
+
+    /// Of one kind: what is worth reviewing, or stored sign-ins.
+    func setAside(stored: Bool) -> Int {
         guard reviewProblem == nil else { return 0 }
-        return review?.counts?.setAside ?? (review?.items.filter { $0.status == "set-aside" }.count ?? 0)
+        let counted = stored ? review?.counts?.storedSetAside : review?.counts?.setAside
+        return counted ?? (review?.items.filter { $0.isStored == stored && $0.status == "set-aside" }.count ?? 0)
     }
 
     /// Why Worth Reviewing cannot show what was found, when it cannot: the
@@ -556,7 +563,7 @@ final class AppModel: ObservableObject {
     /// lack of room, and only the saved report has them all.
     var findingsNote: String? {
         guard let found = results?.review, let review, reviewProblem == nil, review.full == true else { return nil }
-        let listed = review.items.filter { $0.status != "fixed" }.count
+        let listed = review.items.filter { !$0.isStored && $0.status != "fixed" }.count
         guard found > listed else { return nil }
         return String(localized: "The scan found \(found) findings, but the list is full at \(listed) items. Save the report to see them all.",
                       comment: "Overview, under the last scan's counts, when the Worth Reviewing list is full. The first number counts findings, the second the list's items.")
@@ -569,9 +576,10 @@ final class AppModel: ObservableObject {
 
     /// Capture displayed revisions before starting. Stop on the first refusal;
     /// earlier saves remain saved and the ordered refresh shows that progress.
-    func decideSelection(reason: String?) {
+    /// `stored` keeps to one kind, for a Set Aside selection of both.
+    func decideSelection(reason: String?, stored: Bool? = nil) {
         guard !decidingSelection else { return }
-        let items = currentReviews.filter { $0.status != "fixed" }
+        let items = currentReviews.filter { $0.status != "fixed" && (stored == nil || $0.isStored == stored) }
         guard !items.isEmpty else { return }
         decisionTurn += 1
         decidingSelection = true
@@ -596,10 +604,6 @@ final class AppModel: ObservableObject {
         return reviewShown.first { $0.id == selectedReview }
     }
 
-    var currentStored: StoredRow? {
-        storedShown.first { $0.id == selectedStored }
-    }
-
     /// The entry with this id, or the one a copy with this id belongs to. A
     /// credential in several files is one entry, named by a copy that still
     /// needs a decision, so a decision or a fix can change the entry's id.
@@ -615,7 +619,6 @@ final class AppModel: ObservableObject {
         // Against what the filter leaves, not the current finding: no finding
         // is current while the list cannot be used, and the choice is kept then.
         selectedReviews.formIntersection(reviewShown.map(\.id))
-        if selectedStored != nil, currentStored == nil { selectedStored = nil }
     }
 
     var menuBarMark: MenuBarMark {
@@ -803,7 +806,10 @@ final class AppModel: ObservableObject {
                 reviewUnread = error.localizedDescription
                 // Automatic refresh failures stay visible in the list without
                 // reopening a modal alert every five seconds.
-                if alert { failure = Failure(title: FailureTitle.openReview, reason: error.localizedDescription) }
+                if alert {
+                    let title = pane == .stored ? FailureTitle.openStored : FailureTitle.openReview
+                    failure = Failure(title: title, reason: error.localizedDescription)
+                }
             }
             return true
         }
@@ -862,7 +868,7 @@ final class AppModel: ObservableObject {
             showWindow(review: true)
             Task {
                 await refreshReview()
-                selectedReview = review?.items.filter { $0.status == "open" }
+                selectedReview = review?.items.filter { !$0.isStored && $0.status == "open" }
                     .max { ($0.revision ?? 0) < ($1.revision ?? 0) }?.id
             }
         case "review-ready":
@@ -1020,8 +1026,6 @@ final class AppModel: ObservableObject {
                 }
                 started = Date()
                 results = try await engine.request("start_scan")
-                // A stored sign-in is known by its place in the results, which are new.
-                selectedStored = nil
                 await refreshReview()
                 phase = .done
                 if let error = reviewProblem {
@@ -1113,14 +1117,9 @@ final class AppModel: ObservableObject {
 
     // MARK: One finding
 
-    private func path(_ index: Int, review: Bool) async throws -> String {
-        // A stored sign-in is named by its place in the last results, and a
-        // scan replaces those before this window has them.
-        if !review, phase == .scanning {
-            throw EngineError(message: String(localized: "Wait for the scan to finish, then try again.",
-                                              comment: "In an alert: Show in Finder or Copy Path was chosen for a stored sign-in during a scan."))
-        }
-        return try await engine.request("item_path", ["index": index, "review": review])
+    /// The path of the item or copy with this id, from either list.
+    private func path(_ id: ReviewItem.ID) async throws -> String {
+        try await engine.request("item_path", ["index": id, "review": true])
     }
 
     /// Text for this Mac's clipboard only. Paths and summaries name files and
@@ -1138,16 +1137,16 @@ final class AppModel: ObservableObject {
         return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    func showInFinder(_ index: Int, review: Bool) {
+    func showInFinder(_ id: ReviewItem.ID) {
         attempt(FailureTitle.showInFinder) {
-            let path = try await self.path(index, review: review)
+            let path = try await self.path(id)
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
     }
 
-    func copyPath(_ index: Int, review: Bool) {
+    func copyPath(_ id: ReviewItem.ID) {
         attempt(FailureTitle.copyPath) {
-            let path = try await self.path(index, review: review)
+            let path = try await self.path(id)
             let text = self.quotedIfNeeded(path)
             self.copy(text)
             self.confirm(text == path
@@ -1209,7 +1208,7 @@ final class AppModel: ObservableObject {
             guard turn == decisionTurn, reason == nil,
                   from == .setAside, pane == from, paneChanged == since, selectedReviews.isEmpty,
                   let entry = reviewEntry(item.id), entry.status != "set-aside" else { return }
-            pane = .review
+            pane = entry.isStored ? .stored : .review
             selectedReview = reviewShown.first { $0.id == entry.id }?.id
         })
     }
@@ -1317,13 +1316,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Nothing has been checked that a count could come from: the list is
-    /// empty, there is no scan this session, and the helper, whose state has
+    /// Nothing has been checked that a count could come from: nothing worth
+    /// reviewing is listed, there is no scan this session, and the helper, whose state has
     /// been read, has recorded no check. An empty list then means not yet
-    /// looked, not none found.
+    /// looked, not none found. Saved stored sign-ins leave this as it was
+    /// before they were saved.
     var nothingChecked: Bool {
         guard let monitor, let review, reviewProblem == nil else { return false }
-        return review.items.isEmpty && results == nil && phase != .scanning && monitor.health.lastScan == nil
+        return !review.items.contains { !$0.isStored } && results == nil && phase != .scanning && monitor.health.lastScan == nil
     }
 
     /// The first page offers one step, Scan Now, before anything is known.
@@ -1332,7 +1332,7 @@ final class AppModel: ObservableObject {
     /// page, which says what it is.
     var showsWelcome: Bool {
         guard let monitor, monitor.error == nil, monitor.health.error == nil, !monitor.enabled, monitor.health.lastScan == nil,
-              let review, reviewProblem == nil, review.items.isEmpty,
+              let review, reviewProblem == nil, !review.items.contains(where: { !$0.isStored }),
               results == nil, phase != .scanning else { return false }
         return true
     }

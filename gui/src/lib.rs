@@ -20,6 +20,8 @@ mod fixture_body;
 mod monitor;
 mod release;
 mod review;
+#[cfg(test)]
+mod stored_tests;
 
 // The scanner the `loose-keys` command uses.
 use loose_keys::{fsutil, report, rules, scan};
@@ -606,7 +608,10 @@ fn refresh_notifications() {
 struct ReviewItem {
     #[serde(flatten)]
     item: review::Item,
-    /// "open", "set-aside" or "fixed".
+    /// "review" for one worth reviewing, "inventory" for a stored sign-in.
+    kind: &'static str,
+    /// "open", "set-aside" or "fixed". A stored sign-in is never "fixed":
+    /// one no longer found is not listed.
     state: &'static str,
     /// Why it was set aside, using review::Reason's fixed serialized names.
     set_aside: Option<review::Reason>,
@@ -615,6 +620,7 @@ struct ReviewItem {
     /// Every place the same credential is stored, this one included.
     places: Vec<PlaceView>,
     /// The folder a "stop checking this folder" would name, if one may be.
+    /// None for a stored sign-in.
     folder: Option<String>,
     /// Whether the app will act on this file: show it, or copy its path.
     actionable: bool,
@@ -632,6 +638,7 @@ struct PlaceView {
     actionable: bool,
 }
 
+/// Of what is worth reviewing, except `stored` and `stored_set_aside`.
 #[derive(Serialize, Default)]
 struct Counts {
     open: usize,
@@ -639,6 +646,12 @@ struct Counts {
     /// Of those set aside, the ones that are real and kept.
     kept: usize,
     fixed: usize,
+    /// Stored sign-ins still to look at, and those set aside.
+    stored: usize,
+    stored_set_aside: usize,
+    /// Stored sign-ins saved but no longer found, which are not listed, so
+    /// the window can tell a list emptied by them from one never filled.
+    stored_gone: usize,
 }
 
 #[derive(Serialize)]
@@ -652,6 +665,11 @@ struct ReviewView {
     /// A finding was left out for lack of room, and no scan the person ran
     /// to its end has since found room on the list.
     full: bool,
+    /// The same, for stored sign-ins, which have a share of the room.
+    stored_full: bool,
+    /// Whether a manual scan or the helper's full pass has ended since
+    /// stored sign-ins were saved, so that each was looked for.
+    stored_checked: bool,
     route: bool,
     permission: &'static str,
 }
@@ -684,19 +702,56 @@ fn shown(item: &review::Item) -> review::Item {
     shown
 }
 
+/// What is worth reviewing, then the stored sign-ins still found, as the
+/// window lists them, and how many of each are in each state.
 fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
     let at = now();
     let mut counts = Counts::default();
-    let mut out: Vec<ReviewItem> = Vec::new();
-    let mut grouped: std::collections::HashMap<&str, usize> = Default::default();
     // What sets aside each item that is still there, looked up once: it is
     // asked several times below, and a lookup goes through every decision.
-    let decided: Vec<Option<&review::Decision>> = state
-        .items
+    let items: Vec<&review::Item> = state.items.iter().collect();
+    let decided: Vec<Option<&review::Decision>> = items
         .iter()
         .map(|i| (!i.resolved).then(|| state.decision(i, at)).flatten())
         .collect();
-    for (item, decision) in state.items.iter().zip(&decided) {
+    let mut out = entries(&items, &decided, "review");
+    for entry in &out {
+        match entry.state {
+            "fixed" => counts.fixed += 1,
+            "set-aside" => {
+                counts.set_aside += 1;
+                counts.kept += usize::from(entry.set_aside == Some(review::Reason::Kept));
+            }
+            _ => counts.open += 1,
+        }
+    }
+    let stored: Vec<&review::Item> = state.stored.items.iter().filter(|i| !i.resolved).collect();
+    counts.stored_gone = state.stored.items.len() - stored.len();
+    let decided: Vec<Option<&review::Decision>> = stored
+        .iter()
+        .map(|i| state.decision_stored(i, at))
+        .collect();
+    for mut entry in entries(&stored, &decided, "inventory") {
+        match entry.state {
+            "set-aside" => counts.stored_set_aside += 1,
+            _ => counts.stored += 1,
+        }
+        entry.folder = None;
+        out.push(entry);
+    }
+    (out, counts)
+}
+
+/// `items` as entries of the window's list, with `decided` holding what
+/// sets each aside, if anything does.
+fn entries(
+    items: &[&review::Item],
+    decided: &[Option<&review::Decision>],
+    kind: &'static str,
+) -> Vec<ReviewItem> {
+    let mut out: Vec<ReviewItem> = Vec::new();
+    let mut grouped: std::collections::HashMap<&str, usize> = Default::default();
+    for (&item, decision) in items.iter().zip(decided) {
         let place = PlaceView {
             id: item.id,
             path: report::escape(&item.path),
@@ -717,6 +772,7 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             folder: offered_folder(&item.path),
             actionable: plain(&item.path),
             item: shown(item),
+            kind,
             state: "open",
             set_aside: None,
             set_aside_at: None,
@@ -728,8 +784,8 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
         let copies: Vec<(&review::Item, Option<&review::Decision>)> = entry
             .places
             .iter()
-            .filter_map(|p| state.items.iter().position(|i| i.id == p.id))
-            .map(|n| (&state.items[n], decided[n]))
+            .filter_map(|p| items.iter().position(|i| i.id == p.id))
+            .map(|n| (items[n], decided[n]))
             .collect();
         let open: Vec<_> = copies
             .iter()
@@ -768,8 +824,7 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
         }
         // The credential was first seen where it was found first, fixed or
         // not. The same clock writes every date, so text order is time order.
-        entry.item.first_seen = state
-            .items
+        entry.item.first_seen = items
             .iter()
             .filter(|i| entry.places.iter().any(|p| p.id == i.id))
             .filter_map(|i| i.first_seen.clone())
@@ -781,19 +836,15 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
             .filter(|d| d.reason != review::Reason::Expected)
             .map(|d| d.decided.clone());
         entry.state = if open.is_empty() {
-            counts.fixed += 1;
             "fixed"
         } else if open.iter().all(|(_, d)| d.is_some()) {
-            counts.set_aside += 1;
-            counts.kept += usize::from(entry.set_aside == Some(review::Reason::Kept));
             "set-aside"
         } else {
-            counts.open += 1;
             "open"
         };
         entry.item.resolved = entry.state == "fixed";
     }
-    (out, counts)
+    out
 }
 
 fn pending_review(app: &App) -> ReviewView {
@@ -809,6 +860,8 @@ fn pending_review(app: &App) -> ReviewView {
             .collect(),
         error: app.storage_error.lock().unwrap().clone(),
         full: state.full,
+        stored_full: state.stored.full,
+        stored_checked: state.stored.checked_at.is_some(),
         route: REVIEW_ROUTE.swap(false, Ordering::SeqCst),
         permission: match PERMISSION.load(Ordering::SeqCst) {
             1 => "not requested",
@@ -829,7 +882,8 @@ fn pending_review(app: &App) -> ReviewView {
 /// for. Kept is about a file, so it is recorded for each copy of the value
 /// in that file as well, each with its own decision, and moving the entry
 /// back returns each; a reason about the value covers every copy already.
-/// A refusal for one copy saves nothing for any.
+/// A refusal for one copy saves nothing for any. A stored sign-in takes
+/// Kept alone, and its copies are other stored sign-ins only.
 fn decide_review(app: &App, id: u64, revision: u64, reason: Option<review::Reason>) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Loose Keys could not open its saved data.".into());
@@ -1529,33 +1583,47 @@ fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
             let rechecking = std::time::Instant::now();
             // ingest only ever sets `full`, so it is cleared here for this
             // scan to decide again, and put back below unless the scan ran to
-            // its end and the list has room.
+            // its end and the list has room. The same for stored sign-ins.
             let was_full = std::mem::take(&mut review.full);
+            let stored_was_full = std::mem::take(&mut review.stored.full);
             let key = review.key.clone();
             // Asked between items and while one large file is read.
             let stop = || {
                 rechecking.elapsed() >= app.rechecks || app.monitor.cancel.load(Ordering::SeqCst)
             };
-            let new = review.merge(&r, |item| {
+            let new = review.merge(&r, |item, want| {
                 if stop() {
                     return None;
                 }
-                still_there(item, &home, &key, &stop)
+                still_there(item, &home, &key, want, &stop)
             });
             // A cancelled scan says nothing about what was left out before
             // it. One that stopped at a work limit did not present every
             // finding either, so room on the list is what settles it: without
             // room the next finding is left out whatever this scan saw.
-            if was_full && (app.monitor.cancel.load(Ordering::SeqCst) || !review.has_room()) {
+            let cancelled = app.monitor.cancel.load(Ordering::SeqCst);
+            if was_full && (cancelled || !review.has_room()) {
                 review.full = true;
+            }
+            if stored_was_full && (cancelled || !review.stored_has_room()) {
+                review.stored.full = true;
+            }
+            // Every stored sign-in was looked for, though a work limit may
+            // have left some places unread, as the results say.
+            if !cancelled {
+                review.stored.checked_at = Some(r.generated_at.clone());
             }
             Some(new)
         })
     } else {
         // What the scan found and could have marked fixed is lost, so the
         // error stays once the store reads again, as after a failed save. A
-        // cancelled scan with nothing to list would have changed nothing.
-        let found = r.findings.iter().any(|f| f.kind == "review");
+        // cancelled scan with nothing to list, of either kind, would have
+        // changed nothing.
+        let found = r
+            .findings
+            .iter()
+            .any(|f| matches!(f.kind, "review" | "inventory"));
         if found || !app.monitor.cancel.load(Ordering::SeqCst) {
             app.storage_unsaved.store(true, Ordering::SeqCst);
         }
@@ -1612,24 +1680,17 @@ fn summary_text(app: &App) -> Answer<String> {
     ))
 }
 
-/// `index` is a result's position, or for a review item its id.
+/// `index` is a listed item's id, worth reviewing or stored. A result's
+/// place in the report no longer names anything.
 fn finding_path(app: &App, index: usize, review: bool) -> Answer<PathBuf> {
-    if review {
-        return refresh_state(app)
-            .items
-            .iter()
-            .find(|i| i.id == index as u64)
-            .and_then(|i| full_path(&i.path, app.home.as_deref().ok()))
-            .ok_or_else(|| "This item has no file on this Mac to open.".into());
+    if !review {
+        return Err("That result is no longer shown.".into());
     }
-    let r = app.report.lock().unwrap();
-    let f = r
-        .as_ref()
-        .and_then(|r| r.findings.get(index))
-        .ok_or("That result is no longer shown.")?;
-    full_path(&f.path, app.home.as_deref().ok()).ok_or_else(|| {
-        "This name has unusual characters, so Loose Keys will not open or copy it.".into()
-    })
+    let state = refresh_state(app);
+    state
+        .locate(index as u64)
+        .and_then(|(_, i)| full_path(&i.path, app.home.as_deref().ok()))
+        .ok_or_else(|| "This item has no file on this Mac to open.".into())
 }
 
 /// The real path of a result, for the front end to copy or to show in the
@@ -1696,18 +1757,20 @@ fn recheck_path(rel: &str, home: Option<&Path>) -> Option<PathBuf> {
 
 /// What a listed item's file holds now, read again as its rule reads it,
 /// with each value's digest under the store's key: what marks an item fixed.
-/// None where the file cannot be read again, was listed under a name that
-/// does not name it (`recheck_path`), or `stop` said to stop before it was
-/// read to its end.
+/// Only what a scan would list as `want`'s kind of item counts. None where
+/// the file cannot be read again, was listed under a name that does not
+/// name it (`recheck_path`), or `stop` said to stop before it was read to
+/// its end.
 fn still_there(
     item: &review::Item,
     home: &Path,
     key: &[u8],
+    want: scan::Want,
     stop: &dyn Fn() -> bool,
 ) -> Option<review::Still> {
     let path = recheck_path(&item.path, Some(home))?;
     let digest = |rule: &str, bytes: &[u8], shared| material_fingerprint(rule, key, bytes, shared);
-    scan::recheck_identities(&item.rule, &path, home, item.mount, &digest, stop)
+    scan::recheck_identities(&item.rule, &path, home, item.mount, &digest, want, stop)
 }
 
 /// `root`: the scan ran as root, where no link is followed.
@@ -1807,7 +1870,7 @@ mod tests {
 
     /// The app's state on a synthetic home folder, as the first command
     /// finds it for the real one.
-    fn engine(name: &str) -> (PathBuf, App) {
+    pub(crate) fn engine(name: &str) -> (PathBuf, App) {
         let home = std::env::temp_dir().join(format!(
             "credential-engine-test-{}-{name}",
             std::process::id()
@@ -1820,7 +1883,7 @@ mod tests {
 
     /// One command through the dispatcher, and its answer as the front end
     /// reads it.
-    fn ask(app: &App, command: &str, args: &str) -> Value {
+    pub(crate) fn ask(app: &App, command: &str, args: &str) -> Value {
         serde_json::from_str(&call(Some(app), command, args)).unwrap()
     }
 
@@ -3096,17 +3159,17 @@ mod tests {
         std::fs::remove_dir_all(home).unwrap();
     }
 
-    static SEEN: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    pub(crate) static SEEN: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
     /// Held by a test while it scans through the app's side: every scan's
     /// events go to the one handler, whichever test set it. The lock guards
     /// no data, so a test that failed holding it does not fail the next.
-    fn one_scan() -> std::sync::MutexGuard<'static, ()> {
+    pub(crate) fn one_scan() -> std::sync::MutexGuard<'static, ()> {
         static ONE_SCAN: Mutex<()> = Mutex::new(());
         ONE_SCAN.lock().unwrap_or_else(|held| held.into_inner())
     }
 
-    extern "C" fn seen(name: *const c_char, payload: *const c_char) {
+    pub(crate) extern "C" fn seen(name: *const c_char, payload: *const c_char) {
         // SAFETY: the engine passes two NUL-terminated strings.
         let text = |at| unsafe { CStr::from_ptr(at) }.to_str().unwrap().to_string();
         SEEN.lock().unwrap().push((text(name), text(payload)));
@@ -3771,7 +3834,7 @@ mod tests {
         );
         assert_eq!(
             list["counts"],
-            json!({ "open": 0, "set_aside": 1, "kept": 1, "fixed": 0 })
+            json!({ "open": 0, "set_aside": 1, "kept": 1, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
         );
         // Each copy by a decision of its own, with what was agreed to there:
         // its rule, kind, risk, what the file held and its place.
@@ -3815,7 +3878,7 @@ mod tests {
         assert_eq!(entry["state"], "open");
         assert_eq!(
             list["counts"],
-            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0 })
+            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
         );
         assert!(!list.to_string().contains(&token));
     }
@@ -3864,7 +3927,7 @@ mod tests {
         );
         assert_eq!(
             list["counts"],
-            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0 })
+            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
         );
         assert!(stored.decisions.is_empty());
         assert!(!list.to_string().contains(&token));
@@ -4209,17 +4272,17 @@ mod tests {
         let names: Vec<&str> = seen.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names[names.len() - 2..], ["review-ready", "monitor-status"]);
 
-        // The real path is handed over by a result's index or a review item's id.
+        // The real path is handed over by a listed item's id, and no longer
+        // by a result's place in the report.
         let real = format!("{shown}/Documents/export.csv");
         let by_index = json!({ "index": item["index"], "review": false }).to_string();
-        assert_eq!(ask(&app, "item_path", &by_index)["ok"], real);
+        assert_eq!(
+            ask(&app, "item_path", &by_index)["error"],
+            "That result is no longer shown."
+        );
         let review = ask(&app, "pending_review", "{}");
         let by_id = json!({ "index": review["ok"]["items"][0]["id"], "review": true }).to_string();
         assert_eq!(ask(&app, "item_path", &by_id)["ok"], real);
-        assert_eq!(
-            ask(&app, "item_path", r#"{"index":7,"review":false}"#)["error"],
-            "That result is no longer shown."
-        );
 
         let text = ask(&app, "summary_text", "{}");
         assert!(text["ok"]
@@ -4261,7 +4324,7 @@ mod tests {
         std::fs::rename(home.join("Documents"), home.join("Moved")).unwrap();
         symlink(home.join("Moved"), home.join("Documents")).unwrap();
         assert_eq!(
-            ask(&app, "item_path", &by_index)["error"],
+            ask(&app, "item_path", &by_id)["error"],
             "Could not open the folder (unreadable)."
         );
 
@@ -5340,11 +5403,12 @@ mod tests {
         /// Save a report as the app and the helper do, with each listed
         /// file they would look at again read as they read it.
         fn save(&self, state: &mut review::Review, report: &Report) -> bool {
-            state.merge(report, |item| {
+            state.merge(report, |item, want| {
                 let path = recheck_path(&item.path, Some(&self.0))?;
-                scan::recheck_identities(&item.rule, &path, &self.0, item.mount, &stand_in, &|| {
-                    false
-                })
+                let never = || false;
+                scan::recheck_identities(
+                    &item.rule, &path, &self.0, item.mount, &stand_in, want, &never,
+                )
             })
         }
     }

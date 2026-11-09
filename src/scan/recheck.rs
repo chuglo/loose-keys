@@ -37,11 +37,20 @@ pub fn recheck_values(
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
-    recheck_by(rule, path, home, mount, digest, false, &|| false)
+    recheck_by(rule, path, home, mount, digest, None, &|| false)
+}
+
+/// Which kind of item a recheck is for: one worth reviewing, or a stored
+/// sign-in. Each keeps what a scan would list as that kind.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Want {
+    Review,
+    Stored,
 }
 
 /// As `recheck_values`, with private registry-place identities instead of
-/// display labels where available. Only for private review-state comparisons.
+/// display labels where available, keeping only what a scan would list as
+/// `want`'s kind of item. Only for private review-state comparisons.
 /// `stop` is asked between the pieces of a file read through, which can be
 /// large; once it says to stop, nothing is known.
 pub fn recheck_identities(
@@ -50,9 +59,10 @@ pub fn recheck_identities(
     home: &Path,
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
+    want: Want,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
-    recheck_by(rule, path, home, mount, digest, true, stop)
+    recheck_by(rule, path, home, mount, digest, Some(want), stop)
 }
 
 pub(super) fn scope_digest(
@@ -67,21 +77,29 @@ pub(super) fn scope_digest(
     Some(digest("", &material, false))
 }
 
+/// `identities`: private registry-place identities, keeping what a scan would
+/// list as that kind of item; None, display labels, for an item worth
+/// reviewing.
 fn recheck_by(
     rule: &str,
     path: &Path,
     home: &Path,
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
-    identities: bool,
+    identities: Option<Want>,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
     let mut still = Vec::new();
+    // What a scan lists as a stored sign-in, as `Scan::add_from` decides it:
+    // a test credential, or what its rule stores while others cannot read
+    // the file. Asked about for review, what it always kept.
+    let kept = |rule: &Rule, hit: &Hit, shared: bool| match identities {
+        Some(Want::Stored) => hit.low || (rule.kind == "inventory" && !shared),
+        _ => rule.kind == "review" || shared,
+    };
     // The value alone, under no rule's name, as `Scan::add_from` asks for it.
     let valued = |hit: Hit, bytes: &[u8]| {
-        let scope = identities
-            .then(|| scope_digest(&hit, bytes, digest))
-            .flatten();
+        let scope = identities.and_then(|_| scope_digest(&hit, bytes, digest));
         let value = hit.span.and_then(|s| bytes.get(s));
         (scope.or(hit.subject), value.map(|v| digest("", v, false)))
     };
@@ -106,6 +124,8 @@ fn recheck_by(
     }
     for rule in forms {
         match rule.matcher {
+            // Presence alone is never a stored sign-in.
+            Matcher::Present if identities == Some(Want::Stored) => continue,
             // Presence is the finding: say what is still there, by its name.
             Matcher::Present => {
                 // A link on the way is followed as a scan follows it: into
@@ -138,7 +158,7 @@ fn recheck_by(
                 continue;
             }
             Matcher::Stream(test) => {
-                let Some((file, len, _)) = open_regular(path).ok()? else {
+                let Some((file, len, shared)) = open_regular(path).ok()? else {
                     return crate::fsutil::checked_or_absent(path, mount, home).then_some(still);
                 };
                 if len > STREAM_MAX {
@@ -169,7 +189,9 @@ fn recheck_by(
                     };
                     if cut > 0 {
                         let piece: Vec<u8> = carry.drain(..cut).collect();
-                        for hit in test(&piece, 1).ok()? {
+                        let wanted =
+                            |hit: &Hit| identities != Some(Want::Stored) || kept(rule, hit, shared);
+                        for hit in test(&piece, 1).ok()?.into_iter().filter(wanted) {
                             let mut hasher = std::collections::hash_map::DefaultHasher::new();
                             hit.subject.hash(&mut hasher);
                             hit.span
@@ -205,9 +227,8 @@ fn recheck_by(
             Matcher::Whole { test, .. } => test(&h.bytes).ok()?,
             _ => Vec::new(),
         };
-        if rule.kind == "review" || h.shared {
-            still.extend(hits.into_iter().map(|hit| valued(hit, &h.bytes)));
-        }
+        let hits = hits.into_iter().filter(|hit| kept(rule, hit, h.shared));
+        still.extend(hits.map(|hit| valued(hit, &h.bytes)));
     }
     Some(still)
 }

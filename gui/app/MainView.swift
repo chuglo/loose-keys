@@ -137,8 +137,7 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch model.pane ?? .overview {
         case .overview: OverviewView()
-        case .review, .setAside: ReviewTable()
-        case .stored: StoredTable()
+        case .review, .setAside, .stored: ReviewTable()
         }
     }
 
@@ -170,8 +169,12 @@ struct MainView: View {
                          comment: "Subtitle of the Set Aside page: how many findings it lists, and that they still count in scan results.")
                 : ""
         case .stored:
-            return model.results == nil ? ""
-                : String(localized: "\(model.storedShown.count) items", comment: "Subtitle of Stored Sign-ins: how many sign-ins the list shows.")
+            guard model.reviewProblem == nil, model.review != nil else { return "" }
+            let count = String(localized: "\(model.storedCount) items", comment: "Subtitle of Stored Sign-ins: how many sign-ins the list shows.")
+            return model.review?.storedFull == true
+                ? count + ", " + String(localized: "list full, so some sign-ins are missing",
+                                        comment: "Last part of the Stored Sign-ins subtitle, after the count and a comma: the list had no room for some sign-ins.")
+                : count
         case .overview:
             return ""
         }
@@ -248,7 +251,7 @@ struct Sidebar: View {
                     .badge(model.reviewCount)
                     .tag(Pane.review)
                 Label("Stored Sign-ins", systemImage: "key")
-                    .badge(model.results?.stored ?? 0)
+                    .badge(model.storedCount)
                     .tag(Pane.stored)
                 Label("Set Aside", systemImage: "archivebox")
                     .badge(model.setAsideCount)

@@ -250,6 +250,22 @@
 			<string>%lld hallazgos, pero no están en esta lista. Vuelve a analizar o guarda el informe para verlos.</string>
 		</dict>
 	</dict>
+	<key>The last scan found %lld sign-ins, but they aren't in this list. Scan again, or save the report to see them.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>El último análisis encontró %#@signins@</string>
+		<key>signins</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld credencial, pero no está en esta lista. Vuelve a analizar o guarda el informe para verla.</string>
+			<key>other</key>
+			<string>%lld credenciales, pero no están en esta lista. Vuelve a analizar o guarda el informe para verlas.</string>
+		</dict>
+	</dict>
 	<key>The same credential is in %lld places</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>

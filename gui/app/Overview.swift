@@ -294,8 +294,6 @@ struct OverviewView: View {
     }
 
     @ViewBuilder private var resultsFooter: some View {
-        // That a manual scan's details last only until quitting is said on
-        // Stored Sign-ins, where they are missed, not here.
         if !model.preparingAccess && model.phase != .scanning && (model.findingsNote != nil || model.somePlacesNotChecked) {
             VStack(alignment: .leading, spacing: 4) {
                 if let note = model.findingsNote {

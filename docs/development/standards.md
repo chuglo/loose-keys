@@ -675,6 +675,83 @@ reads and failures; the sample window check opens the list from the Overview,
 asserts that no scan was requested and that a failed read keeps the saved
 paths, and checks that Settings neither counts nor links to the list.
 
+### Saved stored sign-ins
+
+Stored sign-ins are kept in their own part of the state, `Review.stored`
+(`gui/src/review/stored.rs`), not as a kind of item beside the findings
+worth reviewing. Builds before it ignore that field and drop it when they
+save. A generation number that made them refuse the file would instead stop
+a helper still running from before an update from saving Worth Reviewing at
+all, and nothing in the app restarts a running helper. So an older build
+costs the stored sign-ins and the choices about them until the next scan,
+never the findings that alert.
+
+Both kinds share `next_id`, and `Store::load` and `Store::save` refuse an id
+held in both lists, more than `MAX_STORED` (512) stored sign-ins, or more
+than `MAX_ITEMS` items in all. Stored sign-ins take at most an eighth of
+`ITEM_BYTES` (768 KiB), and their decisions 512 entries and a quarter of
+`DECISION_BYTES`, inside the existing limits, so the whole state stays
+within what older builds load. One that does not fit sets `stored.full`,
+never Worth Reviewing's `full`. Worth Reviewing first drops resolved
+stored sign-ins when it needs room; they are never shown.
+
+Nothing about a stored sign-in alerts. `ingest_stored` has its own revision
+counter, `stored.revision`, which a notification never reads, and does not
+touch `pending`, `attempts` or `retry_at`. A whole-file fingerprint that
+changes alone, as at a token refresh, keeps the revision, so a press drawn
+before it still names the item. Worth Reviewing is resolved and ingested
+first, and its check for another copy reads only its own items, so a stored
+copy never makes a finding worth reviewing look old. When a file becomes
+readable by others, the stored item is marked gone and the finding worth
+reviewing is new and alerts; when it is made private again, the finding is
+marked fixed and the stored sign-in opens quietly.
+
+Decisions are kept apart. A stored sign-in takes only Kept, which covers
+its file and lasts `RECONFIRM` as for a finding; `decision_stored` honours
+only Kept and the organization's list, and the engine refuses another
+reason. A reason about the
+value would also have covered a copy of it in a file worth reviewing. The
+organization's list and the record of entries moved back are shared, so
+moving one kind back at a file also stops the list setting aside the other
+kind there. Setting one kind aside keeps that record while the other kind is
+at the file, so the other kind, once moved back, stays open.
+
+A recheck asks for one kind (`Want`): `Want::Stored` keeps a test-format
+hit, or an inventory rule's hit in a file others can't read, which is what a
+scan lists as a stored sign-in, and skips presence-only rules.
+`stored.checked_at` is set by a manual scan that wasn't stopped and by the
+helper's last slice of a full pass; until then the window says no sign-ins
+yet rather than none. `pending_review` also counts the saved ones no longer
+found (`stored_gone`). When a scan this session counted more sign-ins than
+that and none is listed, the window says the list doesn't hold them, ahead
+of no sign-ins yet, so a list an older helper emptied never reads as not
+looked at. The window gets both kinds in `pending_review`'s one
+list, told apart by `kind`; a stored sign-in no longer found is left out,
+and `item_path` finds an id in either list.
+
+Verification: `gui/src/review/stored.rs` tests the saving without alerts,
+the share of the room and the room fixed findings hold, a slice that leaves a stored sign-in out, the order
+of the merge, files made readable or private, the one reason, a token
+refresh, decisions that don't cross kinds, an older build's save and the
+load limits. `a_recheck_for_stored_sign_ins_keeps_what_a_scan_would_list_as_one`
+in `src/scan/tests.rs` covers `Want`. `gui/src/stored_tests.rs` covers the
+counts, `decide_review` and `item_path`, a manual scan and `stored_full`,
+and plants a stored value to search every output for it and its pieces.
+The helper tests `a_batch_with_only_a_stored_sign_in_is_saved`,
+`a_stored_sign_in_found_in_the_background_never_notifies` and
+`removing_a_sign_in_file_marks_it_gone` cover background passes. The model
+check covers the window's lists, counts, empty states, a failed read and
+moving back; the
+sample window check sets a sign-in aside and back.
+
+Remaining risks: a helper from before the update that is still running
+empties the stored part each time it saves, until it restarts; whether an
+app update restarts it is macOS behaviour and unverified. Each token refresh
+saves the state once, within `RECHECK_AFTER`. The 10-second recheck budget
+is shared, with Worth Reviewing first, so a stored sign-in not reached stays
+listed until a later check. A Discovery key under a skipped folder stays
+listed, since that folder is not read again.
+
 ### Changes in folders discovery passes over
 
 A change inside a folder in `EXCLUDED` (`target`, `.git`, `node_modules` and
@@ -1622,24 +1699,27 @@ is replaced (macOS behaviour).
   frame with room for the title bar and toolbar; restored window sizes are
   not changed. Screens smaller than the 760 by 480 content minimum plus
   window chrome remain unsupported by this sizing rule.
-- Full manual reports, inventory and manual gaps live only in this app
-  session. Stored Sign-ins says so, distinguishes that from
-  saved review findings and decisions, and advises saving a report before
-  quitting. The Overview counts from saved findings until a scan, and says
-  nothing of saving: the answer is in the saved list.
+- Full manual reports and manual gaps live only in this app session;
+  `docs/usage.md` says so and no page does. Stored sign-ins are saved (see
+  "Saved stored sign-ins"). The Overview counts from saved findings until a
+  scan, and says nothing of saving: the answer is in the saved list.
   An empty, never-scanned review list keeps its onboarding rather than
   claiming that saved findings exist.
-- A row's selection is cleared in the model when the filter hides the row
-  (`dropHiddenSelection`), and a stored sign-in's when new results arrive,
-  because its id is its place in the results.
-- Worth Reviewing and Set Aside show separate portions of the same review
-  list. The split is only in the window: scanning, grouping, report counts
+- A row's selection is cleared in the model when the filter hides the row,
+  or when the page changes to another list (`dropHiddenSelection`). A row is
+  named by its item id on every list.
+- Worth Reviewing, Stored Sign-ins and Set Aside show separate portions of
+  the same review list; Set Aside lists both kinds. Stored sign-ins never
+  count toward the menu bar, the Overview or Worth Reviewing's subtitle, and
+  Stored Sign-ins has its own sort, since it has no Risk or First Seen
+  column. The split is only in the window: scanning, grouping, report counts
   and exports keep set-aside findings. A successful refresh clears a
-  selection when a decision moves its row to the other page; a grouped
+  selection when a decision moves its row to another page; a grouped
   credential stays in review while another copy still needs a decision.
-  Both pages show read/save failures instead of an empty result. When the
-  list cannot be used, Worth Reviewing's badge is the scan's count and Set
-  Aside has none, since a scan knows nothing of decisions.
+  Each page shows read/save failures instead of an empty result. When the
+  list cannot be used, the badges of Worth Reviewing and Stored Sign-ins are
+  the scan's counts and Set Aside has none, since a scan knows nothing of
+  decisions.
 - Decision reasons have fixed names in the app interface and private state.
   `testing` and `no-longer-works` are value decisions with the same scope
   and expiry as the older `test-or-revoked`, which still loads and shows as

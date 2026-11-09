@@ -151,7 +151,7 @@ struct Known {
     key: Vec<u8>,
     enabled: bool,
     paused: bool,
-    /// Paths of unresolved review items.
+    /// Paths of unresolved review items and stored sign-ins.
     open: Vec<PathBuf>,
     unnotified: bool,
     /// Folders the person asked not to be checked.
@@ -189,6 +189,7 @@ impl Agent {
         known.open = state
             .items
             .iter()
+            .chain(&state.stored.items)
             .filter(|i| !i.resolved)
             .filter_map(|i| crate::recheck_path(&i.path, Some(&self.home)))
             .collect();
@@ -252,7 +253,7 @@ impl Agent {
             // Counted from here: the store is locked from here on.
             let rechecking = Instant::now();
             let found: HashSet<&str> = report.findings.iter().map(|f| f.path.as_str()).collect();
-            state.merge(report, |item| {
+            state.merge(report, |item, want| {
                 let path = crate::recheck_path(&item.path, Some(&self.home))?;
                 let changed = |only: &[PathBuf]| only.iter().any(|p| path.starts_with(p));
                 if only.is_some_and(|only| !changed(only)) && !found.contains(item.path.as_str()) {
@@ -268,10 +269,15 @@ impl Agent {
                 if stop() {
                     return None;
                 }
-                crate::still_there(item, &self.home, key, &stop)
+                crate::still_there(item, &self.home, key, want, &stop)
             });
             state.agent.last_check = Some(report.generated_at.clone());
             state.agent.error = None;
+            // The last slice of a full pass, which looked for every stored
+            // sign-in.
+            if only.is_none() {
+                state.stored.checked_at = Some(report.generated_at.clone());
+            }
             if let Some(place) = place.filter(|place| *place != 0) {
                 state.agent.event_id = place;
             }
@@ -297,9 +303,14 @@ impl Agent {
         }
     }
 
-    /// Whether a batch of changes needs the store at all. Most do not.
+    /// Whether a batch of changes needs the store at all. Most do not. A
+    /// finding of either kind does, a stored sign-in as well as one worth
+    /// reviewing, and so does a change to the file of a listed one.
     fn concerns_review(&self, report: &Report, changed: &[PathBuf]) -> bool {
-        report.findings.iter().any(|f| f.kind == "review")
+        report
+            .findings
+            .iter()
+            .any(|f| matches!(f.kind, "review" | "inventory"))
             || self
                 .known
                 .lock()
@@ -1182,6 +1193,90 @@ mod tests {
         f.changes(&[file]);
         f.wait("the item for the deleted file to be fixed", |s| {
             open(s).is_empty()
+        });
+        f.stop();
+    }
+
+    /// A sign-in file a command-line tool keeps, which a scan lists as
+    /// stored while only its owner can read it.
+    const HUB: &str = ".config/hub";
+
+    fn sign_in(home: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = home.join(HUB);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "access_token: synthetic-only-value-1234\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    /// Whether the stored sign-in is listed, and whether it is still found.
+    fn stored(state: &Review) -> Option<bool> {
+        let hub = format!("~/{HUB}");
+        let item = state.stored.items.iter().find(|i| i.path == hub)?;
+        Some(!item.resolved)
+    }
+
+    /// A batch that changed only a stored sign-in was not saved: only
+    /// findings worth reviewing, and their files, needed the store.
+    #[test]
+    fn a_batch_with_only_a_stored_sign_in_is_saved() {
+        let mut f = Fixture::start("stored-batch", &[], |_| {});
+        let state = f.first_pass();
+        // The pass that ended looked for every stored sign-in.
+        assert!(state.stored.checked_at.is_some());
+        sign_in(&f.home);
+        f.changes(&[HUB]);
+        let state = f.wait("the stored sign-in to be saved", |s| {
+            stored(s) == Some(true)
+        });
+        assert!(state.items.is_empty());
+        f.stop();
+    }
+
+    #[test]
+    fn a_stored_sign_in_found_in_the_background_never_notifies() {
+        static ASKED: AtomicUsize = AtomicUsize::new(0);
+        let mut f = Fixture::tuned(
+            "stored-quiet",
+            &[],
+            |_| {},
+            |agent| {
+                agent.refresh = || {
+                    ASKED.fetch_add(1, Ordering::SeqCst);
+                }
+            },
+        );
+        f.first_pass();
+        sign_in(&f.home);
+        f.changes(&[HUB]);
+        let state = f.wait("the stored sign-in to be saved", |s| {
+            stored(s) == Some(true)
+        });
+        assert!(!f.agent.known.lock().unwrap().unnotified);
+        // Nothing to send, so macOS is not even asked whether it may be.
+        f.agent.deliver();
+        assert_eq!(ASKED.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            (state.revision, state.notified_revision, state.attempts),
+            (0, 0, 0)
+        );
+        assert!(!state.pending(crate::now()));
+        f.stop();
+    }
+
+    #[test]
+    fn removing_a_sign_in_file_marks_it_gone() {
+        let mut f = Fixture::start("stored-removed", &[], |_| {});
+        f.first_pass();
+        sign_in(&f.home);
+        f.changes(&[HUB]);
+        f.wait("the stored sign-in to be saved", |s| {
+            stored(s) == Some(true)
+        });
+        std::fs::remove_file(f.home.join(HUB)).unwrap();
+        f.changes(&[HUB]);
+        f.wait("the removed sign-in to be no longer found", |s| {
+            stored(s) == Some(false)
         });
         f.stop();
     }

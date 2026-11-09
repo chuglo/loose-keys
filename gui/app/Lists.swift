@@ -1,4 +1,5 @@
-// The lists the sidebar opens: what to review, what is stored, what was not checked.
+// The lists the sidebar opens: what to review, what is stored, what was set
+// aside, and what was not checked.
 import SwiftUI
 
 /// Keep the table and its column headings in place while explaining a
@@ -31,6 +32,8 @@ private struct FilterPresentation: ViewModifier {
     }
 }
 
+/// Worth Reviewing, Stored Sign-ins and Set Aside: one saved list, each page
+/// showing its part.
 struct ReviewTable: View {
     @EnvironmentObject private var model: AppModel
 
@@ -38,7 +41,8 @@ struct ReviewTable: View {
         if let error = model.reviewProblem {
             // Never "nothing to review" for a list that could not be read, saved or got.
             ContentUnavailableView {
-                Label(FailureTitle.openReview, systemImage: "exclamationmark.triangle")
+                Label(model.pane == .stored ? FailureTitle.openStored : FailureTitle.openReview,
+                      systemImage: "exclamationmark.triangle")
             } description: {
                 // The engine keeps its own failure until the app is opened
                 // again, when it reads the list afresh. A request of this
@@ -47,9 +51,9 @@ struct ReviewTable: View {
                 // results has a report to save.
                 Text(verbatim: model.results == nil
                      ? String(localized: "\(error) Quit and reopen the app to try again.",
-                              comment: "Worth Reviewing, when the list of findings could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS.")
+                              comment: "Worth Reviewing or Stored Sign-ins, when the saved list could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS.")
                      : String(localized: "\(error) Quit and reopen the app to try again. Save the report to see the last scan's findings.",
-                              comment: "Worth Reviewing, when the list of findings could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS."))
+                              comment: "Worth Reviewing or Stored Sign-ins, when the saved list could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS."))
             }
         } else if model.review == nil {
             // The first answer has not come. The engine waits for the list
@@ -64,8 +68,26 @@ struct ReviewTable: View {
             ContentUnavailableView {
                 Label(empty.title, systemImage: empty.symbol)
             } description: {
-                Text(empty.text)
+                if !empty.text.isEmpty { Text(empty.text) }
             }
+        } else if model.pane == .stored {
+            Table(model.reviewRows, selection: $model.selectedReviews, sortOrder: $model.storedSort) {
+                TableColumn("Sign-in", value: \.shownTitle) { (item: ReviewItem) in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.shownTitle).lineLimit(1)
+                        if let about = item.shownAbout {
+                            Text(about).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                .width(min: 180, ideal: 300)
+                TableColumn("Where", value: \.path) { (item: ReviewItem) in
+                    ReviewWhere(path: item.path, matches: model.matchingReviewPaths(item))
+                }
+                .width(min: 140, ideal: 240)
+            }
+            .fileMenu(model)
+            .modifier(FilterPresentation())
         } else {
             Table(model.reviewRows, selection: $model.selectedReviews, sortOrder: $model.reviewSort) {
                 TableColumn("Finding", value: \.shownTitle) { (item: ReviewItem) in
@@ -88,16 +110,7 @@ struct ReviewTable: View {
                 }
                 .width(min: 180, ideal: 320)
                 TableColumn("Where", value: \.path) { (item: ReviewItem) in
-                    VStack(alignment: .leading, spacing: 4) {
-                        PathText(path: item.path)
-                        ForEach(model.matchingReviewPaths(item), id: \.self) { path in
-                            Text(String(localized: "Matches: \(path)",
-                                        comment: "Under a grouped finding's representative path: another copy's path matches the Filter field."))
-                                .font(.caption).foregroundStyle(.secondary)
-                                .lineLimit(2).truncationMode(.middle)
-                                .help(path)
-                        }
-                    }
+                    ReviewWhere(path: item.path, matches: model.matchingReviewPaths(item))
                 }
                 .width(min: 130, ideal: 190)
                 // The first click puts the highest risk at the top.
@@ -111,18 +124,46 @@ struct ReviewTable: View {
                 }
                 .width(min: 90, ideal: 110, max: 160)
             }
-            .contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
-                // Not for a file whose name the app does not act on.
-                if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
-                    Button("Show in Finder") { model.showInFinder(id, review: true) }
-                    Button("Copy Path") { model.copyPath(id, review: true) }
-                }
-            } primaryAction: { ids in
-                if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
-                    model.showInFinder(id, review: true)
-                }
-            }
+            .fileMenu(model)
             .modifier(FilterPresentation())
+        }
+    }
+}
+
+extension Table {
+    /// A row's context menu, and Show in Finder on a double-click.
+    @MainActor fileprivate func fileMenu(_ model: AppModel) -> some View {
+        contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
+            // Not for a file whose name the app does not act on.
+            if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                Button("Show in Finder") { model.showInFinder(id) }
+                Button("Copy Path") { model.copyPath(id) }
+            }
+        } primaryAction: { ids in
+            if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
+                model.showInFinder(id)
+            }
+        }
+    }
+}
+
+/// A row's file, and under it each other copy's file the Filter field
+/// matches, so a row kept by another copy says why. Table cells don't reach
+/// the window's environment object, so the matches are passed in.
+private struct ReviewWhere: View {
+    let path: String
+    let matches: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            PathText(path: path)
+            ForEach(matches, id: \.self) { path in
+                Text(String(localized: "Matches: \(path)",
+                            comment: "Under a grouped finding's representative path: another copy's path matches the Filter field."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(2).truncationMode(.middle)
+                    .help(path)
+            }
         }
     }
 }
@@ -136,7 +177,8 @@ extension ReviewTable {
                     String(localized: "Findings you set aside appear here.",
                            comment: "The Set Aside page, empty."))
         }
-        if model.setAsideCount > 0 {
+        if model.pane == .stored { return storedEmpty }
+        if model.setAside(stored: false) > 0 {
             // Without a manual scan, describe the automatic pass's coverage.
             let rest: String
             if let results = model.results, results.notChecked > 0 {
@@ -193,38 +235,30 @@ extension ReviewTable {
                String(localized: "The last scan found nothing to review, but some places couldn't be checked.",
                       comment: "Worth Reviewing, empty after a scan that could not read some places."))
     }
-}
 
-struct StoredTable: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        if model.results == nil {
-            ContentUnavailableView {
-                Label(ManualReportText.noScanTitle, systemImage: "key")
-            } description: {
-                Text("After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them.")
-                Text(ManualReportText.lifetime)
-            }
-        } else {
-            Table(model.storedRows, selection: $model.selectedStored, sortOrder: $model.storedSort) {
-                TableColumn("Sign-in", value: \.shownTitle) { (row: StoredRow) in
-                    Text(row.shownTitle).lineLimit(1)
-                }
-                .width(min: 180, ideal: 300)
-                TableColumn("Where", value: \.file.path) { (row: StoredRow) in
-                    PathText(path: row.file.path)
-                }
-                .width(min: 140, ideal: 240)
-            }
-            .contextMenu(forSelectionType: StoredRow.ID.self) { ids in
-                // Not for a file whose name the app does not act on.
-                if let id = ids.first, model.storedRows.first(where: { $0.id == id })?.file.actionable != false {
-                    Button("Show in Finder") { model.showInFinder(id, review: false) }
-                    Button("Copy Path") { model.copyPath(id, review: false) }
-                }
-            }
-            .modifier(FilterPresentation())
+    /// What an empty Stored Sign-ins says. "No Stored Sign-ins" only once a
+    /// scan has looked for each, and never while the last scan counted some
+    /// the list doesn't hold.
+    private var storedEmpty: (title: String, symbol: String, text: String) {
+        switch model.storedEmpty {
+        case .allSetAside:
+            return (String(localized: "No Sign-ins Waiting", comment: "Stored Sign-ins' heading when every stored sign-in is set aside."), "tray",
+                    String(localized: "You set aside every stored sign-in.", comment: "Stored Sign-ins, empty because every stored sign-in is set aside."))
+        case .notListed(let found):
+            return (FailureTitle.showFindings, "exclamationmark.triangle",
+                    String(localized: "The last scan found \(found) sign-ins, but they aren't in this list. Scan again, or save the report to see them.",
+                           comment: "Stored Sign-ins, empty although the last scan counted this many stored sign-ins."))
+        case .notLookedYet:
+            let automatic = model.monitor?.enabled == true
+            return (String(localized: "No Sign-ins Yet", comment: "Stored Sign-ins' heading before a scan has looked for stored sign-ins."), "key",
+                    automatic
+                        ? String(localized: "Sign-ins your apps have saved show up here as Loose Keys checks your files.",
+                                 comment: "Stored Sign-ins, empty while automatic scanning has not yet read every file once.")
+                        : String(localized: "After a scan, sign-ins your apps have saved appear here. Apps normally keep them, but malware can copy them.",
+                                 comment: "Stored Sign-ins, empty before a scan has looked for stored sign-ins, with automatic scanning off."))
+        case .none:
+            let none = String(localized: "No Stored Sign-ins", comment: "Stored Sign-ins' heading when a scan looked and found none.")
+            return model.somePlacesNotChecked ? (none, "key", NotCheckedText.some) : (none, "key", "")
         }
     }
 }

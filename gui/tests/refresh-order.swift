@@ -26,8 +26,21 @@ final class HeldEngine: Engine, @unchecked Sendable {
     private var calls: [HeldCall] = []
     private var unanswered: [String: Int] = [:]
     private var most: [String: Int] = [:]
+    private var events: ((String, Data) -> Void)?
 
-    func start(reviewRoute: Bool, onEvent: @escaping (String, Data) -> Void) {}
+    func start(reviewRoute: Bool, onEvent: @escaping (String, Data) -> Void) {
+        lock.lock()
+        events = onEvent
+        lock.unlock()
+    }
+
+    /// Sends an event to the model, as the engine does.
+    func fire(_ name: String) {
+        lock.lock()
+        let events = events
+        lock.unlock()
+        events?(name, Data("null".utf8))
+    }
 
     func call(_ command: String, _ args: [String: Any]) throws -> Data {
         let held = HeldCall(command, args)
@@ -251,6 +264,26 @@ func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> 
                  "skipped": [String](), "full": full])
 }
 
+/// A list of findings worth reviewing and stored sign-ins, as the engine
+/// sends both: each entry's state, and whether it is a stored sign-in. Ids
+/// count from 1, and the revision rises with them.
+func kindsList(_ entries: [(state: String, stored: Bool)], full: Bool = false, storedFull: Bool = false,
+               storedChecked: Bool = true, storedGone: Int = 0) -> String {
+    let items: [[String: Any]] = entries.enumerated().map { index, entry in
+        ["id": index + 1, "kind": entry.stored ? "inventory" : "review", "rule": "fixture-rule",
+         "path": "~/fixture-\(index + 1).txt", "title": entry.stored ? "Synthetic sign-in \(index + 1)" : "Synthetic finding \(index + 1)",
+         "explanation": "Review fixture", "severity": entry.stored ? "low" : "high", "state": entry.state,
+         "set_aside": entry.state == "set-aside" ? (entry.stored ? "kept" : "not-a-credential") : NSNull(),
+         "revision": index + 1]
+    }
+    let count = { (state: String, stored: Bool) in entries.filter { $0.state == state && $0.stored == stored }.count }
+    return json(["items": items,
+                 "counts": ["open": count("open", false), "set_aside": count("set-aside", false), "kept": 0,
+                            "fixed": count("fixed", false), "stored": count("open", true),
+                            "stored_set_aside": count("set-aside", true), "stored_gone": storedGone],
+                 "skipped": [String](), "full": full, "stored_full": storedFull, "stored_checked": storedChecked])
+}
+
 @MainActor func multipleReviewSelection() async {
     let bench = Bench()
     bench.model.pane = .review
@@ -441,9 +474,9 @@ func places(_ extra: [String], error: String? = nil) -> String {
 }
 
 /// What a scan that found this many review findings answers.
-func scanResults(review: Int) -> String {
+func scanResults(review: Int, stored: Int = 0) -> String {
     json(["status": "partial", "tool_version": "0.0.0-test", "generated_at": "2026-10-13T00:00:00Z",
-          "review": review, "stored": 0, "not_checked": 0, "groups": [Any](), "gaps": [Any](),
+          "review": review, "stored": stored, "not_checked": 0, "groups": [Any](), "gaps": [Any](),
           "roots": ["~"], "excluded": [String](), "limitations": ""])
 }
 
@@ -1267,22 +1300,22 @@ func engineTextTableChoice() {
     check(model.reviewRows.map(\.id) == [1, 2], "sort: the Finding heading sorts by the title shown")
     model.reviewSort = [KeyPathComparator(\ReviewItem.shownTitle, order: .reverse)]
     check(model.reviewRows.map(\.id) == [2, 1], "sort: the Finding heading sorts by the title shown, in reverse")
-    let group: [String: Any] = ["kind": "inventory", "severity": "low", "title": "Saved password",
-                                "explanation": "Inventory fixture", "steps": [String](),
-                                "items": [["index": 0, "path": "~/fixture-3.txt", "subject": "profile work", "actionable": true]]]
-    let results = json(["status": "partial", "tool_version": "0.0.0-test", "generated_at": "2026-10-13T00:00:00Z",
-                        "review": 0, "stored": 1, "not_checked": 0, "groups": [group], "gaps": [Any](),
-                        "roots": ["~"], "excluded": [String](), "limitations": ""])
-    model.results = try? decodeEngine(ScanResults.self, from: Data(results.utf8))
+    var stored = items
+    stored[0]["kind"] = "inventory"
+    stored[1]["kind"] = "inventory"
+    stored[1]["title"] = "Saved password"
+    stored[1]["subject"] = NSNull()
+    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": stored]).utf8))
+    model.pane = .stored
     for (typed, wanted, what) in [
-        ("contrasena", 1, "a shown title typed without its accents"),
-        ("saved password", 1, "the engine's English title"),
+        ("contrasena", 2, "a shown title typed without its accents"),
+        ("saved password", 2, "the engine's English title"),
         ("perfil work", 1, "what the row is about, as shown"),
         ("profile work", 1, "what the row is about, as the engine gave it"),
         ("llave", 0, "another title"),
     ] {
         model.search = typed
-        check(model.storedRows.count == wanted, "filter: \(what) leaves \(wanted) stored sign-ins, not \(model.storedRows.count)")
+        check(model.reviewRows.count == wanted, "filter: \(what) leaves \(wanted) stored sign-ins, not \(model.reviewRows.count)")
     }
     model.search = ""
 }
@@ -1312,32 +1345,18 @@ func engineTextTableChoice() {
     model.search = " \t "
     check(model.filterSummary == nil, "filter count: whitespace does not advertise an active filter")
     model.pane = .stored
-    model.search = "profile"
-    check(model.filterSummary == nil, "filter count: stored sign-ins need scan results")
-    let group: [String: Any] = ["kind": "inventory", "severity": "low", "title": "Saved sign-in",
-                                "explanation": "Inventory fixture", "steps": [String](),
-                                "items": [["index": 0, "path": "~/fixture/profile.json", "actionable": true],
-                                          ["index": 1, "path": "~/fixture/other.json", "actionable": true]]]
-    model.results = try? decodeEngine(ScanResults.self, from: Data(json([
-        "status": "partial", "tool_version": "0.0.0-test", "generated_at": "2026-10-13T00:00:00Z",
-        "review": 0, "stored": 2, "not_checked": 0, "groups": [group], "gaps": [Any](),
-        "roots": ["~"], "excluded": [String](), "limitations": "",
-    ]).utf8))
+    model.search = "fixture-3"
+    check(model.filterSummary == nil, "filter count: Stored Sign-ins with none listed shows no count")
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("open", false), ("open", true), ("open", true),
+                                                                             ("set-aside", true)]).utf8))
     check(model.filterSummary == "Showing 1 of 2 items", "filter count: stored sign-ins show the filtered and full totals")
     model.search = "not present"
     check(model.filterSummary == "Showing 0 of 2 items", "filter count: stored sign-ins report no matches explicitly")
     check(model.filterHasNoMatches, "filter message: stored sign-ins offer no-match guidance")
     model.search = ""
-    check(model.filterSummary == nil && model.storedRows.count == 2,
+    check(model.filterSummary == nil && model.reviewRows.count == 2,
           "filter count: clearing restores all stored sign-ins")
     check(!model.filterHasNoMatches, "filter message: clearing dismisses no-match guidance")
-}
-
-func manualReportSessionWording() {
-    check(ManualReportText.noScanTitle == "No Manual Scan This Session",
-          "manual report: missing session details do not claim the Mac was never scanned")
-    check(ManualReportText.lifetime == "Manual scan details are kept only until you quit. Saved review findings and decisions remain available. Use Scan Now for current details, and save the report before quitting.",
-          "manual report: explain session lifetime, retained history, rescan and export")
 }
 
 func initialWindowFitsScreen() {
@@ -1369,10 +1388,12 @@ func initialWindowFitsScreen() {
     check(!model.inspectorShown, "inspector: filtering away the selection closes empty details")
     model.toggleInspector()
     check(model.inspectorShown, "inspector: the toolbar can explicitly show empty details")
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("open", false), ("open", true)]).utf8))
+    model.search = ""
     model.pane = .stored
-    model.selectedStored = 2
-    check(model.inspectorShown, "inspector: choosing a stored sign-in opens details")
-    model.selectedStored = nil
+    model.selectedReview = 2
+    check(model.inspectorShown && model.currentReview?.id == 2, "inspector: choosing a stored sign-in opens details")
+    model.selectedReviews = []
     check(!model.inspectorShown, "inspector: clearing the stored selection closes empty details")
 }
 
@@ -1451,6 +1472,162 @@ func initialWindowFitsScreen() {
           "grouped copies: the inspector lists each other file once, not the finding's own file again")
     check(others.first?.id == 54 && others.first?.fixed == false && others.first?.setAside == true,
           "grouped copies: a file still holding the credential is not shown as fixed")
+}
+
+// MARK: Stored sign-ins
+//
+// They come in the same list as what is worth reviewing, told apart by kind,
+// and are saved: a window opened after the scan that found them lists them.
+
+/// What a relaunched window shows, with no scan of its own: each page lists
+/// its kind, and nothing stored counts toward what is worth reviewing.
+@MainActor func storedSignInsFromTheSavedList() async {
+    let bench = Bench()
+    let model = bench.model
+    model.pane = .stored
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(kindsList([("open", false), ("set-aside", false), ("open", true),
+                                                 ("set-aside", true), ("open", true)])))
+    check(model.results == nil && model.reviewRows.map(\.id) == [3, 5],
+          "stored: Stored Sign-ins lists the saved sign-ins still to look at, with no scan this session (\(model.reviewRows.map(\.id)))")
+    check(model.storedCount == 2, "stored: the badge counts the saved sign-ins (\(model.storedCount))")
+    model.pane = .review
+    check(model.reviewRows.map(\.id) == [1] && model.reviewCount == 1 && model.openCount == 1,
+          "stored: Worth Reviewing and its count leave stored sign-ins out")
+    check(model.reviewSummary == "1 to review, 1 set aside", "stored: Worth Reviewing's subtitle leaves stored sign-ins out (\(model.reviewSummary))")
+    check(model.menuBarLine == "1 loose key to review", "stored: the menu bar counts no stored sign-in")
+    model.pane = .setAside
+    check(Set(model.reviewRows.map(\.id)) == [2, 4] && model.setAsideCount == 2,
+          "stored: Set Aside lists both kinds, and its count sums them")
+    // Stored Sign-ins has no Risk column, so a risk heading pressed on
+    // another list does not order it.
+    model.reviewSort = [KeyPathComparator(\ReviewItem.riskLevel)]
+    model.pane = .stored
+    check(model.reviewRows.map(\.id) == [3, 5], "stored: a sort chosen on Worth Reviewing does not order Stored Sign-ins")
+    model.storedSort = [KeyPathComparator(\ReviewItem.shownTitle, order: .reverse)]
+    check(model.reviewRows.map(\.id) == [5, 3], "stored: the Sign-in heading orders Stored Sign-ins")
+    // A full Worth Reviewing is shorter than the scan's count by what it left
+    // out, which stored sign-ins on the list do not make up.
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("open", false), ("open", true), ("open", true)], full: true).utf8))
+    model.results = try? decodeEngine(ScanResults.self, from: Data(scanResults(review: 2, stored: 2).utf8))
+    check(model.findingsNote == "The scan found 2 findings, but the list is full at 1 item. Save the report to see them all.",
+          "stored: the Overview's full-list note counts no stored sign-in as listed (\(model.findingsNote ?? "none"))")
+}
+
+/// A list that cannot be read is never an empty one: the badge is the last
+/// scan's count, and the last list read stays for when it can be used again.
+@MainActor func storedListThatCannotBeRead() async {
+    let bench = Bench()
+    let model = bench.model
+    model.pane = .stored
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(kindsList([("open", true), ("open", true)])))
+    model.results = try? decodeEngine(ScanResults.self, from: Data(scanResults(review: 0, stored: 5).utf8))
+    let failed = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(failed, refused)
+    check(model.reviewProblem != nil && model.storedCount == 5 && model.setAsideCount == 0,
+          "stored: with the list unreadable, the badge is the scan's own count (\(model.storedCount))")
+    check(model.review?.items.filter(\.isStored).count == 2 && model.currentReviews.isEmpty && model.filterSummary == nil,
+          "stored: a failed read keeps the last list but offers none of it")
+    let back = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(back, .success(kindsList([("open", true), ("open", true)])))
+    check(model.reviewProblem == nil && model.storedCount == 2 && model.reviewRows.count == 2,
+          "stored: the list is used again once it can be read")
+}
+
+/// An empty Stored Sign-ins says why. A scan this session that counted
+/// sign-ins the list doesn't hold is a list that couldn't be filled, even
+/// before any scan was recorded as looking for them, as when an older helper
+/// saved the list without them. Sign-ins saved and since no longer found
+/// empty it without any failure.
+@MainActor func storedEmptyStates() async {
+    let bench = Bench()
+    let model = bench.model
+    model.pane = .stored
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(kindsList([("open", false)], storedChecked: false)))
+    check(model.storedEmpty == .notLookedYet, "stored: with no scan, an empty list is one not looked at yet (\(model.storedEmpty))")
+    model.results = try? decodeEngine(ScanResults.self, from: Data(scanResults(review: 1, stored: 5).utf8))
+    check(model.storedEmpty == .notListed(5),
+          "stored: a scan's sign-ins missing from a list never looked at are not 'none yet' (\(model.storedEmpty))")
+    model.results = try? decodeEngine(ScanResults.self, from: Data(scanResults(review: 1, stored: 1).utf8))
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("open", false)], storedGone: 1).utf8))
+    check(model.storedEmpty == .none,
+          "stored: a list emptied because the scan's sign-ins are gone says there are none (\(model.storedEmpty))")
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("open", false)]).utf8))
+    check(model.storedEmpty == .notListed(1), "stored: a list that holds none of the scan's sign-ins says so (\(model.storedEmpty))")
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("set-aside", true)], storedGone: 1).utf8))
+    check(model.storedEmpty == .allSetAside, "stored: every sign-in set aside is said first (\(model.storedEmpty))")
+}
+
+/// Saved stored sign-ins are no scan of this session: with nothing worth
+/// reviewing and no check recorded, the Overview and the menu bar still say
+/// nothing has been checked, as Worth Reviewing does.
+@MainActor func storedOnlyIsNotAScan() async {
+    let bench = Bench()
+    let model = bench.model
+    model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: false).utf8))
+    model.review = try? decodeEngine(ReviewList.self, from: Data(kindsList([("open", true), ("set-aside", true)]).utf8))
+    check(model.results == nil && model.nothingChecked && model.showsWelcome,
+          "stored: saved sign-ins alone leave the Overview as before any scan")
+    check(model.menuBarLine == "No scan this session", "stored: saved sign-ins alone leave the menu bar as before any scan (\(model.menuBarLine))")
+}
+
+/// A read that fails on Stored Sign-ins is named as that page names it.
+@MainActor func storedReadFailureTitle() async {
+    let bench = Bench()
+    let model = bench.model
+    model.pane = .stored
+    let failed = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(failed, refused)
+    check(model.failure?.title == FailureTitle.openStored,
+          "stored: a failed read on Stored Sign-ins has the page's own title (\(model.failure?.title ?? "none"))")
+}
+
+/// Moving a stored sign-in back from Set Aside opens Stored Sign-ins on it,
+/// and a mixed selection moves only the kind asked for.
+@MainActor func storedMoveBackFollowsTheItem() async {
+    let bench = Bench()
+    let model = bench.model
+    model.pane = .setAside
+    let read = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(read, .success(kindsList([("set-aside", false), ("set-aside", true)])))
+    model.selectedReview = 2
+    guard let item = model.currentReview else { return check(false, "stored: a set-aside sign-in is selected") }
+    let moved = await bench.ask("decide_review") { $0.decide(item, reason: nil) }
+    check(moved.call.args["id"] as? Int == 2 && moved.call.args["reason"] is NSNull,
+          "stored: Move to Stored Sign-ins names the sign-in")
+    await bench.answer(moved, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 1), .success(kindsList([("set-aside", false), ("open", true)])))
+    await eventually("the returned sign-in is shown") { model.pane == .stored }
+    check(model.currentReview?.id == 2, "stored: moving a sign-in back opens Stored Sign-ins with it selected")
+
+    model.pane = .setAside
+    let both = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(both, .success(kindsList([("set-aside", false), ("set-aside", true)])))
+    model.selectedReviews = [1, 2]
+    let only = await bench.ask("decide_review") { $0.decideSelection(reason: nil, stored: true) }
+    check(only.call.args["id"] as? Int == 2, "stored: Move to Stored Sign-ins on a mixed selection moves the sign-in")
+    await bench.answer(only, .success("null"))
+    bench.answer(await bench.next("pending_review", after: 3), .success(kindsList([("set-aside", false), ("open", true)])))
+    await eventually("the mixed move finishes") { !model.decidingSelection }
+    check(bench.engine.held("decide_review").count == 2, "stored: a mixed move leaves the other kind where it is")
+}
+
+/// A notification is only ever about something worth reviewing.
+@MainActor func openReviewSkipsStoredSignIns() async {
+    let bench = Bench()
+    let model = bench.model
+    model.start(reviewRoute: false)
+    bench.answer(await bench.next("places"), .success(places([])))
+    bench.answer(await bench.next("pending_review"), .success(reviewList(0)))
+    bench.answer(await bench.next("monitor_status"), .success(monitorStatus(enabled: true)))
+    bench.engine.fire("open-review")
+    // The stored sign-in is the newest item, and open.
+    bench.answer(await bench.next("pending_review", after: 1), .success(kindsList([("open", false), ("open", true)])))
+    await eventually("the notification's finding is chosen") { model.selectedReview != nil }
+    check(model.pane == .review && model.selectedReview == 1,
+          "stored: a notification click never chooses a stored sign-in (\(model.selectedReview.map(String.init) ?? "none"))")
 }
 
 func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
@@ -1801,12 +1978,18 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("updates: a refused save", updatesSettingFailure),
             ("engine text: exact keys and templates", engineTextMatches),
             ("engine text: the table for the window's language", engineTextTableChoice),
-            ("manual report: session lifetime wording", manualReportSessionWording),
             ("filter: usable-list counts", filterResultCounts),
             ("window: initial size fits visible screen", initialWindowFitsScreen),
             ("inspector: compact until a selection", compactInspectorSelection),
             ("grouped copies: filter every path", groupedPathFiltering),
             ("grouped copies: one file is one copy", groupedCopiesInOneFile),
+            ("stored: listed from the saved list", storedSignInsFromTheSavedList),
+            ("stored: a list that cannot be read", storedListThatCannotBeRead),
+            ("stored: why the list is empty", storedEmptyStates),
+            ("stored: saved sign-ins alone are no scan", storedOnlyIsNotAScan),
+            ("stored: a failed read has the page's title", storedReadFailureTitle),
+            ("stored: moving back follows the item", storedMoveBackFollowsTheItem),
+            ("stored: a notification never chooses one", openReviewSkipsStoredSignIns),
             ("engine text: filter and sort by what is shown", engineTextFilterAndSort),
         ]
         for (name, run) in cases {

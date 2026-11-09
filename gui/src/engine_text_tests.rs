@@ -19,6 +19,7 @@ const ES_419: &str = "gui/macos/es-419.lproj/Engine.strings";
 const SOURCES: &[(&str, &str)] = &[
     ("gui/src/lib.rs", include_str!("lib.rs")),
     ("gui/src/review.rs", include_str!("review.rs")),
+    ("gui/src/review/stored.rs", include_str!("review/stored.rs")),
     ("gui/src/agent.rs", include_str!("agent.rs")),
     ("gui/src/monitor.rs", include_str!("monitor.rs")),
     ("gui/src/release.rs", include_str!("release.rs")),
@@ -50,6 +51,7 @@ fn source(name: &str) -> &'static str {
 const ENGINE: &[&str] = &[
     "gui/src/lib.rs",
     "gui/src/review.rs",
+    "gui/src/review/stored.rs",
     "gui/src/agent.rs",
     "gui/src/monitor.rs",
     "gui/src/release.rs",

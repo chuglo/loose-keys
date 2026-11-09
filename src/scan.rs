@@ -12,7 +12,7 @@ mod traversal;
 
 pub use known::read_when_skipped;
 pub use paths::{change_at, home, is_root, named_folder, on_disk, selected_root, skipped_folder};
-pub use recheck::{recheck, recheck_identities, recheck_values};
+pub use recheck::{recheck, recheck_identities, recheck_values, Want};
 
 use recheck::scope_digest;
 use traversal::Traversal;

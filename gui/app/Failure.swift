@@ -21,8 +21,11 @@ enum FailureTitle {
     static var openReview: String {
         String(localized: "Couldn't Open Worth Reviewing", comment: "The title of an alert: the list of findings could not be read. Worth Reviewing is the list's name in the sidebar.")
     }
+    static var openStored: String {
+        String(localized: "Couldn't Open Stored Sign-ins", comment: "The heading of Stored Sign-ins when the saved list could not be read. Stored Sign-ins is the list's name in the sidebar.")
+    }
     static var saveChoice: String {
-        String(localized: "Couldn't Save Your Choice", comment: "The title of an alert: Set Aside or Move to Worth Reviewing failed.")
+        String(localized: "Couldn't Save Your Choice", comment: "The title of an alert: Set Aside, Move to Worth Reviewing or Move to Stored Sign-ins failed.")
     }
     static var readPlaces: String {
         String(localized: "Couldn't Read the Places to Check", comment: "The title of an alert: the folders scans include could not be read. Places to Check is a heading in Settings.")

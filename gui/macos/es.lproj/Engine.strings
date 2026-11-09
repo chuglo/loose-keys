@@ -781,6 +781,12 @@
 /* gui/src/review.rs:353 */
 "Too many findings are set aside. Move some back to Worth Reviewing." = "Hay demasiados hallazgos dejados a un lado. Devuelve algunos a Para revisar.";
 
+/* gui/src/review/stored.rs:21 */
+"That reason doesn't apply to a stored sign-in." = "Ese motivo no se aplica a una credencial guardada.";
+
+/* gui/src/review/stored.rs:23 */
+"Too many stored sign-ins are set aside. Move some back to Stored Sign-ins." = "Hay demasiadas credenciales guardadas dejadas a un lado. Devuelve algunas a Credenciales guardadas.";
+
 /* gui/src/review.rs:739 */
 "Could not create the review list." = "No se pudo crear la lista de revisión.";
 

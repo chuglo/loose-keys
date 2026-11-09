@@ -44,23 +44,25 @@ struct AppCommands: Commands {
         }
         CommandMenu(Text("Item", comment: "A menu in the menu bar: what can be done to the finding or sign-in chosen in the list.")) {
             Button("Show in Finder") {
-                if let file = model.chosenFile { model.showInFinder(file.index, review: file.review) }
+                if let id = model.chosenFile { model.showInFinder(id) }
             }
             .disabled(model.chosenFile == nil)
             // Finder's own shortcut for Copy as Pathname.
             Button("Copy Path") {
-                if let file = model.chosenFile { model.copyPath(file.index, review: file.review) }
+                if let id = model.chosenFile { model.copyPath(id) }
             }
             .keyboardShortcut("c", modifiers: [.command, .option])
             .disabled(model.chosenFile == nil)
             Divider()
             if model.pane == .setAside {
-                Button("Move to Worth Reviewing") { model.returnChosen() }
-                    .disabled(model.currentReviews.isEmpty || model.decidingSelection)
+                Button("Move to Worth Reviewing") { model.returnChosen(stored: false) }
+                    .disabled(!model.canReturnChosen(stored: false))
+                Button("Move to Stored Sign-ins") { model.returnChosen(stored: true) }
+                    .disabled(!model.canReturnChosen(stored: true))
             } else {
                 Menu(String(localized: "command.set-aside", defaultValue: "Set Aside",
                             comment: "A submenu of the Item menu: set the chosen findings aside, for a reason chosen from it. A verb.")) {
-                    ForEach(SetAsideReason.all) { reason in
+                    ForEach(model.setAsideReasons) { reason in
                         Button(reason.label) { model.setAsideChosen(reason: reason.id) }
                     }
                 }
@@ -97,31 +99,38 @@ extension AppModel {
 
     /// The file of the one row chosen, unless its name is one the app does
     /// not act on: as the inspector, never an arbitrary one of several.
-    var chosenFile: (index: Int, review: Bool)? {
-        switch pane {
-        case .review, .setAside:
-            guard let item = currentReview, item.actionable != false else { return nil }
-            return (item.id, true)
-        case .stored:
-            guard let row = currentStored, row.file.actionable else { return nil }
-            return (row.file.index, false)
-        default:
-            return nil
-        }
+    var chosenFile: ReviewItem.ID? {
+        guard hasInspector, let item = currentReview, item.actionable != false else { return nil }
+        return item.id
     }
 
-    /// Some chosen finding on Worth Reviewing still needs a decision.
+    /// Some chosen item on Worth Reviewing or Stored Sign-ins still needs a decision.
     var canSetAsideChosen: Bool {
-        pane == .review && !decidingSelection && currentReviews.contains { $0.status == "open" }
+        (pane == .review || pane == .stored) && !decidingSelection && currentReviews.contains { $0.status == "open" }
     }
 
-    /// Set Aside for the chosen findings, as the inspector does it.
+    /// The reasons Set Aside offers on this page. A stored sign-in takes only one.
+    var setAsideReasons: [SetAsideReason] {
+        pane == .stored ? [SetAsideReason.storedKept] : SetAsideReason.all
+    }
+
+    /// Set Aside for the chosen items, as the inspector does it.
     func setAsideChosen(reason: String) {
         if let item = currentReview { decide(item, reason: reason) } else { decideSelection(reason: reason) }
     }
 
-    /// Move to Worth Reviewing for the chosen findings, as the inspector does it.
-    func returnChosen() {
-        if let item = currentReview { decide(item, reason: nil) } else { decideSelection(reason: nil) }
+    /// Some chosen item on Set Aside is of this kind.
+    func canReturnChosen(stored: Bool) -> Bool {
+        !decidingSelection && currentReviews.contains { $0.isStored == stored }
+    }
+
+    /// Move to Worth Reviewing, or to Stored Sign-ins, for the chosen items
+    /// of that kind, as the inspector does it.
+    func returnChosen(stored: Bool) {
+        if let item = currentReview {
+            if item.isStored == stored { decide(item, reason: nil) }
+        } else {
+            decideSelection(reason: nil, stored: stored)
+        }
     }
 }
