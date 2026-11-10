@@ -1572,10 +1572,15 @@ is replaced (macOS behaviour).
   helper status shows as unavailable, each with the reason. A read answers
   for every request it shares, so its failure opens an alert when any of
   them asked for one (every read but the timed ones does), including a
-  request whose own read failed and left its answer to this one. Folder
+  request whose own read failed and left its answer to this one. A read
+  that works closes the alert a failed read opened, which otherwise waits,
+  with only the menu bar open, to come over a list that reads fine. Folder
   answers go through `RequestOrder`, which numbers each request and uses an
   answer only when no later request's answer has been used, so neither an
-  older list nor an older failure replaces what a newer answer showed. Two
+  older list nor an older failure replaces what a newer answer showed. A
+  failed read is no such answer: a change still on its way, such as Add
+  Folder, is shown when it comes, and the failure stays said until a newer
+  list comes. Two
   folder changes that overlap may need another refresh to show the result.
   The folders are read at launch, each time Settings opens, and when Scan
   Now is pressed before any list was read. A list the window couldn't get

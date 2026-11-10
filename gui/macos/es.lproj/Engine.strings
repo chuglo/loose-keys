@@ -660,7 +660,7 @@
 "These sign-in files are links. Loose Keys follows no links when running as root." = "Estos archivos de inicio de sesión son enlaces. Loose Keys no sigue ningún enlace cuando se ejecuta como root.";
 
 /* gui/src/lib.rs:216 */
-"Worth Reviewing is full, so some findings are not in it. Fix some items, then scan again." = "La lista Para revisar está llena, así que algunos hallazgos no aparecen. Corrige algunos elementos y vuelve a analizar.";
+"Worth Reviewing is full, so some findings aren't in it. Fix some items, then scan again." = "La lista Para revisar está llena, así que algunos hallazgos no aparecen. Corrige algunos elementos y vuelve a analizar.";
 
 /* gui/src/lib.rs:263 */
 "Automatic scanning cannot start because Loose Keys could not open its saved data." = "El análisis automático no puede empezar porque Loose Keys no pudo abrir sus datos guardados.";
@@ -768,9 +768,6 @@
 
 /* gui/src/lib.rs:1260 */
 "This item has no file on this Mac to open." = "Este elemento no tiene un archivo en tu Mac que abrir.";
-
-/* gui/src/lib.rs:1266 */
-"That result is no longer shown." = "Ese resultado ya no se muestra.";
 
 /* gui/src/lib.rs:1268 */
 "This name has unusual characters, so Loose Keys will not open or copy it." = "Este nombre tiene caracteres poco comunes, así que Loose Keys no lo abre ni lo copia.";

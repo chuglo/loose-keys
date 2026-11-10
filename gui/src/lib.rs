@@ -3,7 +3,7 @@
 //!
 //! File names are attacker-controlled. The front end only ever receives them
 //! as `report::escape`d display text. Actions on a file ("Copy path", "Show in
-//! Finder") name a finding by its index; the real path stays here and is
+//! Finder") name a finding by its id; the real path stays here and is
 //! handed over only when it is plain printable ASCII.
 
 mod agent;
@@ -97,15 +97,11 @@ struct Health {
     /// Whether the agent's process is alive.
     running: bool,
     last_scan: Option<String>,
-    /// "complete" once the agent has been through the whole home folder.
-    coverage: &'static str,
     /// When the last full pass finished, and folders the current one has left.
     full_pass: Option<String>,
     left: usize,
     /// Places the last full pass did not read.
     unread: usize,
-    unread_truncated: bool,
-    changes: u64,
     error: Option<String>,
 }
 
@@ -174,16 +170,9 @@ fn health(agent: &review::Agent) -> Health {
     Health {
         running: helper_running(agent.pid),
         last_scan: agent.last_check.clone(),
-        coverage: if agent.baseline.is_some() && agent.left == 0 {
-            "complete"
-        } else {
-            "partial"
-        },
         full_pass: agent.baseline.clone(),
         left: agent.left,
         unread: unread_count(agent),
-        unread_truncated: agent.unread_places.as_ref().is_some_and(|p| p.truncated),
-        changes: agent.changes,
         error: agent.error.clone(),
     }
 }
@@ -219,7 +208,6 @@ fn automatic_coverage(agent: &review::Agent) -> AutomaticCoverage {
                         help: help.to_owned(),
                         count: paths.len(),
                         paths,
-                        more: 0,
                     }
                 })
                 .collect()
@@ -334,7 +322,6 @@ fn refresh_state(app: &App) -> review::Review {
 struct MonitorView {
     enabled: bool,
     paused: bool,
-    scanning: bool,
     login: u8,
     menu_bar: bool,
     /// The app itself in Login Items, with the same codes as `login`.
@@ -378,16 +365,10 @@ fn monitor_status(app: &App) -> MonitorView {
     let r = refresh_state(app);
     // Each copied out on its own, so no lock is held while another is taken.
     let error = app.storage_error.lock().unwrap().clone();
-    let results = app
-        .report
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|r| results_view(r, app.home.as_deref().ok()));
+    let results = app.report.lock().unwrap().as_ref().map(results_view);
     MonitorView {
         enabled: r.monitoring,
         paused: r.paused,
-        scanning: app.scanning.load(Ordering::SeqCst),
         // SAFETY: takes no argument and touches no memory of ours.
         login: unsafe { ch_login_status() },
         menu_bar: !r.menu_bar_off,
@@ -397,7 +378,7 @@ fn monitor_status(app: &App) -> MonitorView {
         health: health(&r.agent),
         error: error.or_else(|| {
             r.full.then(|| {
-                "Worth Reviewing is full, so some findings are not in it. Fix some items, then scan again.".to_string()
+                "Worth Reviewing is full, so some findings aren't in it. Fix some items, then scan again.".to_string()
             })
         }),
         pending_delivery: r.items.iter().any(|i| r.alerting(i, now())),
@@ -701,8 +682,6 @@ struct PlaceView {
 struct Counts {
     open: usize,
     set_aside: usize,
-    /// Of those set aside, the ones that are real and kept.
-    kept: usize,
     fixed: usize,
     /// Stored sign-ins still to look at, and those set aside.
     stored: usize,
@@ -804,10 +783,7 @@ fn review_items(state: &review::Review) -> (Vec<ReviewItem>, Counts) {
     for entry in &out {
         match entry.state {
             "fixed" => counts.fixed += 1,
-            "set-aside" => {
-                counts.set_aside += 1;
-                counts.kept += usize::from(entry.set_aside == Some(review::Reason::Kept));
-            }
+            "set-aside" => counts.set_aside += 1,
             _ => counts.open += 1,
         }
     }
@@ -1191,7 +1167,7 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
         "prepare_access" => done(prepare_access(app, args.get("index")?)?),
         "save_report" => done(save_report(app, args.get("path")?, args.get("feedback")?)?),
         "summary_text" => done(summary_text(app)?),
-        "item_path" => done(item_path(app, args.get("index")?, args.get("review")?)?),
+        "item_path" => done(item_path(app, args.get("index")?)?),
         "open_link" => done(open_link(args.get("url")?)?),
         "decide_review" => done(decide_review(
             app,
@@ -1202,12 +1178,10 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
         "set_expected" => done(set_expected(app, args.get("entries")?)?),
         "skip_folder" => done(skip_folder(app, args.get("id")?)?),
         "unskip_folder" => done(unskip_folder(app, args.get("index")?, args.get("shown")?)?),
-        "version" => done(env!("CARGO_PKG_VERSION")),
         "check_release" => done(release::check(
             &args.get::<String>("body")?,
             env!("CARGO_PKG_VERSION"),
         )?),
-        "rules_text" => done(rules_text()),
         "pending_review" => done(pending_review(app)),
         "retry_notifications" => done(retry_notifications(app)?),
         "enable_notifications" => {
@@ -1454,43 +1428,14 @@ fn remove_place(app: &App, index: usize, shown: String) -> PlacesView {
 #[derive(Serialize)]
 struct ResultsView {
     status: &'static str,
-    context: &'static str,
-    tool_version: &'static str,
     generated_at: String,
     review: usize,
     stored: usize,
     not_checked: usize,
-    groups: Vec<GroupView>,
     gaps: Vec<GapView>,
     /// Which of the folders `prepare_access` asks for the scan was denied,
     /// as fixed words: the person can allow access to these again.
     blocked: Vec<&'static str>,
-    roots: Vec<String>,
-    excluded: Vec<&'static str>,
-    limitations: &'static str,
-}
-
-#[derive(Serialize)]
-struct GroupView {
-    kind: &'static str,
-    severity: &'static str,
-    title: &'static str,
-    explanation: &'static str,
-    reason: Option<String>,
-    next_step: Option<&'static str>,
-    steps: &'static [&'static str],
-    link: Option<&'static str>,
-    items: Vec<ItemView>,
-}
-
-#[derive(Serialize)]
-struct ItemView {
-    index: usize,
-    path: String,
-    line: Option<usize>,
-    subject: Option<String>,
-    /// Only plain names can be copied or revealed.
-    actionable: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -1499,43 +1444,10 @@ struct GapView {
     help: String,
     count: usize,
     paths: Vec<String>,
-    more: usize,
 }
 
-fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
+fn results_view(r: &Report) -> ResultsView {
     let review = r.findings.iter().filter(|f| f.kind == "review").count();
-    let indexes: std::collections::HashMap<_, _> = r
-        .findings
-        .iter()
-        .enumerate()
-        .map(|(index, finding)| (finding as *const report::Finding, index))
-        .collect();
-    let mut groups = Vec::new();
-    for kind in ["review", "inventory"] {
-        for group in report::group_findings(r, kind) {
-            let f = group[0];
-            groups.push(GroupView {
-                kind,
-                severity: f.severity,
-                title: f.title,
-                explanation: f.explanation,
-                reason: f.reason.clone(),
-                next_step: f.next_step,
-                steps: f.steps,
-                link: f.link,
-                items: group
-                    .iter()
-                    .map(|g| ItemView {
-                        index: indexes[&(*g as *const report::Finding)],
-                        path: report::escape(&g.path),
-                        line: g.line,
-                        subject: g.subject.clone().or_else(|| g.detail.clone()),
-                        actionable: full_path(&g.path, home).is_some(),
-                    })
-                    .collect(),
-            });
-        }
-    }
     let gaps = report::group_gaps(r)
         .into_iter()
         .map(|(reason, paths)| {
@@ -1549,7 +1461,6 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
                     .take(GAPS_SHOWN)
                     .map(|p| report::escape(p))
                     .collect(),
-                more: paths.len().saturating_sub(GAPS_SHOWN),
             }
         })
         .collect();
@@ -1563,18 +1474,12 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
         .collect();
     ResultsView {
         status: r.status,
-        context: r.context,
-        tool_version: r.tool_version,
         generated_at: r.generated_at.clone(),
         review,
         stored: r.findings.len() - review,
         not_checked: r.not_checked.len(),
-        groups,
         gaps,
         blocked,
-        roots: r.coverage.roots.iter().map(|p| report::escape(p)).collect(),
-        excluded: r.coverage.excluded_directories.to_vec(),
-        limitations: report::LIMITATIONS,
     }
 }
 
@@ -1650,7 +1555,7 @@ fn perform_scan(app: &App) -> Answer<ResultsView> {
         move |rule, bytes, shared| material_fingerprint(rule, &key, bytes, shared),
         |p| emit(c"scan-progress", p),
     );
-    let view = results_view(&r, app.home.as_deref().ok());
+    let view = results_view(&r);
     // Merge into the shared state in one step; the agent may be writing too.
     // The rechecks get their own time, counted once the store is locked:
     // from before the scan, or while the agent held the store, they could
@@ -1764,12 +1669,8 @@ fn summary_text(app: &App) -> Answer<String> {
     ))
 }
 
-/// `index` is a listed item's id, worth reviewing or stored. A result's
-/// place in the report no longer names anything.
-fn finding_path(app: &App, index: usize, review: bool) -> Answer<PathBuf> {
-    if !review {
-        return Err("That result is no longer shown.".into());
-    }
+/// `index` is a listed item's id, worth reviewing or stored.
+fn finding_path(app: &App, index: usize) -> Answer<PathBuf> {
     let state = refresh_state(app);
     state
         .locate(index as u64)
@@ -1780,11 +1681,11 @@ fn finding_path(app: &App, index: usize, review: bool) -> Answer<PathBuf> {
 /// The real path of a result, for the front end to copy or to show in the
 /// file manager. Its parent must open without following links, and root
 /// actions are refused. The path can still change before Finder uses it.
-fn item_path(app: &App, index: usize, review: bool) -> Answer<String> {
+fn item_path(app: &App, index: usize) -> Answer<String> {
     if scan::is_root() {
         return Err("Not available when running as root.".into());
     }
-    let path = finding_path(app, index, review)?;
+    let path = finding_path(app, index)?;
     let parent = path.parent().ok_or("no folder")?;
     fsutil::open_directory(parent).map_err(|g| format!("Could not open the folder ({g})."))?;
     // Text that had to be repaired would name some other file.
@@ -1803,10 +1704,6 @@ fn open_link(url: String) -> Answer<String> {
         return Err("Loose Keys does not open that link.".into());
     }
     Ok(url)
-}
-
-fn rules_text() -> String {
-    rules::rule_list()
 }
 
 /// Whether a name is one the app acts on: printable ASCII and nothing else.
@@ -3607,7 +3504,7 @@ mod tests {
         let mut flags = Vec::new();
         for copy in copies {
             let path = copy["path"].as_str().unwrap();
-            let args = json!({"index":copy["id"],"review":true}).to_string();
+            let args = json!({"index":copy["id"]}).to_string();
             let answer = ask(&app, "item_path", &args);
             let expected = path.starts_with("~/One/") || path.starts_with("~/Two/");
             flags.push((copy["actionable"].clone(), expected));
@@ -4032,7 +3929,7 @@ mod tests {
         );
         assert_eq!(
             list["counts"],
-            json!({ "open": 0, "set_aside": 1, "kept": 1, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
+            json!({ "open": 0, "set_aside": 1, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
         );
         // Each copy by a decision of its own, with what was agreed to there:
         // its rule, kind, risk, what the file held and its place.
@@ -4076,7 +3973,7 @@ mod tests {
         assert_eq!(entry["state"], "open");
         assert_eq!(
             list["counts"],
-            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
+            json!({ "open": 1, "set_aside": 0, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
         );
         assert!(!list.to_string().contains(&token));
     }
@@ -4125,7 +4022,7 @@ mod tests {
         );
         assert_eq!(
             list["counts"],
-            json!({ "open": 1, "set_aside": 0, "kept": 0, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
+            json!({ "open": 1, "set_aside": 0, "fixed": 0, "stored": 0, "stored_set_aside": 0, "stored_gone": 0 })
         );
         assert!(stored.decisions.is_empty());
         assert!(!list.to_string().contains(&token));
@@ -4217,7 +4114,7 @@ mod tests {
         let review = ask(&app, "pending_review", "{}");
         let items = review["ok"]["items"].as_array().unwrap();
         let at = |id: u64| items.iter().find(|i| i["id"] == id).unwrap();
-        let path = ask(&app, "item_path", r#"{"index":1,"review":true}"#);
+        let path = ask(&app, "item_path", r#"{"index":1}"#);
         let skip = ask(&app, "skip_folder", r#"{"id":1}"#);
         std::fs::remove_dir_all(home).unwrap();
         // What the engine would refuse, the list says before a button is drawn.
@@ -4231,17 +4128,6 @@ mod tests {
         assert_eq!(at(2)["folder"], "~/Documents");
         assert_eq!(at(3)["actionable"], true);
         assert_eq!(at(3)["folder"], "~/Documents");
-    }
-
-    #[test]
-    fn the_version_can_be_asked_for_before_any_scan() {
-        let (home, app) = engine("version");
-        let _alone = one_scan();
-        let version = ask(&app, "version", "{}");
-        let scanned = ask(&app, "start_scan", "{}");
-        std::fs::remove_dir_all(home).unwrap();
-        assert_eq!(version["ok"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(version["ok"], scanned["ok"]["tool_version"]);
     }
 
     #[test]
@@ -4450,7 +4336,8 @@ mod tests {
         let results = ask(&app, "start_scan", "{}");
         ch_set_event_handler(None);
         drop(alone);
-        let item = &results["ok"]["groups"][0]["items"][0];
+        let review = ask(&app, "pending_review", "{}");
+        let item = &review["ok"]["items"][0];
         assert_eq!(results["ok"]["review"], 1);
         assert_eq!(item["path"], "~/Documents/export.csv");
         let seen = std::mem::take(&mut *SEEN.lock().unwrap());
@@ -4470,16 +4357,9 @@ mod tests {
         let names: Vec<&str> = seen.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names[names.len() - 2..], ["review-ready", "monitor-status"]);
 
-        // The real path is handed over by a listed item's id, and no longer
-        // by a result's place in the report.
+        // The real path is handed over by a listed item's id.
         let real = format!("{shown}/Documents/export.csv");
-        let by_index = json!({ "index": item["index"], "review": false }).to_string();
-        assert_eq!(
-            ask(&app, "item_path", &by_index)["error"],
-            "That result is no longer shown."
-        );
-        let review = ask(&app, "pending_review", "{}");
-        let by_id = json!({ "index": review["ok"]["items"][0]["id"], "review": true }).to_string();
+        let by_id = json!({ "index": item["id"] }).to_string();
         assert_eq!(ask(&app, "item_path", &by_id)["ok"], real);
 
         let text = ask(&app, "summary_text", "{}");
@@ -4717,7 +4597,7 @@ mod tests {
         let again = ask(&app, "start_scan", "{}");
         drop(alone);
         let item = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
-        let path = ask(&app, "item_path", r#"{"index":1,"review":true}"#);
+        let path = ask(&app, "item_path", r#"{"index":1}"#);
         std::fs::remove_dir_all(home).unwrap();
         assert_eq!(again["ok"]["review"], 0);
         assert_eq!(item["state"], "fixed");
@@ -5173,7 +5053,7 @@ mod tests {
                 reason: "symlink",
             }],
         };
-        let help = |r: &Report| results_view(r, None).gaps[0].help.clone();
+        let help = |r: &Report| results_view(r).gaps[0].help.clone();
         assert!(help(&r).contains("outside your home folder"));
         r.context = "system";
         let root = help(&r);
@@ -5253,10 +5133,7 @@ mod tests {
             ("set-aside", Some(review::Reason::Kept))
         );
         assert_eq!(items[3].state, "fixed");
-        assert_eq!(
-            (counts.open, counts.set_aside, counts.kept, counts.fixed),
-            (2, 1, 1, 1)
-        );
+        assert_eq!((counts.open, counts.set_aside, counts.fixed), (2, 1, 1));
         // A folder may be skipped, but never the home folder itself.
         assert_eq!(items[0].folder.as_deref(), Some("~/app"));
         assert_eq!(items[1].folder, None);
@@ -5482,7 +5359,7 @@ mod tests {
             (items[0].state, items[0].set_aside),
             ("set-aside", Some(review::Reason::TestOrRevoked))
         );
-        assert_eq!((counts.set_aside, counts.kept), (1, 0));
+        assert_eq!(counts.set_aside, 1);
         // Shown again, the whole entry is open, not still kept in one place.
         state.undo(items[0].item.id);
         let (items, counts) = review_items(&state);
@@ -5567,50 +5444,6 @@ mod tests {
         assert_eq!(recheck_path("~/x", None), None);
     }
 
-    #[test]
-    fn large_result_groups_keep_original_action_indexes() {
-        let r = Report {
-            schema: "loose-keys/report/1",
-            tool_version: "test",
-            generated_at: report::utc_now(),
-            status: "complete",
-            context: "user",
-            coverage: report::Coverage::default(),
-            findings: (0..10_000)
-                .map(|index| report::Finding {
-                    fingerprint: None,
-                    rule: "export.password-csv",
-                    category: "password-export",
-                    kind: if index % 2 == 0 {
-                        "review"
-                    } else {
-                        "inventory"
-                    },
-                    title: "Synthetic finding",
-                    explanation: "Synthetic match",
-                    path: format!("~/synthetic-{index}.csv"),
-                    ..report::Finding::default()
-                })
-                .collect(),
-            not_checked: Vec::new(),
-        };
-        let start = std::time::Instant::now();
-        let v = results_view(&r, Some(Path::new("/synthetic")));
-        println!(
-            "10000 synthetic findings: results_view {:.3} ms",
-            start.elapsed().as_secs_f64() * 1000.0
-        );
-        assert_eq!(v.review, 5_000);
-        assert_eq!(v.stored, 5_000);
-        let mut indexes = std::collections::HashSet::new();
-        for item in v.groups.iter().flat_map(|g| &g.items) {
-            assert_eq!(item.path, r.findings[item.index].path);
-            assert!(item.actionable);
-            assert!(indexes.insert(item.index));
-        }
-        assert_eq!(indexes.len(), 10_000);
-    }
-
     /// An older build's pass saved refusals of places this build leaves out.
     /// They are not shown or counted, so an update takes effect before the
     /// next full pass; any other saved refusal still is.
@@ -5653,7 +5486,6 @@ mod tests {
             output["unread_gaps"][0]["paths"][0],
             "~/hostile\\u{202e}\\u{1b}"
         );
-        assert_eq!(output["unread_gaps"][0]["more"], 0);
         assert_eq!(output["unread_truncated"], true);
     }
 
@@ -5682,16 +5514,12 @@ mod tests {
                 reason: "unreadable",
             }],
         };
-        let v = results_view(&r, Some(Path::new("/Users/a")));
+        let v = results_view(&r);
         let json = serde_json::to_string(&v).unwrap();
         let back: serde_json::Value = serde_json::from_str(&json).unwrap();
         let text = back.to_string();
         assert!(!text.contains('\u{202e}') && !text.contains('\u{1b}'));
-        let items = &back["groups"][0]["items"];
-        assert_eq!(items[0]["actionable"], true);
-        assert_eq!(items[1]["actionable"], false);
-        assert_eq!(items[1]["path"], "~/p-\\u{202e}vsc.csv");
-        assert_eq!(items[1]["index"], 1);
+        assert_eq!(back["gaps"][0]["paths"][0], "~/\\u{1b}[31m");
     }
 
     /// A synthetic token of one type, ending in the letter given. Put
@@ -6030,7 +5858,7 @@ mod tests {
         let listed = ask(&app, "pending_review", "{}");
         assert_eq!(listed["ok"]["items"][0]["id"], 1);
         late();
-        let path = ask(&app, "item_path", r#"{"index":1,"review":true}"#);
+        let path = ask(&app, "item_path", r#"{"index":1}"#);
         let real = format!("{}/Documents/export.csv", home.to_str().unwrap());
         assert_eq!(path["ok"], real, "a row the list showed is not known");
 
@@ -6095,10 +5923,7 @@ mod tests {
         // The organization's list has no time of its own: none is sent for
         // the window to show where a date goes.
         assert_eq!(shown["items"][0]["set_aside_at"], json!(null));
-        assert_eq!(
-            (&shown["counts"]["set_aside"], &shown["counts"]["kept"]),
-            (&json!(1), &json!(0))
-        );
+        assert_eq!(shown["counts"]["set_aside"], 1);
         // The person cannot choose the reason themselves.
         let revision = shown["items"][0]["revision"].clone();
         let press = json!({ "id": row["id"], "revision": revision, "reason": "expected" });

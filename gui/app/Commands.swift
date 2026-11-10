@@ -100,7 +100,7 @@ extension AppModel {
     /// The file of the one row chosen, unless its name is one the app does
     /// not act on: as the inspector, never an arbitrary one of several.
     var chosenFile: ReviewItem.ID? {
-        guard hasInspector, let item = currentReview, item.actionable != false else { return nil }
+        guard hasInspector, let item = currentReview, item.actionable else { return nil }
         return item.id
     }
 

@@ -24,6 +24,17 @@ enum FailureTitle {
     static var openStored: String {
         String(localized: "Couldn't Open Stored Sign-ins", comment: "The heading of Stored Sign-ins when the saved list could not be read. Stored Sign-ins is the list's name in the sidebar.")
     }
+    static var openSetAside: String {
+        String(localized: "Couldn't Open Set Aside", comment: "The heading of Set Aside when the saved list could not be read. Set Aside is the list's name in the sidebar.")
+    }
+    /// The list a page shows, named in what says it couldn't be opened.
+    static func openList(_ pane: Pane?) -> String {
+        switch pane {
+        case .stored: return openStored
+        case .setAside: return openSetAside
+        default: return openReview
+        }
+    }
     static var saveChoice: String {
         String(localized: "Couldn't Save Your Choice", comment: "The title of an alert: Set Aside, Move to Worth Reviewing or Move to Stored Sign-ins failed.")
     }

@@ -41,8 +41,7 @@ struct ReviewTable: View {
         if let error = model.reviewProblem {
             // Never "nothing to review" for a list that could not be read, saved or got.
             ContentUnavailableView {
-                Label(model.pane == .stored ? FailureTitle.openStored : FailureTitle.openReview,
-                      systemImage: "exclamationmark.triangle")
+                Label(FailureTitle.openList(model.pane), systemImage: "exclamationmark.triangle")
             } description: {
                 // The engine keeps its own failure until the app is opened
                 // again, when it reads the list afresh. A request of this
@@ -51,9 +50,9 @@ struct ReviewTable: View {
                 // results has a report to save.
                 Text(verbatim: model.results == nil
                      ? String(localized: "\(error) Quit and reopen the app to try again.",
-                              comment: "Worth Reviewing or Stored Sign-ins, when the saved list could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS.")
+                              comment: "Worth Reviewing, Stored Sign-ins or Set Aside, when the saved list could not be read or saved and this window has not scanned. %@ is the reason, one or more sentences from the engine or macOS.")
                      : String(localized: "\(error) Quit and reopen the app to try again. Save the report to see the last scan's findings.",
-                              comment: "Worth Reviewing or Stored Sign-ins, when the saved list could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS."))
+                              comment: "Worth Reviewing, Stored Sign-ins or Set Aside, when the saved list could not be read or saved after a scan. %@ is the reason, one or more sentences from the engine or macOS."))
             }
         } else if model.review == nil {
             // The first answer has not come. The engine waits for the list
@@ -135,12 +134,12 @@ extension Table {
     @MainActor fileprivate func fileMenu(_ model: AppModel) -> some View {
         contextMenu(forSelectionType: ReviewItem.ID.self) { ids in
             // Not for a file whose name the app does not act on.
-            if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
+            if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable == true {
                 Button("Show in Finder") { model.showInFinder(id) }
                 Button("Copy Path") { model.copyPath(id) }
             }
         } primaryAction: { ids in
-            if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable != false {
+            if ids.count == 1, let id = ids.first, model.reviewEntry(id)?.actionable == true {
                 model.showInFinder(id)
             }
         }
@@ -320,7 +319,7 @@ struct PlacesNotChecked: View {
                 }
                 if let error = model.automaticCoverageError {
                     Text("Couldn't update these details, so they may be out of date.")
-                    Text(EngineText.shown(error)).foregroundStyle(.secondary)
+                    Text(error).foregroundStyle(.secondary)
                     Button("Try Again") { Task { await model.refreshAutomaticCoverage() } }
                 }
                 if model.hasAutomaticCoverage {

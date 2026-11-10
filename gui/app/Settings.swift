@@ -68,7 +68,7 @@ struct SettingsView: View {
                      : String(localized: "Checks your files whenever they change, even when the app is closed.",
                               comment: "Under the Scan Automatically switch while it is off, and under Automatic Scanning in Overview: what turning it on does."))
             }
-            .disabled(model.monitorFailure != nil || model.phase == .scanning || model.preparingAccess)
+            .disabled(!model.canSwitchMonitoring(monitor))
             if monitor.enabled, let helper = helperProblem(monitor) {
                 LabeledContent {
                     switch helper.fix {
@@ -82,8 +82,11 @@ struct SettingsView: View {
                     Text(helper.text)
                 }
             }
-            if let error = monitor.error ?? monitor.health.error {
+            if let error = model.monitorFailure ?? monitor.health.error {
                 Label(EngineText.shown(error), systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+            }
+            if let notice = model.listFullNotice {
+                Text(EngineText.shown(notice)).foregroundStyle(.secondary)
             }
             if monitor.enabled {
                 BackgroundCheckDetails(health: monitor.health)
@@ -224,7 +227,7 @@ struct SettingsView: View {
                     } label: {
                         Text("Turn on Loose Keys in Login Items to show the icon at login.").foregroundStyle(.secondary)
                     }
-                } else if monitor.appLogin == 1 || monitor.appLogin == 4 {
+                } else if monitor.appLogin != 2 {
                     Text("Shown only while the app is open, because Loose Keys isn't in Login Items.").foregroundStyle(.secondary)
                 }
             }

@@ -56,7 +56,7 @@ struct MainView: View {
             return String(localized: "Loose Keys \(release.newer ?? "") Is Available",
                           comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0.")
         case .upToDate:
-            return String(localized: "You’re up to date.",
+            return String(localized: "You're up to date.",
                           comment: "The title of the alert after Check for Updates… when no newer version is out.")
         case .failed:
             return String(localized: "Couldn't Check for Updates",
@@ -66,10 +66,7 @@ struct MainView: View {
 
     private func updateMessage(_ result: UpdateResult) -> String {
         switch result {
-        case .newer(let release):
-            return String(localized: "You're using version \(release.current).",
-                          comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0.")
-        case .upToDate:
+        case .newer, .upToDate:
             return ""
         case .failed(let reason):
             return reason
@@ -175,9 +172,9 @@ struct MainView: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        // Words, not symbols: a toolbar shows a symbol alone, and the reload
-        // arrow this once had left people guessing what it did. Scan Now is
-        // also the command's name in the File menu and on the Overview.
+        // Words, not symbols: a toolbar shows a symbol alone, and a reload
+        // arrow leaves people guessing what it does. Scan Now is also the
+        // command's name in the File menu and on the first page.
         ToolbarItem(placement: .primaryAction) {
             if model.phase == .scanning {
                 Button("Stop Scan") { model.cancelScan() }
@@ -225,11 +222,12 @@ struct MainView: View {
     }
 }
 
-// `openSettings` is not in the SDK of GitHub's macOS 14 runner, whose compiler
-// is older than 6.0. There the window check still builds, and the
+// `openSettings` runs on macOS 14 but is only in the SDKs that come with a
+// 6.0 compiler or later (unverified), as MenuBar.swift also allows for.
+// With older command-line tools the window check still builds, and the
 // picture-taking code leaves out the picture of Settings.
 #if (PREVIEW || SNAPSHOTS) && compiler(>=6.0)
-/// Lets the picture-taking code open Settings. The app itself uses SettingsLink.
+/// Lets the picture-taking code open Settings.
 private struct SettingsOpener: ViewModifier {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openSettings) private var openSettings

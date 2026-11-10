@@ -4,40 +4,13 @@ import Foundation
 
 struct ScanResults: Decodable {
     let status: String
-    let toolVersion: String
     let generatedAt: String
     let review: Int
     let stored: Int
     let notChecked: Int
-    let groups: [FindingGroup]
     let gaps: [Gap]
     /// Desktop, Documents or Downloads, where macOS denied the scan access.
-    let blocked: [String]?
-    let roots: [String]
-    let excluded: [String]
-    let limitations: String
-}
-
-/// One rule's findings from a scan, with the rule's advice.
-struct FindingGroup: Decodable {
-    let kind: String
-    let severity: String
-    let title: String
-    let explanation: String
-    let reason: String?
-    let nextStep: String?
-    let steps: [String]
-    let link: String?
-    let items: [FindingFile]
-}
-
-struct FindingFile: Decodable {
-    /// How the engine names this file; the app never sends a path back.
-    let index: Int
-    let path: String
-    let line: Int?
-    let subject: String?
-    let actionable: Bool
+    let blocked: [String]
 }
 
 struct Gap: Decodable, Identifiable {
@@ -45,46 +18,44 @@ struct Gap: Decodable, Identifiable {
     let help: String
     let count: Int
     let paths: [String]
-    let more: Int
     var id: String { label }
 }
 
 struct ReviewList: Decodable {
     let items: [ReviewItem]
-    let counts: ReviewCounts?
-    let skipped: [String]?
+    let counts: ReviewCounts
+    let skipped: [String]
     /// Why the list could not be read or saved. It is then not what was found.
     let error: String?
     /// A finding was left out for lack of room, and no scan the person ran to
     /// its end has since found room on the list.
-    let full: Bool?
+    let full: Bool
     /// The same for stored sign-ins, which have their own share of the room.
-    let storedFull: Bool?
+    let storedFull: Bool
     /// A manual scan or the helper's full pass has ended since stored
     /// sign-ins were saved, so an empty list of them is one looked for.
-    let storedChecked: Bool?
-    let permission: String?
+    let storedChecked: Bool
+    let permission: String
 }
 
-/// `open`, `setAside`, `kept` and `fixed` count what is worth reviewing only.
+/// `open`, `setAside` and `fixed` count what is worth reviewing only.
 struct ReviewCounts: Decodable {
     let open: Int
     let setAside: Int
-    let kept: Int
     let fixed: Int
     /// Stored sign-ins still listed, and those set aside.
-    let stored: Int?
-    let storedSetAside: Int?
+    let stored: Int
+    let storedSetAside: Int
     /// Stored sign-ins saved and since no longer found, which aren't listed.
-    let storedGone: Int?
+    let storedGone: Int
 }
 
 /// A finding worth reviewing or a stored sign-in, kept between scans with
 /// what the person decided.
 struct ReviewItem: Decodable, Identifiable {
     let id: Int
-    /// "review", or "inventory" for a stored sign-in. None from older engines.
-    let kind: String?
+    /// "review", or "inventory" for a stored sign-in.
+    let kind: String
     let rule: String
     let path: String
     let line: Int?
@@ -93,24 +64,23 @@ struct ReviewItem: Decodable, Identifiable {
     let reason: String?
     let nextStep: String?
     let severity: String
-    let steps: [String]?
+    let steps: [String]
     let link: String?
     let subject: String?
     let detail: String?
     let firstSeen: String?
     let resolvedAt: String?
-    let resolved: Bool?
     /// Rises each time the item is new again; the newest is the one a notification is about.
-    let revision: Int?
+    let revision: Int
     /// "open", "set-aside" or "fixed".
-    let state: String?
+    let state: String
     let setAside: String?
     /// When it was set aside, as the engine's UTC timestamp.
     let setAsideAt: String?
-    let places: [ReviewPlace]?
+    let places: [ReviewPlace]
     let folder: String?
     /// Whether the app will act on this file. It acts only on plain names.
-    let actionable: Bool?
+    let actionable: Bool
 }
 
 struct ReviewPlace: Decodable, Identifiable {
@@ -119,17 +89,16 @@ struct ReviewPlace: Decodable, Identifiable {
     let line: Int?
     let fixed: Bool
     /// Still there, and set aside by a decision that covers this place.
-    let setAside: Bool?
-    /// From the unescaped engine path; absent in older responses.
-    let actionable: Bool?
+    let setAside: Bool
+    /// Read from the unescaped path; the engine checks it again on use.
+    let actionable: Bool
 }
 
 struct MonitorStatus: Decodable {
     let enabled: Bool
     let paused: Bool
-    let scanning: Bool
-    /// The helper's registration with macOS: 0 unavailable, 1 not registered,
-    /// 2 registered, 3 needs approval, 4 failed.
+    /// The helper's registration with macOS: 1 not registered, 2 registered,
+    /// 3 needs approval, 4 failed. Any other value is taken as not registered.
     let login: Int
     /// Show in Menu Bar, and the app itself in Login Items, with the same
     /// codes as `login`.
@@ -147,13 +116,10 @@ struct MonitorStatus: Decodable {
 struct HelperHealth: Decodable {
     let running: Bool?
     let lastScan: String?
-    let coverage: String?
     let fullPass: String?
     let left: Int?
     /// Places the helper's last full pass did not read.
     let unread: Int?
-    let unreadTruncated: Bool?
-    let changes: Int?
     let error: String?
 }
 
@@ -179,10 +145,8 @@ struct ScanPlaces: Decodable {
 }
 
 struct ScanProgress: Decodable {
-    let phase: String
     let entries: Int
     let findings: Int
-    let notChecked: Int
 }
 
 /// What the engine and scanner say, in the window's language. The engine and
@@ -393,7 +357,7 @@ struct SetAsideReason: Identifiable {
 }
 
 extension ReviewItem {
-    var status: String { state ?? (resolved == true ? "fixed" : "open") }
+    var status: String { state }
 
     /// A stored sign-in rather than a finding worth reviewing.
     var isStored: Bool { kind == "inventory" }
@@ -428,9 +392,9 @@ extension ReviewItem {
     /// place that stands for a file is one still needing a decision if there
     /// is one, then one set aside, then a fixed one.
     var locations: [ReviewPlace] {
-        func rank(_ place: ReviewPlace) -> Int { place.fixed ? 2 : place.setAside == true ? 1 : 0 }
+        func rank(_ place: ReviewPlace) -> Int { place.fixed ? 2 : place.setAside ? 1 : 0 }
         var out: [ReviewPlace] = []
-        for place in places ?? [] {
+        for place in places {
             if let at = out.firstIndex(where: { $0.path == place.path }) {
                 if rank(place) < rank(out[at]) { out[at] = place }
             } else {

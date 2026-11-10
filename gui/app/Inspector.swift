@@ -37,9 +37,7 @@ struct Inspector: View {
             ContentUnavailableView {
                 Label("No Selection", systemImage: "sidebar.trailing")
             } description: {
-                Text(model.hasInspector
-                     ? "Select an item to see what it is and what you can do."
-                     : "Details of a selected finding appear here.")
+                Text("Select an item to see what it is and what you can do.")
             }
         }
     }
@@ -97,7 +95,7 @@ private struct ReviewInspector: View {
             }
 
             Section("Where") {
-                if item.actionable == false {
+                if !item.actionable {
                     Text(pathAndLine(item.path, item.line))
                         .font(.callout.monospaced())
                         .textSelection(.enabled)
@@ -118,15 +116,15 @@ private struct ReviewInspector: View {
                             Text(place.fixed
                                  ? String(localized: "\(place.path) (fixed here)",
                                           comment: "Inspector, one of the files the same credential is in: this file no longer has it. %@ is the file's path, shown as it is.")
-                                 : place.setAside == true
+                                 : place.setAside
                                  ? String(localized: "\(place.path) (set aside here)",
                                           comment: "Inspector, one of the files the same credential is in: the person set the credential aside in this file. %@ is the file's path, shown as it is.")
                                  : place.path)
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
-                            if place.actionable == true {
+                            if place.actionable {
                                 FileActions(id: place.id)
-                            } else if place.actionable == false {
+                            } else {
                                 Text(unusualName).foregroundStyle(.secondary)
                             }
                         }
@@ -141,7 +139,7 @@ private struct ReviewInspector: View {
                     Text(item.nextStep.map(EngineText.shown)
                          ?? String(localized: "Find out why this file is here before you change it.",
                                    comment: "Inspector, under What to Do, for a finding whose rule gives no next step."))
-                    StepList(steps: item.steps ?? [])
+                    StepList(steps: item.steps)
                     if let link = item.link {
                         Button("Open the Page to Revoke It") { model.openLink(link) }
                     }
@@ -222,10 +220,10 @@ private struct ReviewInspector: View {
             Text(EngineText.shown(item.explanation))
             if let reason = item.reason { Text(EngineText.shown(reason)) }
         }
-        if item.status != "set-aside", item.nextStep != nil || !(item.steps ?? []).isEmpty || item.link != nil {
+        if item.status != "set-aside", item.nextStep != nil || !item.steps.isEmpty || item.link != nil {
             Section("What You Can Do") {
                 if let next = item.nextStep { Text(EngineText.shown(next)) }
-                StepList(steps: item.steps ?? [])
+                StepList(steps: item.steps)
                 if let link = item.link {
                     Button("Open the Page to Manage It") { model.openLink(link) }
                 }
@@ -256,7 +254,6 @@ private struct ReviewInspector: View {
     }
 }
 
-/// A file's path, with the two things a person does with it.
 /// Said in place of Show in Finder and Copy Path, which the engine would refuse.
 private let unusualName = String(localized: "This name has unusual characters, so Loose Keys won't open or copy it.",
                                  comment: "Inspector, under a file's path, in place of Show in Finder and Copy Path.")
@@ -268,6 +265,7 @@ private func pathAndLine(_ path: String, _ line: Int?) -> String {
     return String(localized: "\(path), line \(line)", comment: "Inspector: a file's path and a line number in it. %@ is the path, shown as it is.")
 }
 
+/// A file's path, with the two things a person does with it.
 private struct FileRow: View {
     let path: String
     let line: Int?

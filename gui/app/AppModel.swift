@@ -247,7 +247,12 @@ final class AppModel: ObservableObject {
     /// Notifications…, until it says anything else.
     @Published var notificationsTurnedDown = false
     private var placesOrder = RequestOrder()
+    /// The newest places request whose failure is shown. An older list that
+    /// comes after it is shown, but does not say the folders were read.
+    private var placesFailedAt = 0
     private let reviewReads = ReadTurns()
+    /// The alert a failed read of the review list put up, until a read works.
+    private var reviewReadFailure: Failure?
     private let monitorReads = ReadTurns()
     private let coverageReads = ReadTurns()
     @Published var automaticCoverage: AutomaticCoverage?
@@ -310,8 +315,9 @@ final class AppModel: ObservableObject {
     /// Off in the picture-taking build, whose pictures show no question.
     var asksAboutUpdates = true
     /// The first-open question was answered in this launch, even if saving
-    /// the answer failed: then it is asked again at a later launch.
-    private var updatesAnswered = false
+    /// the answer failed: then it is asked again at a later launch. The
+    /// window check clears it to ask again, as at a later launch.
+    var updatesAnswered = false
     /// The automatic checks: one now, then one a day.
     private var updateChecks: Task<Void, Never>?
     /// What the last status read that worked said: whether the question was
@@ -450,7 +456,7 @@ final class AppModel: ObservableObject {
         return reviewPaneItems.filter {
             leaves(wanted, [$0.shownTitle, $0.path, $0.subject.map(EngineText.about), $0.detail.map(EngineText.about),
                             $0.title, $0.subject, $0.detail])
-                || ($0.places ?? []).contains { leaves(wanted, [$0.path]) }
+                || $0.places.contains { leaves(wanted, [$0.path]) }
         }
     }
 
@@ -458,7 +464,7 @@ final class AppModel: ObservableObject {
     func matchingReviewPaths(_ item: ReviewItem) -> [String] {
         let wanted = search.trimmingCharacters(in: .whitespaces)
         guard !wanted.isEmpty else { return [] }
-        return Set((item.places ?? []).filter {
+        return Set(item.places.filter {
             $0.path != item.path && leaves(wanted, [$0.path])
         }.map(\.path)).sorted()
     }
@@ -496,14 +502,14 @@ final class AppModel: ObservableObject {
     }
 
     var openCount: Int {
-        review?.counts?.open ?? (review?.items.filter { !$0.isStored && $0.status == "open" }.count ?? 0)
+        review?.counts.open ?? 0
     }
 
     /// The number beside Stored Sign-ins. When the list cannot be used it is
     /// the last scan's own count, as for Worth Reviewing.
     var storedCount: Int {
         guard reviewProblem == nil else { return results?.stored ?? 0 }
-        return review?.counts?.stored ?? (review?.items.filter { $0.isStored && $0.status == "open" }.count ?? 0)
+        return review?.counts.stored ?? 0
     }
 
     /// Why Stored Sign-ins is empty, when it is and its list can be used.
@@ -521,7 +527,7 @@ final class AppModel: ObservableObject {
     /// Those saved and since no longer found account for the scan's count.
     var storedEmpty: StoredEmpty {
         if setAside(stored: true) > 0 { return .allSetAside }
-        if let found = results?.stored, found > review?.counts?.storedGone ?? 0 { return .notListed(found) }
+        if let found = results?.stored, found > review?.counts.storedGone ?? 0 { return .notListed(found) }
         if review?.storedChecked != true { return .notLookedYet }
         return .none
     }
@@ -535,8 +541,7 @@ final class AppModel: ObservableObject {
     /// Of one kind: what is worth reviewing, or stored sign-ins.
     func setAside(stored: Bool) -> Int {
         guard reviewProblem == nil else { return 0 }
-        let counted = stored ? review?.counts?.storedSetAside : review?.counts?.setAside
-        return counted ?? (review?.items.filter { $0.isStored == stored && $0.status == "set-aside" }.count ?? 0)
+        return (stored ? review?.counts.storedSetAside : review?.counts.setAside) ?? 0
     }
 
     /// Why Worth Reviewing cannot show what was found, when it cannot: the
@@ -560,7 +565,7 @@ final class AppModel: ObservableObject {
     /// done, so the Overview leaves it out. A full list left findings out for
     /// lack of room, and only the saved report has them all.
     var findingsNote: String? {
-        guard let found = results?.review, let review, reviewProblem == nil, review.full == true else { return nil }
+        guard let found = results?.review, let review, reviewProblem == nil, review.full else { return nil }
         let listed = review.items.filter { !$0.isStored && $0.status != "fixed" }.count
         guard found > listed else { return nil }
         return String(localized: "The scan found \(found) findings, but the list is full at \(listed) items. Save the report to see them all.",
@@ -607,7 +612,7 @@ final class AppModel: ObservableObject {
     /// needs a decision, so a decision or a fix can change the entry's id.
     func reviewEntry(_ id: ReviewItem.ID) -> ReviewItem? {
         let items = review?.items ?? []
-        return items.first { $0.id == id } ?? items.first { $0.places?.contains { $0.id == id } == true }
+        return items.first { $0.id == id } ?? items.first { $0.places.contains { $0.id == id } }
     }
 
     /// A row the filter hides is no longer selected. Done as the filter
@@ -622,7 +627,7 @@ final class AppModel: ObservableObject {
     var menuBarMark: MenuBarMark {
         if reviewProblem != nil { return .problem }
         guard let review else { return .unknown }
-        if review.full == true { return .full }
+        if review.full { return .full }
         return openCount > 0 ? .open : .plain
     }
 
@@ -712,6 +717,9 @@ final class AppModel: ObservableObject {
                 return ["rule": rule, "path": path]
             }
         }
+        // The engine refuses only when its saved state can't be read or
+        // saved, which the review list and Settings already say. The list is
+        // sent again each time the app comes forward.
         try? await engine.send("set_expected", ["entries": entries])
         #endif
     }
@@ -775,11 +783,13 @@ final class AppModel: ObservableObject {
             let answer: ScanPlaces = try await engine.request("places")
             guard placesOrder.use(request) else { return }
             places = answer
-            placesProblem = answer.error.map(EngineText.shown)
+            if request > placesFailedAt { placesProblem = answer.error.map(EngineText.shown) }
         } catch {
             // The folders already shown stay, and so may a change still on its
-            // way: a list that could not be got is not an empty one.
-            guard placesOrder.use(request) else { return }
+            // way: a list that could not be got is not an empty one, so the
+            // failure does not count as an answer that puts older ones aside.
+            guard placesOrder.isNewest(request) else { return }
+            placesFailedAt = request
             placesProblem = error.localizedDescription
             if reportFailure { failure = Failure(title: FailureTitle.readPlaces, reason: error.localizedDescription) }
         }
@@ -794,6 +804,13 @@ final class AppModel: ObservableObject {
                 let answer: ReviewList = try await engine.request("pending_review")
                 review = answer
                 reviewUnread = nil
+                // An alert about an earlier read is over once one works: with
+                // only the menu bar open, it would otherwise wait for the
+                // window and come over a list that reads fine.
+                if let earlier = reviewReadFailure {
+                    if failure == earlier { failure = nil }
+                    reviewReadFailure = nil
+                }
                 // The chosen row may be back under another copy's id. It stays chosen.
                 selectedReviews = Set(selectedReviews.map { reviewEntry($0)?.id ?? $0 })
                 if reviewProblem == nil { dropHiddenSelection() }
@@ -805,8 +822,9 @@ final class AppModel: ObservableObject {
                 // Automatic refresh failures stay visible in the list without
                 // reopening a modal alert every five seconds.
                 if alert {
-                    let title = pane == .stored ? FailureTitle.openStored : FailureTitle.openReview
-                    failure = Failure(title: title, reason: error.localizedDescription)
+                    let shown = Failure(title: FailureTitle.openList(pane), reason: error.localizedDescription)
+                    failure = shown
+                    reviewReadFailure = shown
                 }
             }
             return true
@@ -867,7 +885,7 @@ final class AppModel: ObservableObject {
             Task {
                 await refreshReview()
                 selectedReview = review?.items.filter { !$0.isStored && $0.status == "open" }
-                    .max { ($0.revision ?? 0) < ($1.revision ?? 0) }?.id
+                    .max { $0.revision < $1.revision }?.id
             }
         case "review-ready":
             Task { await refreshReview() }
@@ -1112,7 +1130,7 @@ final class AppModel: ObservableObject {
             places = answer
             // A change that was saved read the saved state. A refusal says
             // nothing of it, and is the caller's to report.
-            if answer.error == nil { placesProblem = nil }
+            if answer.error == nil, request > placesFailedAt { placesProblem = nil }
         }
         return answer
     }
@@ -1125,7 +1143,7 @@ final class AppModel: ObservableObject {
 
     /// The path of the item or copy with this id, from either list.
     private func path(_ id: ReviewItem.ID) async throws -> String {
-        try await engine.request("item_path", ["index": id, "review": true])
+        try await engine.request("item_path", ["index": id])
     }
 
     /// Text for this Mac's clipboard only. Paths and summaries name files and
@@ -1195,7 +1213,7 @@ final class AppModel: ObservableObject {
     /// press on a row whose value has since changed decides nothing about
     /// the new one. The list is then asked for again, and the refusal shown.
     private func drawn(_ item: ReviewItem) -> [String: Any] {
-        ["id": item.id, "revision": item.revision ?? NSNull()]
+        ["id": item.id, "revision": item.revision]
     }
 
     /// Set an item aside for a reason, or return it to review with nil.
@@ -1357,6 +1375,20 @@ final class AppModel: ObservableObject {
     var monitorFailure: String? {
         guard let error = monitor?.error else { return nil }
         return review?.full == true && review?.error == nil ? nil : error
+    }
+
+    /// Whether the Scan Automatically switch can be used, on the Overview and
+    /// in Settings alike, so that it never does nothing: turning it on needs
+    /// a home folder to watch, and nothing changes under a scan or its
+    /// preparation.
+    func canSwitchMonitoring(_ monitor: MonitorStatus) -> Bool {
+        monitorFailure == nil && phase != .scanning && !preparingAccess && (monitor.enabled || places?.home != nil)
+    }
+
+    /// The engine's notice that the review list is full, from the field
+    /// where it reports a failure. Shown as a note, not an error.
+    var listFullNotice: String? {
+        monitorFailure == nil ? monitor?.error : nil
     }
 
     func setMonitoring(enabled: Bool, paused: Bool, from origin: ActionOrigin = .window) {

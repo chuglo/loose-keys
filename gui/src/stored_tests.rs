@@ -103,7 +103,7 @@ fn pending_review_counts_stored_sign_ins_apart() {
     assert_eq!(items[2]["set_aside"], "kept");
     assert_eq!(
         list["counts"],
-        json!({"open": 1, "set_aside": 0, "kept": 0, "fixed": 0, "stored": 1, "stored_set_aside": 1, "stored_gone": 1})
+        json!({"open": 1, "set_aside": 0, "fixed": 0, "stored": 1, "stored_set_aside": 1, "stored_gone": 1})
     );
     assert_eq!(list["stored_full"], false);
     assert_eq!(list["stored_checked"], false);
@@ -166,16 +166,10 @@ fn decide_review_sets_aside_and_returns_a_stored_sign_in() {
     let list = ask(&app, "pending_review", "{}")["ok"].clone();
     assert_eq!(rows(&list), [row("inventory", "~/.config/hub", "open")]);
     assert_eq!(list["counts"]["stored"], 1);
-    // Its file is handed over by its id, as a finding's is, and no longer
-    // by a result's place in the report.
+    // Its file is handed over by its id, as a finding's is.
     let real = format!("{}/.config/hub", home.display());
-    let by_id = json!({ "index": id, "review": true }).to_string();
+    let by_id = json!({ "index": id }).to_string();
     assert_eq!(ask(&app, "item_path", &by_id)["ok"], real);
-    let by_index = json!({ "index": 0, "review": false }).to_string();
-    assert_eq!(
-        ask(&app, "item_path", &by_index)["error"],
-        "That result is no longer shown."
-    );
     drop(app);
     std::fs::remove_dir_all(home).unwrap();
 }

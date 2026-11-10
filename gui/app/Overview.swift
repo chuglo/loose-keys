@@ -24,13 +24,13 @@ struct OverviewView: View {
                     automatic
                 }
                 // A row, not an alert: the question is not urgent, and an
-                // alert came over what the first scan had just found. It
-                // stays until answered, here or in Settings.
+                // alert would come over what the first scan has just found.
+                // It stays until answered, here or in Settings.
                 if model.shouldAskAboutUpdates {
                     Section {
                         LabeledContent {
                             HStack {
-                                Button("Don’t Check") { model.answerUpdateQuestion(false) }
+                                Button("Don't Check") { model.answerUpdateQuestion(false) }
                                 Button("Check Automatically") { model.answerUpdateQuestion(true) }
                             }
                         } label: {
@@ -50,8 +50,6 @@ struct OverviewView: View {
                         } label: {
                             Text(String(localized: "Loose Keys \(newer) Is Available",
                                         comment: "Overview and the alert after Check for Updates…: a newer version is out. %@ is its version number, such as 0.7.0."))
-                            Text(String(localized: "You're using version \(update.current).",
-                                        comment: "Overview and the alert after Check for Updates…: the version this app is. %@ is a version number, such as 0.6.0."))
                         }
                     }
                 }
@@ -115,15 +113,17 @@ struct OverviewView: View {
     /// What needs attention: one title, one line and at most one button. It
     /// never says nothing was found for a list that could not be read.
     @ViewBuilder private var header: some View {
+        // Before and during a scan, Stop Scan is in the toolbar and the File
+        // menu. Only turning on automatic scanning needs a button here.
         if model.preparingAccess {
             headerRow(.progress, String(localized: "Preparing Folder Access"),
                       String(localized: "Answer the macOS prompts for Desktop, Documents and Downloads.")) {
-                Button("Cancel Preparation") { model.cancelAccessPreparation() }
+                if model.phase != .scanning {
+                    Button("Cancel Preparation") { model.cancelAccessPreparation() }
+                }
             }
         } else if model.phase == .scanning {
-            headerRow(.progress, String(localized: "Scanning…", comment: "Window subtitle while a scan runs."), progressText) {
-                Button("Stop Scan") { model.cancelScan() }
-            }
+            headerRow(.progress, String(localized: "Scanning…", comment: "Window subtitle while a scan runs."), progressText) {}
         } else if let problem = model.reviewProblem {
             if let results = model.results {
                 // The count is the scan's own when the list cannot be used.
@@ -329,7 +329,7 @@ struct OverviewView: View {
                         Text("Open Settings to restart the helper.")
                     }
                 }
-                .disabled(model.monitorFailure != nil || (!monitor.enabled && model.places?.home == nil))
+                .disabled(!model.canSwitchMonitoring(monitor))
                 if monitor.enabled, monitor.login == 3 {
                     LabeledContent {
                         Button("Open System Settings") { model.openLoginItems() }
@@ -357,8 +357,12 @@ struct OverviewView: View {
                              : String(localized: "Get notified about new findings while the app is closed."))
                     }
                 }
-                if let error = monitor.error ?? monitor.health.error {
+                if let error = model.monitorFailure ?? monitor.health.error {
                     Label(EngineText.shown(error), systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                }
+                // Under the answer, the scan's own note already says the list is full.
+                if model.findingsNote == nil, let notice = model.listFullNotice {
+                    Text(EngineText.shown(notice)).foregroundStyle(.secondary)
                 }
             } else {
                 LabeledContent("Scan Automatically", value: model.backgroundState.text)

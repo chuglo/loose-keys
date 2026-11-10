@@ -238,30 +238,56 @@ func json(_ value: Any) -> String {
     String(decoding: (try? JSONSerialization.data(withJSONObject: value)) ?? Data(), as: UTF8.self)
 }
 
+/// One entry with the fields the engine always sends that the fixture leaves
+/// out: a finding worth reviewing, drawn at revision 1, with no steps, whose
+/// one place is its own file, and whose name the app acts on.
+func engineItem(_ given: [String: Any]) -> [String: Any] {
+    let state = given["state"] as? String ?? "open"
+    let own: [String: Any] = ["id": given["id"] ?? 0, "path": given["path"] ?? "", "line": given["line"] ?? NSNull(),
+                              "fixed": state == "fixed", "set_aside": state == "set-aside", "actionable": true]
+    var item: [String: Any] = ["kind": "review", "revision": 1, "steps": [String](), "places": [own], "actionable": true]
+    item.merge(given) { $1 }
+    if let places = item["places"] as? [[String: Any]] {
+        item["places"] = places.map { ["line": NSNull(), "set_aside": false, "actionable": true].merging($0) { $1 } }
+    }
+    return item
+}
+
+/// A review list as the engine sends it: these entries, counted as it counts
+/// them, and the rest of its fields as they are with nothing left out, unless
+/// `rest` says otherwise.
+func engineList(_ entries: [[String: Any]], storedGone: Int = 0, _ rest: [String: Any] = [:]) -> String {
+    let items = entries.map(engineItem)
+    let count = { (state: String, stored: Bool) in
+        items.filter { $0["state"] as? String == state && ($0["kind"] as? String == "inventory") == stored }.count
+    }
+    let list: [String: Any] = [
+        "items": items,
+        "counts": ["open": count("open", false), "set_aside": count("set-aside", false),
+                   "fixed": count("fixed", false), "stored": count("open", true),
+                   "stored_set_aside": count("set-aside", true), "stored_gone": storedGone],
+        "skipped": [String](), "error": NSNull(), "full": false, "stored_full": false, "stored_checked": true,
+        "route": false, "permission": "checking",
+    ]
+    return json(list.merging(rest) { $1 })
+}
+
 /// A review list with this many open findings, each drawn at `revision`.
 func reviewList(_ open: Int, revision: Int = 1) -> String {
-    let items: [[String: Any]] = (0..<open).map {
+    engineList((0..<open).map {
         ["id": $0 + 1, "rule": "fixture-rule", "path": "~/fixture-\($0 + 1).txt",
          "title": "Synthetic finding", "explanation": "Review fixture",
          "severity": "high", "state": "open", "revision": revision]
-    }
-    return json(["items": items,
-                 "counts": ["open": open, "set_aside": 0, "kept": 0, "fixed": 0],
-                 "skipped": [String](), "full": false])
+    })
 }
 
 func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> String {
-    let items: [[String: Any]] = states.enumerated().map { index, state in
+    engineList(states.enumerated().map { index, state in
         ["id": index + 1, "rule": "fixture-rule", "path": "~/fixture-\(index + 1).txt",
          "title": "Synthetic finding \(index + 1)", "explanation": "Review fixture",
          "severity": "high", "state": state,
          "set_aside": state == "set-aside" ? "not-a-credential" : NSNull(), "revision": revision]
-    }
-    return json(["items": items,
-                 "counts": ["open": states.filter { $0 == "open" }.count,
-                            "set_aside": states.filter { $0 == "set-aside" }.count,
-                            "kept": 0, "fixed": states.filter { $0 == "fixed" }.count],
-                 "skipped": [String](), "full": full])
+    }, ["full": full])
 }
 
 /// A list of findings worth reviewing and stored sign-ins, as the engine
@@ -269,19 +295,13 @@ func reviewStates(_ states: [String], revision: Int = 1, full: Bool = false) -> 
 /// count from 1, and the revision rises with them.
 func kindsList(_ entries: [(state: String, stored: Bool)], full: Bool = false, storedFull: Bool = false,
                storedChecked: Bool = true, storedGone: Int = 0) -> String {
-    let items: [[String: Any]] = entries.enumerated().map { index, entry in
+    engineList(entries.enumerated().map { index, entry in
         ["id": index + 1, "kind": entry.stored ? "inventory" : "review", "rule": "fixture-rule",
          "path": "~/fixture-\(index + 1).txt", "title": entry.stored ? "Synthetic sign-in \(index + 1)" : "Synthetic finding \(index + 1)",
          "explanation": "Review fixture", "severity": entry.stored ? "low" : "high", "state": entry.state,
          "set_aside": entry.state == "set-aside" ? (entry.stored ? "kept" : "not-a-credential") : NSNull(),
          "revision": index + 1]
-    }
-    let count = { (state: String, stored: Bool) in entries.filter { $0.state == state && $0.stored == stored }.count }
-    return json(["items": items,
-                 "counts": ["open": count("open", false), "set_aside": count("set-aside", false), "kept": 0,
-                            "fixed": count("fixed", false), "stored": count("open", true),
-                            "stored_set_aside": count("set-aside", true), "stored_gone": storedGone],
-                 "skipped": [String](), "full": full, "stored_full": storedFull, "stored_checked": storedChecked])
+    }, storedGone: storedGone, ["full": full, "stored_full": storedFull, "stored_checked": storedChecked])
 }
 
 @MainActor func multipleReviewSelection() async {
@@ -335,7 +355,7 @@ func kindsList(_ entries: [(state: String, stored: Bool)], full: Bool = false, s
     check(bench.model.reviewRows.count == 2, "a pending decision keeps the finding visible")
     await bench.answer(decision, .success("null"))
     bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["open", "set-aside"])))
-    await eventually("the saved decision is read") { bench.model.review?.counts?.setAside == 1 }
+    await eventually("the saved decision is read") { bench.model.review?.counts.setAside == 1 }
     check(bench.model.reviewRows.map(\.id) == [1], "set-aside findings leave Worth Reviewing")
     check(bench.model.selectedReview == nil && bench.model.currentReview == nil,
           "the moved finding is no longer selected or inspected in Worth Reviewing")
@@ -463,7 +483,7 @@ func monitorStatus(enabled: Bool, paused: Bool = false, menuBar: Bool = false, r
     var health: [String: Any] = [:]
     if let running { health["running"] = running }
     if let fullPass { health["full_pass"] = fullPass }
-    return json(["enabled": enabled, "paused": paused, "scanning": false, "login": enabled ? 2 : 1,
+    return json(["enabled": enabled, "paused": paused, "login": enabled ? 2 : 1,
                  "menu_bar": menuBar, "app_login": menuBar && enabled ? 2 : 1,
                  "update_check": updateCheck.map { $0 as Any } ?? NSNull(), "error": error.map { $0 as Any } ?? NSNull(),
                  "health": health, "pending_delivery": false, "attempts": 0])
@@ -475,9 +495,8 @@ func places(_ extra: [String], error: String? = nil) -> String {
 
 /// What a scan that found this many review findings answers.
 func scanResults(review: Int, stored: Int = 0) -> String {
-    json(["status": "partial", "tool_version": "0.0.0-test", "generated_at": "2026-10-13T00:00:00Z",
-          "review": review, "stored": stored, "not_checked": 0, "groups": [Any](), "gaps": [Any](),
-          "roots": ["~"], "excluded": [String](), "limitations": ""])
+    json(["status": "partial", "generated_at": "2026-10-13T00:00:00Z",
+          "review": review, "stored": stored, "not_checked": 0, "gaps": [Any](), "blocked": [String]()])
 }
 
 let refused = Result<String, EngineError>.failure(EngineError(message: "That action stopped unexpectedly."))
@@ -635,6 +654,27 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
           "review: a poll's failure after a refresh that worked opens no alert")
 }
 
+/// An alert a failed read put up is over once a later read works, so one
+/// put up while only the menu bar was open never comes over a list that
+/// reads fine. An alert about something else stays.
+@MainActor func reviewFailureAlertClearedByLaterRead() async {
+    let bench = Bench()
+    let failed = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(failed, refused)
+    check(bench.model.failure?.title == FailureTitle.openReview, "review: a failed read is shown in an alert")
+    let worked = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(worked, .success(reviewList(1)))
+    check(bench.model.reviewProblem == nil && bench.model.failure == nil,
+          "review: a read that works takes away the alert a failed read put up")
+    let again = await bench.ask("pending_review") { await $0.refreshReview() }
+    await bench.answer(again, refused)
+    let other = Failure(title: FailureTitle.saveChoice, reason: "Synthetic refusal.")
+    bench.model.failure = other
+    let after = await bench.ask("pending_review") { await $0.refreshReview(reportFailure: false) }
+    await bench.answer(after, .success(reviewList(1)))
+    check(bench.model.failure == other, "review: a read that works leaves an alert about something else")
+}
+
 /// A press names the row by its id and the revision it was drawn with. The
 /// engine refuses a press without the revision it holds for that row.
 @MainActor func reviewPressNamesTheRowDrawn() async {
@@ -771,6 +811,30 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     check(bench.model.places?.home == "~" && bench.model.places?.extra == ["/Volumes/Fixture"],
           "places: a request that fails leaves the folders shown, not an empty list")
     check(bench.model.failure != nil, "places: the newest request's failure is reported")
+}
+
+/// A read that fails is not an answer that puts older ones aside: a folder
+/// added before it was asked for is shown when its answer comes, and the
+/// failure is still said.
+@MainActor func placesFailureKeepsOlderChange() async {
+    let bench = Bench()
+    let first = await bench.ask("places") { await $0.refresh() }
+    bench.answer(first.call, .success(places(["/Volumes/Fixture"])))
+    await bench.finishRefresh(first)
+    let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    let add = await bench.ask("type_place") { $0.addFolders([folder]) }
+    let read = await bench.ask("places") { await $0.refreshPlaces() }
+    await bench.answer(read, refused)
+    bench.answer(add.call, .success(places(["/Volumes/Fixture", "/Volumes/Added"])))
+    // Nothing tells the test when the answer has been used, so it waits a
+    // while for the list, and then checks.
+    for _ in 0..<400 where bench.model.places?.extra.count != 2 {
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+    check(bench.model.places?.extra == ["/Volumes/Fixture", "/Volumes/Added"],
+          "places: a folder added before a read that failed is shown when its answer comes")
+    check(bench.model.placesProblem != nil && bench.model.failure == nil,
+          "places: the failed read is still said, without an alert")
 }
 
 /// A list of folders that couldn't be read at launch is read again when the
@@ -956,7 +1020,7 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
         (true, true, 2, true, .paused),
         (true, false, 2, true, .active),
     ] {
-        let value = json(["enabled": enabled, "paused": paused, "scanning": false, "login": login,
+        let value = json(["enabled": enabled, "paused": paused, "login": login,
                           "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
         model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(value.utf8))
         check(model.backgroundState == expected, "background status: \(expected.text)")
@@ -1282,7 +1346,7 @@ func engineTextTableChoice() {
         ["id": 2, "rule": "fixture-rule", "path": "~/fixture-2.txt", "title": "Cloud key",
          "explanation": "Review fixture", "severity": "high", "deferred": false, "state": "open"],
     ]
-    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": items]).utf8))
+    model.review = try? decodeEngine(ReviewList.self, from: Data(engineList(items).utf8))
     for (typed, wanted, what) in [
         ("contrasena", [1], "a shown title typed without its accents"),
         ("CONTRASEÑA GUARDADA", [1], "a shown title in other case"),
@@ -1305,7 +1369,7 @@ func engineTextTableChoice() {
     stored[1]["kind"] = "inventory"
     stored[1]["title"] = "Saved password"
     stored[1]["subject"] = NSNull()
-    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": stored]).utf8))
+    model.review = try? decodeEngine(ReviewList.self, from: Data(engineList(stored).utf8))
     model.pane = .stored
     for (typed, wanted, what) in [
         ("contrasena", 2, "a shown title typed without its accents"),
@@ -1414,7 +1478,7 @@ func initialWindowFitsScreen() {
             ],
         ]
         model.search = ""
-        model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": [item]]).utf8))
+        model.review = try? decodeEngine(ReviewList.self, from: Data(engineList([item]).utf8))
         check(model.review?.items.first?.copyHint == "4 copies",
               "grouped row: the copy hint counts listed open, fixed and set-aside copies")
         model.pane = state == "set-aside" ? .setAside : .review
@@ -1457,14 +1521,14 @@ func initialWindowFitsScreen() {
         ["id": 51, "path": "~/.example-credentials", "line": 1, "fixed": false],
         ["id": 52, "path": "~/.example-credentials", "line": 1, "fixed": false],
     ]
-    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": [item(sameFile)]]).utf8))
+    model.review = try? decodeEngine(ReviewList.self, from: Data(engineList([item(sameFile)]).utf8))
     check(model.review?.items.first?.copyHint == nil,
           "grouped copies: two rules in one file are not two copies")
     let twoFiles: [[String: Any]] = sameFile + [
         ["id": 53, "path": "~/Projects/shop/.env", "line": 4, "fixed": true],
         ["id": 54, "path": "~/Projects/shop/.env", "line": 4, "fixed": false, "set_aside": true],
     ]
-    model.review = try? decodeEngine(ReviewList.self, from: Data(json(["items": [item(twoFiles)]]).utf8))
+    model.review = try? decodeEngine(ReviewList.self, from: Data(engineList([item(twoFiles)]).utf8))
     check(model.review?.items.first?.copyHint == "2 copies",
           "grouped copies: the hint counts files, fixed and set-aside copies included")
     let others = model.review?.items.first?.otherLocations ?? []
@@ -1631,7 +1695,7 @@ func initialWindowFitsScreen() {
 }
 
 func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
-    json(["enabled": true, "paused": paused, "scanning": false, "login": login,
+    json(["enabled": true, "paused": paused, "login": login,
           "menu_bar": false, "app_login": 1, "health": ["running": running], "pending_delivery": false, "attempts": 0])
 }
 
@@ -1866,11 +1930,10 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     let pieces = ["synthetic", "planted", "menu"]
     let path = "~/" + pieces.joined(separator: "-") + ".txt"
     let subject = pieces.reversed().joined(separator: "_")
-    let planted = json(["items": [["id": 1, "rule": "fixture-rule", "path": path, "title": "Synthetic finding",
-                                    "explanation": "Review fixture", "severity": "high", "state": "open",
-                                    "subject": subject, "detail": subject, "revision": 1]],
-                        "counts": ["open": 1, "set_aside": 0, "kept": 0, "fixed": 0],
-                        "skipped": [path], "full": false])
+    let planted = engineList([["id": 1, "rule": "fixture-rule", "path": path, "title": "Synthetic finding",
+                               "explanation": "Review fixture", "severity": "high", "state": "open",
+                               "subject": subject, "detail": subject, "revision": 1]],
+                             ["skipped": [path]])
     let read = await bench.ask("pending_review") { await $0.refreshReview() }
     await bench.answer(read, .success(planted))
     check(model.openCount == 1, "menu bar: the planted item is read")
@@ -1893,7 +1956,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(monitorStatus(enabled: true, running: true).utf8))
     check(model.menuBarLine == "Checking your files…",
           "menu bar: the helper's first pass is checking, not a count")
-    let checked = json(["enabled": true, "paused": false, "scanning": false, "login": 2, "menu_bar": true,
+    let checked = json(["enabled": true, "paused": false, "login": 2, "menu_bar": true,
                         "app_login": 2, "health": ["running": true, "last_scan": "2026-11-03T05:39:00Z"],
                         "pending_delivery": false, "attempts": 0])
     model.monitor = try? decodeEngine(MonitorStatus.self, from: Data(checked.utf8))
@@ -1904,7 +1967,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
 
 @MainActor func automaticCoverageReads() async {
     let bench = Bench()
-    let old = #"{"full_pass":"2026-10-20T12:00:00Z","unread":1,"unread_gaps":[{"label":"Could not be read","help":"","count":1,"paths":["~/old"],"more":0}],"unread_truncated":false}"#
+    let old = #"{"full_pass":"2026-10-20T12:00:00Z","unread":1,"unread_gaps":[{"label":"Could not be read","help":"","count":1,"paths":["~/old"]}],"unread_truncated":false}"#
     let newer = old.replacingOccurrences(of: "~/old", with: "~/new")
         .replacingOccurrences(of: "2026-10-20", with: "2026-10-21")
     let first = await bench.ask("automatic_coverage") { await $0.refreshAutomaticCoverage() }
@@ -1949,6 +2012,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("review list: a failed read, then the next", reviewFailureThenNextRead),
             ("review list: a press names the row drawn", reviewPressNamesTheRowDrawn),
             ("review list: a shared read alerts if any request asked", reviewFailureAlertsForAnyRequest),
+            ("review list: a read that works ends a failed read's alert", reviewFailureAlertClearedByLaterRead),
             ("background checks: older status, then newer", monitorOlderStatusBeforeNewer),
             ("background checks: older failure, then newer status", monitorOlderFailureBeforeNewer),
             ("background checks: newest failure after older status", monitorNewestFailure),
@@ -1958,6 +2022,7 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("places: removal refusal preserves folders and reports why", placesRemovalRefusal),
             ("places: newest failure after older list", placesNewestFailure),
             ("places: read again before a scan", placesReadAgainBeforeScan),
+            ("places: a failed read keeps an older change", placesFailureKeepsOlderChange),
             ("scan: refreshes while a scan runs", scanDoesNotHoldRefreshes),
             ("background checks: foreground follows the helper", foregroundFollowsHelper),
             ("background checks: honest helper status", backgroundStatusIsHonest),

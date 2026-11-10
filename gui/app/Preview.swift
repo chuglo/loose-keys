@@ -20,6 +20,8 @@ final class SampleEngine: Engine {
     /// Set by the checks: the folders answer as the engine does when it
     /// couldn't read its saved state.
     static var placesFailed = false
+    /// Set by the checks: there is no home folder to scan, as when HOME is unusable.
+    static var noHome = false
     /// Set by the checks: saving a decision then fails, and from then on the
     /// review list answers as it does once a save has failed.
     static var saveFails = false
@@ -44,6 +46,7 @@ final class SampleEngine: Engine {
     /// Set by the checks: the review list is then full. The engine says so in
     /// the list, and in the field where it reports a storage failure.
     static var listFull = false
+    static let fullNotice = "The review list is full, so new findings are not being added."
     /// The copies of the sample's token in two files that were set aside as
     /// kept. decide_review changes it, and the checks put it back.
     static var kept: Set<Int> = []
@@ -93,6 +96,11 @@ final class SampleEngine: Engine {
     /// An error the helper kept from before checks were turned off.
     static var helperError = false
     static var notificationRequests = 0
+    /// A notification the helper hasn't sent yet, and how often it has tried.
+    /// retry_notifications sends it.
+    static var pendingDelivery = false
+    static var attempts = 0
+    static var retryRequests = 0
     /// The person's answer to macOS's request is no.
     static var declinesNotifications = false
     static var permission = "denied"
@@ -141,6 +149,8 @@ final class SampleEngine: Engine {
         switch command {
         case "places" where Self.placesFailed:
             return Data(#"{"home":"~","home_error":null,"extra":[],"error":"Could not read the saved state."}"#.utf8)
+        case "places" where Self.noHome:
+            return Data(#"{"home":null,"home_error":"HOME is not set to an absolute path","extra":[],"error":null}"#.utf8)
         case "places": return Data(#"{"home":"~","home_error":null,"extra":["/Volumes/Backup"],"error":null}"#.utf8)
         case "skip_folder":
             Self.folderRequest = args
@@ -150,13 +160,12 @@ final class SampleEngine: Engine {
             // The sample keeps its folders. The checks look at what was asked.
             Self.folderRequest = args
             return command == "remove_place" ? try respond("places", [:]) : Data("null".utf8)
-        case "version": return Data(#""0.2.0-beta.1""#.utf8)
         case "save_report" where Self.reportFails:
             throw EngineError(message: "Could not save: the disk is full.")
         case "pending_review" where Self.refused:
             throw EngineError(message: "That action stopped unexpectedly.")
         case "pending_review" where Self.nothingFound:
-            return Data(#"{"items":[],"counts":{"open":0,"set_aside":0,"kept":0,"fixed":0,"stored":0,"stored_set_aside":0},"skipped":[],"error":null,"full":false,"stored_full":false,"stored_checked":\#(Self.storedChecked),"route":false,"permission":"denied"}"#.utf8)
+            return Data(#"{"items":[],"counts":{"open":0,"set_aside":0,"fixed":0,"stored":0,"stored_set_aside":0,"stored_gone":0},"skipped":[],"error":null,"full":false,"stored_full":false,"stored_checked":\#(Self.storedChecked),"route":false,"permission":"denied"}"#.utf8)
         case "pending_review" where Self.allSetAside: return Data(Self.everythingSetAside.utf8)
         case "pending_review": return Data(Self.review.utf8)
         case "decide_review" where Self.saveFails:
@@ -213,6 +222,11 @@ final class SampleEngine: Engine {
         case "refresh_notifications":
             onEvent?("notification-permission", Data("null".utf8))
             return Data("null".utf8)
+        case "retry_notifications":
+            Self.retryRequests += 1
+            Self.pendingDelivery = false
+            Self.attempts = 0
+            return Data("null".utf8)
         case "monitor_status" where Self.statusRefused: throw EngineError(message: Self.statusRefusal)
         case "monitor_status": return Data(Self.monitor.utf8)
         case "automatic_coverage":
@@ -224,7 +238,6 @@ final class SampleEngine: Engine {
             if Self.nothingFound { answer = answer.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) }
             if Self.documentsBlocked { answer = answer.replacingOccurrences(of: #""blocked":[]"#, with: #""blocked":["Documents"]"#) }
             return Data(answer.utf8)
-        case "rules_text": return Data(#""key.ssh.private\n   Private key with no passphrase\n   Looks in: any file in the scanned folders, ~/.ssh/*\ndev.aws.inline-credentials\n   AWS access keys stored in a file\n   Looks in: ~/.aws/credentials, ~/.aws/config""#.utf8)
         case "item_path":
             Self.pathRequest = args
             return Data(#""sample""#.utf8)
@@ -244,9 +257,9 @@ final class SampleEngine: Engine {
         let aside = decisions[id] ?? aside
         let state = aside == nil ? state : "set-aside"
         let quoted = { (text: String?) in text.map { "\"\($0)\"" } ?? "null" }
-        let copies = places ?? #"[{"id":\#(id),"path":"\#(path)","line":null,"fixed":false,"actionable":\#(actionable)}]"#
+        let copies = places ?? #"[{"id":\#(id),"path":"\#(path)","line":null,"fixed":false,"set_aside":\#(aside != nil),"actionable":\#(actionable)}]"#
         return """
-        {"id":\(id),"revision":\(id),"rule":"sample.rule","path":"\(path)","line":null,"title":"\(title)",
+        {"id":\(id),"kind":"review","revision":\(id),"rule":"sample.rule","path":"\(path)","line":null,"title":"\(title)",
          "explanation":"This file starts with 12 or more words from the list wallets use for recovery phrases. Loose Keys did not check whether they make a valid phrase or a wallet with funds.",
          "reason":"A recovery phrase is the wallet. Anyone who copies these words can take everything in it, with no password, and stealers collect small text files from Desktop, Documents and Downloads.",
          "next_step":"Treat the phrase as exposed if this Mac could have had malware. Otherwise move it off the Mac now.",
@@ -275,16 +288,16 @@ final class SampleEngine: Engine {
     private static var everythingSetAside: String {
         """
         {"items":[\(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open", aside: "kept"))],
-         "counts":{"open":0,"set_aside":1,"kept":1,"fixed":0,"stored":0,"stored_set_aside":0},"skipped":[],"error":null,"full":\(listFull),
+         "counts":{"open":0,"set_aside":1,"fixed":0,"stored":0,"stored_set_aside":0,"stored_gone":0},"skipped":[],"error":null,"full":\(listFull),
          "stored_full":false,"stored_checked":\(storedChecked),"route":false,"permission":"\(permission)"}
         """
     }
 
-    /// A stored sign-in, as the engine lists it after what is worth reviewing:
-    /// one of the scan's sign-ins below, with its rule's advice.
     /// A second copy of one sample sign-in, under its own id.
     static let storedCopy = "~/backup/gh/hosts.yml"
 
+    /// A stored sign-in, as the engine lists it after what is worth reviewing:
+    /// one of the scan's sign-ins below, with its rule's advice.
     private static func storedItem(_ id: Int, _ path: String, subject: String?, aiTool: Bool, copy: (id: Int, path: String)? = nil) -> String {
         let quoted = { (text: String?) in text.map { "\"\($0)\"" } ?? "null" }
         let aside = storedKept.contains(id)
@@ -324,7 +337,6 @@ final class SampleEngine: Engine {
         let error = storeFailed ? #""Could not save the review list.""# : "null"
         let tokenAside = kept.contains(4) && kept.contains(9) ? 1 : 0
         let asideCount = decisions.count + tokenAside
-        let keptCount = decisions.values.filter { $0 == "kept" }.count + tokenAside
         return """
         {"items":[
         \(item(7, "Possible wallet recovery phrase in a file", "~/Desktop/wallet backup.txt", "high", "open")),
@@ -336,48 +348,39 @@ final class SampleEngine: Engine {
         \(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open")),
         \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false)),
         \(storedItems)
-        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"kept":\(keptCount),"fixed":1,"stored":\(storedIds.count - storedKept.count),"stored_set_aside":\(storedKept.count)},
+        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"fixed":1,"stored":\(storedIds.count - storedKept.count),"stored_set_aside":\(storedKept.count),"stored_gone":0},
          "skipped":\(skippedList),"error":\(error),"full":\(listFull),"stored_full":false,"stored_checked":\(storedChecked),"route":false,"permission":"\(permission)"}
         """
     }
 
     /// A scan counts each finding. For the list above that is 8: the token in
-    /// two files is two, and the item set aside is still found. Sign-ins are
-    /// listed a rule at a time, as the engine lists them, so their indexes
-    /// are out of order: 4 comes before 2 and 3.
+    /// two files is two, and the item set aside is still found.
     private static let results = """
-    {"status":"partial","context":"user","tool_version":"0.2.0-beta.1","generated_at":"2026-10-10T21:40:00Z",
+    {"status":"partial","generated_at":"2026-10-10T21:40:00Z",
      "review":8,"stored":5,"not_checked":123,
-     "groups":[
-      {"kind":"inventory","severity":"medium","title":"Sign-in stored by an AI tool","explanation":"This tool keeps you signed in with a token in this file. That is how it is meant to work.","reason":"Any program running as you can read it, and stealers look for it by name.","next_step":"Sign out of the tool when you stop using it.","steps":["Sign out in the tool, which removes this file.","Sign in again when you next need it."],"link":"\(managePage)",
-       "items":[{"index":0,"path":"~/.codex/auth.json","line":null,"subject":"Codex","actionable":true},{"index":1,"path":"~/.claude/.credentials.json","line":null,"subject":"Claude Code","actionable":true},{"index":4,"path":"~/.gemini/oauth_creds.json","line":null,"subject":null,"actionable":true}]},
-      {"kind":"inventory","severity":"medium","title":"Sign-in stored by a command-line tool","explanation":"A command-line tool keeps its sign-in in this file.","reason":null,"next_step":null,"steps":[],"link":null,
-       "items":[{"index":2,"path":"~/.config/gh/hosts.yml","line":null,"subject":"github.com","actionable":true},{"index":3,"path":"~/.config/glab-cli/config.yml","line":null,"subject":null,"actionable":true}]}],
-     "gaps":[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"],"more":118}],
-     "blocked":[],
-     "roots":["~","/Volumes/Backup"],"excluded":["node_modules",".git","target","Caches",".Trash"],
-     "limitations":"Discovery reads the first 4 KiB of regular files. Not checked: browser cookies and sessions, Safari, Notes and Keychain items. Finding nothing does not mean this Mac is safe."}
+     "gaps":[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"]}],
+     "blocked":[]}
     """
 
     private static var automaticCoverage: String {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
-        let gaps = unread > 0 ? #"[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":1,"paths":["~/Library/Mail"],"more":0},{"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"],"more":0}]"# : "[]"
+        let gaps = unread > 0 ? #"[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":1,"paths":["~/Library/Mail"]},{"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"]}]"# : "[]"
         return """
         {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
         """
     }
 
     private static var monitor: String {
-        let error = listFull ? #""The review list is full, so new findings are not being added.""# : "null"
+        let error = listFull ? "\"\(fullNotice)\"" : "null"
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
         let helperFailed = helperError ? #""Could not watch the home folder for changes.""# : "null"
         let lastScan = lastCheck.map { "\"\($0)\"" } ?? "null"
         return """
-        {"enabled":\(monitoring),"paused":\(paused),"scanning":false,"login":\(helperNeedsApproval ? 3 : monitoring && !helperUnregistered ? 2 : 1),
+        {"enabled":\(monitoring),"paused":\(paused),"login":\(helperNeedsApproval ? 3 : monitoring && !helperUnregistered ? 2 : 1),
          "menu_bar":\(menuBar),"app_login":\(appLogin ?? (menuBar && monitoring ? 2 : 1)),
          "update_check":\(updateCheck.map { String($0) } ?? "null"),
-         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered && !helperNeedsApproval),"last_scan":\(lastScan),"coverage":"partial","full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"unread_truncated":false,"changes":0,"error":\(helperFailed)},
-         "error":\(error),"pending_delivery":false,"attempts":0,"results":null}
+         "health":{"running":\(monitoring && !helperStopped && !helperUnregistered && !helperNeedsApproval),"last_scan":\(lastScan),"full_pass":\(fullPass),"left":\(completedPass ? 0 : 4),"unread":\(unread),"error":\(helperFailed)},
+         "error":\(error),"pending_delivery":\(pendingDelivery),"attempts":\(attempts),"results":null}
         """
     }
 }
@@ -458,7 +461,7 @@ enum Snapshots {
             if let now = model.reviewEntry(id) { model.decide(now, reason: nil) }
             await settle()
             lines.append("shown again: \(state(id))")
-            let place: String? = try? await model.engine.request("item_path", ["index": id, "review": true])
+            let place: String? = try? await model.engine.request("item_path", ["index": id])
             lines.append("path is absolute: \(place?.hasPrefix("/") ?? false)")
         }
         let summary: String? = try? await model.engine.request("summary_text")
@@ -708,9 +711,15 @@ enum Checks {
                "the first time, the app asks whether it may check for updates")
         expect(!everything().contains { role($0) == kAXSheetRole },
                "the update question is a row on the Overview, not an alert")
-        // One answer per launch: Check Automatically is pressed below, so Don't Check is only seen.
-        expect(button("Don’t Check").flatMap { value($0, kAXEnabledAttribute) as? Bool } == true,
-               "the update question offers Don't Check beside Check Automatically")
+        await press(button("Don't Check"), "declining update checks",
+                    until: { SampleEngine.updateCheck == false && !written().contains("Check for Updates Automatically?") })
+        expect(SampleReleases.requests == 0, "declining update checks asks the sample's GitHub nothing")
+        // One answer per launch, so the question is asked again as at a later launch.
+        SampleEngine.updateCheck = nil
+        model.updatesAnswered = false
+        await model.refreshMonitor()
+        expect(await eventually { written().contains("Check for Updates Automatically?") },
+               "unanswered at a later launch, the app asks again")
         await press(button("Check Automatically"), "allowing update checks",
                     until: { SampleEngine.updateCheck == true && SampleReleases.requests == 1 })
         expect(await eventually { written().contains("Loose Keys 9.9.9 Is Available") && button("Download") != nil },
@@ -727,12 +736,19 @@ enum Checks {
         await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with a newer version out",
                     until: { written().contains("Loose Keys 9.9.9 Is Available") && button("Not Now") != nil })
         await press(button("Not Now"), "putting the newer version off", until: { model.updateResult == nil })
+        // The Overview has a Download too, so the alert's is pressed in its sheet.
+        func alertSheet() -> AXUIElement? { everything().first { role($0) == kAXSheetRole } }
+        await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with a newer version out, to download it",
+                    until: { alertSheet().flatMap { button("Download", in: $0) } != nil })
+        opened.removeAll()
+        await press(alertSheet().flatMap { button("Download", in: $0) }, "pressing Download in the update alert",
+                    until: { model.updateResult == nil && opened == [Releases.page] })
         SampleEngine.newer = nil
         await press(appMenuItem("Check for Updates…"), "choosing Check for Updates… with no newer version",
-                    until: { written().contains("You’re up to date.") })
+                    until: { written().contains("You're up to date.") })
         await press(button("OK"), "closing the up-to-date check",
                     until: { model.updateResult == nil && !written().contains("Loose Keys 9.9.9 Is Available") })
-        expect(SampleReleases.requests == 4, "each check asks the sample's GitHub once (\(SampleReleases.requests) asked)")
+        expect(SampleReleases.requests == 5, "each check asks the sample's GitHub once (\(SampleReleases.requests) asked)")
         SampleEngine.updateCheck = false
         await model.refreshMonitor()
     }
@@ -796,9 +812,6 @@ enum Checks {
             let rows = sidebarRows()
             if let index = rowOf[pane], index < rows.count { await choose(rows[index], "opening \(pane.rawValue)") }
         }
-        // What a scan could not read has no page and no count in the sidebar.
-        expect(!(sidebarRows().flatMap { written(in: $0) }).contains("Not Checked"),
-               "the sidebar has no Not Checked row")
 
         #if PREVIEW
         // Stored sign-ins are saved, so the list has them before this window scans.
@@ -896,14 +909,14 @@ enum Checks {
             }
             return onPage.flatMap { value($0, kAXEnabledAttribute) as? Bool } == true
         }
-        expect(welcomed && enabled("Scan Now") && button("Scan Automatically") == nil && sidebarRows().isEmpty,
+        expect(welcomed && enabled("Scan Now") && toggle("Scan Automatically") == nil && sidebarRows().isEmpty,
                "with nothing to list, the first page offers Scan Now alone and hides the sidebar")
         expect(await eventually { !everything().contains { role($0) == kAXToolbarRole } },
                "the first page hides the toolbar, with its Scan Now, Export and Filter")
         // Folders are listed in Settings; automatic scanning is offered after an answer.
-        expect(button("Show What a Scan Checks") == nil && button("Remove") == nil
-               && !written().contains("Checks whenever your files change."),
-               "the first page has no scan reference section, folder list or second choice")
+        expect(button("Remove") == nil && !everything().contains { role($0) == kAXCheckBoxRole }
+               && !written().contains("Checks your files whenever they change, even when the app is closed."),
+               "the first page has no folder list or second choice")
         // With the toolbar hidden, the View menu has the sidebar, once.
         expect(appMenuItems("Show Sidebar").count == 1, "the View menu has one Show Sidebar (\(appMenuItems("Show Sidebar").count) found)")
         await press(appMenuItem("Show Sidebar"), "opening the sidebar from the first page with View > Show Sidebar")
@@ -911,6 +924,25 @@ enum Checks {
                "the sidebar can be opened from the first page, and stays open there")
         model.sidebarAsked = false
         expect(await eventually { sidebarRows().isEmpty }, "the first page hides the sidebar again in a window just opened")
+        // The first page's Scan Now starts by preparing folder access. Stopped
+        // there with the toolbar's Stop Scan, it neither scans nor leaves
+        // the first page.
+        let scanGate = DispatchSemaphore(value: 0)
+        SampleEngine.accessGate = scanGate
+        let scansBefore = SampleEngine.scanRequests
+        let firstScanNow = everything().first { role($0) == kAXButtonRole && names($0).contains("Scan Now") }
+        await press(firstScanNow, "pressing the first page's Scan Now",
+                    until: { model.preparingAccess && model.phase == .scanning && toolbarButton("Stop Scan") != nil })
+        expect(button("Cancel Preparation") == nil && everything().filter { role($0) == kAXButtonRole && names($0).contains("Stop Scan") }.count == 1,
+               "while folder access is prepared for a scan, the toolbar's Stop Scan is the one way to stop it")
+        await press(toolbarButton("Stop Scan"), "stopping the scan with the toolbar's Stop Scan while folder access is prepared")
+        SampleEngine.accessGate = nil
+        scanGate.signal()
+        expect(await eventually { !model.preparingAccess && model.phase == .ready && model.showsWelcome }
+                   && model.results == nil && SampleEngine.scanRequests == scansBefore,
+               "Stop Scan during folder access ends it without a scan, back on the first page")
+        model.sidebarAsked = false
+        expect(await eventually { sidebarRows().isEmpty }, "the first page hides the sidebar again after the stopped scan")
         // Turned on elsewhere, as from the menu bar or an earlier launch.
         SampleEngine.monitoring = true
         await model.refreshMonitor()
@@ -918,6 +950,10 @@ enum Checks {
                "background checks turned on leave the first page for the Overview and bring the sidebar back")
         expect(await eventually { toolbarButton("Scan Now") != nil },
                "leaving the first page brings the toolbar back")
+        await press(appMenuItem("Hide Sidebar"), "hiding the sidebar with View > Hide Sidebar",
+                    until: { sidebarRows().isEmpty && appMenuItem("Show Sidebar") != nil })
+        await press(appMenuItem("Show Sidebar"), "showing the sidebar again with View > Show Sidebar",
+                    until: { sidebarRows().count == 4 })
         SampleEngine.monitoring = false
         await model.refreshMonitor()
         expect(await eventually { model.showsWelcome } && sidebarRows().count == 4,
@@ -938,9 +974,8 @@ enum Checks {
         SampleEngine.nothingFound = false
         await model.refreshReview()
         await open(.overview)
-        expect(model.results == nil && button("Show What a Scan Checks") == nil
-               && button("Show Every Rule") == nil && button("Add Folder or Drive…") == nil,
-               "before a scan, Overview has neither folder controls nor the scan reference section")
+        expect(model.results == nil && button("Add Folder or Drive…") == nil,
+               "before a scan, Overview has no folder controls")
         // With every finding set aside and no scan in this window, Worth
         // Reviewing says where they went. It does not say places went
         // unchecked: before a scan, nothing says so.
@@ -990,8 +1025,7 @@ enum Checks {
         expect(model.results == nil && SampleEngine.notificationRequests == 0,
                "background consent neither runs a manual scan nor asks for notification permission")
         // Check timing, Pause and notifications that are off are in Settings.
-        expect(!written().contains("Checking existing files…") && !written().contains("Last Check")
-               && button("Show Details") == nil && button("Pause") == nil,
+        expect(!written().contains("Last Check") && button("Show Details") == nil && toggle("Pause Scanning") == nil,
                "the switch says only its state, and the Overview leaves check timing and Pause to Settings")
         // Findings that turn up during the first pass are not "from earlier scans".
         expect(written().contains("Still checking your files…") && !written().contains("From earlier scans."),
@@ -1057,6 +1091,8 @@ enum Checks {
         await press(toolbarButton("Scan Now"), "pressing Scan Now to stop it",
                     until: { model.phase == .scanning && !model.preparingAccess && toolbarButton("Stop Scan") != nil })
         expect(await eventually { menuEnabled("Stop Scan") == true }, "while a scan runs, File > Stop Scan can be chosen")
+        expect(everything().filter { role($0) == kAXButtonRole && names($0).contains("Stop Scan") }.count == 1,
+               "while a scan runs, Stop Scan is in the toolbar and not repeated on the Overview")
         let scanningTexts = everything().filter { role($0) == kAXStaticTextRole && value($0, kAXValueAttribute) as? String == "Scanning…" }.count
         let scanningNamed = everything().filter { names($0).contains("Scanning…") }.count
         expect(scanningTexts + scanningNamed == 1,
@@ -1087,6 +1123,9 @@ enum Checks {
         expect(await eventually { menuEnabled("Save Report…") == false && menuEnabled("Save Counts Only…") == false
                    && menuEnabled("Copy Summary") == false },
                "while a scan runs, the File menu's export commands can't be chosen, as the toolbar's Export can't")
+        let cancelsBefore = SampleEngine.cancelRequests
+        await press(toolbarButton("Stop Scan"), "pressing the toolbar's Stop Scan",
+                    until: { SampleEngine.cancelRequests == cancelsBefore + 1 })
         for _ in 0..<100 where model.phase == .scanning { await settle() }
         SampleEngine.scanSeconds = 0.3
         #endif
@@ -1101,8 +1140,7 @@ enum Checks {
         // counts. Looked for until the page has drawn the scan's end: one
         // look as the scan ended missed the link in two guest runs.
         expect(await eventually {
-            button("Show What a Scan Checks") == nil && button("Show Every Rule") == nil
-                && button("Stored Sign-ins") == nil && button("Not Checked") == nil
+            button("Stored Sign-ins") == nil
                 && (linkButton("Show Places Not Checked") != nil) == model.somePlacesNotChecked
                 && button("Add Folder or Drive…") == nil
         }, "after a scan, Overview repeats no sidebar count, with folder controls left to Settings (the link's roles: \(linkRoles))")
@@ -1413,7 +1451,6 @@ enum Checks {
                 expect(model.pane == .review && !model.reviewRows.contains { $0.id == 6 }
                        && model.currentReview == nil && button("Copy Path") == nil,
                        "setting aside removes the row and its inspector while keeping the review page open")
-                expect(button("Undo") == nil, "setting aside does not show a temporary Undo button")
                 await open(.setAside)
                 if let table = list(), let row = rows(table).first {
                     await choose(row, "selecting the newly set-aside finding")
@@ -1506,7 +1543,7 @@ enum Checks {
             // The file actions name the sign-in by its id, as for a finding.
             SampleEngine.pathRequest = [:]
             await press(button("Copy Path"), "copying a stored sign-in's path",
-                        until: { SampleEngine.pathRequest["index"] as? Int == chosen && SampleEngine.pathRequest["review"] as? Bool == true })
+                        until: { SampleEngine.pathRequest["index"] as? Int == chosen && SampleEngine.pathRequest.count == 1 })
             expect(await eventually { menuEnabled("Show in Finder") == true && menuEnabled("Copy Path") == true },
                    "the Item menu offers Show in Finder and Copy Path for the chosen sign-in")
             // Only Keeping It Here on Purpose: the Item menu has no other reason here.
@@ -1570,13 +1607,17 @@ enum Checks {
         expect(await eventually { written().contains("Couldn't Open Stored Sign-ins") }
                && !written().contains("No Stored Sign-ins") && list() == nil && model.storedCount == model.results?.stored,
                "Stored Sign-ins that cannot be read says so, and the count beside it is the scan's own")
+        await open(.setAside)
+        expect(await eventually { written().contains("Couldn't Open Set Aside") }
+               && !written().contains("Couldn't Open Worth Reviewing") && list() == nil,
+               "Set Aside that cannot be read names Set Aside as the list that couldn't be opened")
         await open(.review)
         SampleEngine.storeFailed = false
         await model.refreshReview()
         await settle(after: "the review list returning")
 
         // A finding chosen before the list failed has buttons that can now only fail.
-        if let table = list(), let at = model.reviewRows.firstIndex(where: { $0.actionable != false }), at < rows(table).count {
+        if let table = list(), let at = model.reviewRows.firstIndex(where: \.actionable), at < rows(table).count {
             await choose(rows(table)[at], "choosing a finding before the list fails")
             let shown = await eventually { button("Copy Path") != nil }
             SampleEngine.storeFailed = true
@@ -1681,11 +1722,11 @@ enum Checks {
         // One credential in two files is one row, named by a copy that still
         // needs a decision. Keeping the first copy leaves the second to
         // decide, and the row takes its id. It is the same row, still open.
-        if let table = list(), let at = model.reviewRows.firstIndex(where: { ($0.places?.count ?? 0) > 1 }),
+        if let table = list(), let at = model.reviewRows.firstIndex(where: { $0.places.count > 1 }),
            at < rows(table).count {
             let first = model.reviewRows[at]
             await choose(rows(table)[at], "choosing a credential that is in two files")
-            if let copy = first.places?.first(where: { $0.id != first.id }) {
+            if let copy = first.places.first(where: { $0.id != first.id }) {
                 func copyButton() -> AXUIElement? {
                     everything().first { value($0, kAXIdentifierAttribute) as? String == "copy-path-review-\(copy.id)" }
                 }
@@ -1696,7 +1737,7 @@ enum Checks {
                     SampleEngine.pathRequest = [:]
                     await press(copyButton(), "copying the secondary file's path")
                     expect(await eventually { SampleEngine.pathRequest["index"] as? Int == copy.id
-                        && SampleEngine.pathRequest["review"] as? Bool == true },
+                        && SampleEngine.pathRequest.count == 1 },
                            "a grouped-copy file action sends that copy's existing id to item_path")
                     await press(button("Hide Copies"), "closing the grouped-copy list",
                                 until: { copyButton() == nil && button("Show Copies") != nil })
@@ -1707,7 +1748,7 @@ enum Checks {
             model.decide(first, reason: "kept")
             for _ in 0..<25 where model.review?.items.contains(where: { $0.id == first.id }) == true { await settle() }
             await settle(after: "keeping the first copy of a credential in two files")
-            let entry = model.review?.items.first { $0.places?.contains { $0.id == first.id } == true }
+            let entry = model.review?.items.first { $0.places.contains { $0.id == first.id } }
             let row = model.reviewRows.firstIndex { $0.id == entry?.id }
             let drawn = await eventually {
                 let marked = rows(table).map { value($0, kAXSelectedAttribute) as? Bool ?? false }
@@ -1748,6 +1789,8 @@ enum Checks {
         let consent = settingsWindow.flatMap { toggle("Scan Automatically", in: $0) }
         expect(consent != nil && written(in: settingsWindow).contains("Active"),
                "Settings shows the state of automatic scanning under its switch")
+        expect(written(in: settingsWindow).contains(SampleEngine.fullNotice),
+               "Settings says the review list is full, beside automatic scanning")
         expect(!written(in: settingsWindow).contains { $0.contains("3 places") }
                && linkButton("Show Places Not Checked", in: settingsWindow) == nil,
                "Settings neither counts the places the helper's last full pass did not read nor links to them")
@@ -1837,11 +1880,29 @@ enum Checks {
         expect(button("Set Up Notifications…", in: settingsWindow) == nil
                    && button("Open System Settings", in: settingsWindow) == nil,
                "Settings offers neither before macOS has said whether it can ask")
+        // Not asked yet, Settings asks macOS itself, and then says what it answered.
+        SampleEngine.permission = "not requested"
+        await model.refreshReview()
+        let requestsBefore = SampleEngine.notificationRequests
+        expect(await eventually { button("Set Up Notifications…", in: settingsWindow) != nil },
+               "Settings offers Set Up Notifications… before macOS has been asked")
+        await press(button("Set Up Notifications…", in: settingsWindow), "pressing Set Up Notifications… in Settings",
+                    until: { SampleEngine.notificationRequests == requestsBefore + 1
+                        && button("Set Up Notifications…", in: settingsWindow) == nil
+                        && written(in: settingsWindow).contains("Allowed") })
+        // A notification the helper couldn't send after three tries can be sent from here.
+        SampleEngine.pendingDelivery = true
+        SampleEngine.attempts = 3
+        await model.refreshMonitor()
+        expect(await eventually { written(in: settingsWindow).contains("Pending Notification") && button("Try Again", in: settingsWindow) != nil },
+               "Settings shows a notification not sent after three tries, with Try Again")
+        await press(button("Try Again", in: settingsWindow), "pressing Try Again beside Pending Notification",
+                    until: { SampleEngine.retryRequests == 1 && !written(in: settingsWindow).contains("Pending Notification") })
         SampleEngine.permission = "denied"
         await model.refreshReview()
         await settle()
         // The helper has a row only when it needs something done.
-        expect(button("Restart Helper", in: settingsWindow) == nil && button("Stop Helper", in: settingsWindow) == nil,
+        expect(button("Restart Helper", in: settingsWindow) == nil,
                "Settings offers no helper control while the helper runs")
         SampleEngine.helperStopped = true
         await model.refreshMonitor()
@@ -1928,6 +1989,19 @@ enum Checks {
         let settings = windows().first { window in !before.contains { CFEqual($0, window) } }
         expect(await eventually { toggle("Pause Scanning") == nil && button("Open System Settings", in: settings) == nil },
                "with automatic scanning off, Settings shows neither Pause Scanning nor notifications")
+        // With no home folder to watch, turning it on could do nothing, so
+        // neither switch can be pressed.
+        func switchEnabled(in window: AXUIElement?) -> Bool? {
+            toggle("Scan Automatically", in: window).flatMap { value($0, kAXEnabledAttribute) as? Bool }
+        }
+        SampleEngine.noHome = true
+        await model.refreshPlaces()
+        expect(await eventually { switchEnabled(in: settings) == false && switchEnabled(in: mainWindow) == false },
+               "with no home folder, Scan Automatically can't be turned on in Settings or on the Overview")
+        SampleEngine.noHome = false
+        await model.refreshPlaces()
+        expect(await eventually { switchEnabled(in: settings) == true && switchEnabled(in: mainWindow) == true },
+               "once there is a home folder, Scan Automatically can be turned on in Settings and on the Overview")
         SampleEngine.statusRefused = true
         await model.refreshMonitor()
         expect(await eventually { written(in: settings).contains("Automatic scanning isn't available.")
@@ -2020,6 +2094,8 @@ enum Checks {
         let crowded = model.findingsNote ?? ""
         expect(grouped == nil && crowded.contains("full") && written().contains(crowded),
                "the Overview says nothing of grouped findings, and says that the review list is full when it is")
+        expect(!written().contains(SampleEngine.fullNotice),
+               "the Overview says the review list is full once, not in the engine's notice as well")
         SampleEngine.listFull = false
         await model.refreshReview()
         await model.refreshMonitor()

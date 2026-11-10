@@ -23,6 +23,8 @@
 
 "Cannot add that folder: %@." = "No se puede agregar esa carpeta: %@.";
 
+"You can add up to eight folders. Very long folder paths cannot be added." = "Puedes agregar hasta ocho carpetas. No se pueden agregar carpetas con rutas muy largas.";
+
 "macOS could not restart the background helper. If Settings says it is not running, use Restart Helper there." = "macOS no pudo reiniciar el proceso auxiliar. Si Configuración indica que no está en ejecución, usa allí Reiniciar proceso auxiliar.";
 
 "macOS could not start the background helper. Use Restart Helper in Settings, or check System Settings > General > Login Items." = "macOS no pudo iniciar el proceso auxiliar. Usa Reiniciar proceso auxiliar en Configuración o comprueba Configuración del Sistema > General > Elementos de inicio.";

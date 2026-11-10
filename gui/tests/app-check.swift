@@ -123,14 +123,14 @@ do {
     print("PASS: scan through app interface completed with app alive")
     // The update question is a row on the Overview, shown only once a scan
     // has an answer. Every scan opens the Overview.
-    try wait("first-run update consent") { button("Don’t Check") != nil }
+    try wait("first-run update consent") { button("Don't Check") != nil }
     // A row can disappear before AX returns, invalidating the pressed
     // element. Read back both the UI and saved answer instead of retrying.
-    if let decline = button("Don’t Check") {
+    if let decline = button("Don't Check") {
         _ = AXUIElementPerformAction(decline, kAXPressAction as CFString)
     }
     try wait("update checks explicitly declined") {
-        guard button("Don’t Check") == nil else { return false }
+        guard button("Don't Check") == nil else { return false }
         let state = home.appendingPathComponent("Library/Application Support/dev.loosekeys.desktop/state.json")
         guard let data = try? Data(contentsOf: state),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
@@ -357,7 +357,7 @@ do {
             }
             let visible = windowElements().flatMap { texts($0) }
             let awsPresent = rows.contains { descendants($0).flatMap { texts($0) }.contains("AWS access keys stored in a file") }
-            let inspectorFixed = visible.contains("These are fixed, so there is nothing to set aside.")
+            let inspectorFixed = visible.contains("These are fixed, so there's nothing to set aside.")
             rescanEvidence = "AWS row=\(awsPresent), row fixed=\(awsFixed), key open=\(keyStillOpen), inspector fixed=\(inspectorFixed)"
             return awsFixed && keyStillOpen
         }

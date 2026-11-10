@@ -40,8 +40,9 @@ Before a scan or turning on automatic scanning, the app asks macOS for
 Desktop, Documents and Downloads, one at a time. The rest are still checked
 when you deny one. After the scan, the Overview names the folder it could not
 read, with **Open System Settings** to allow it under Privacy & Security, Files
-& Folders; scan again after allowing it. **Cancel Preparation**
-stops once the open prompt is answered. The app data macOS protects, such as
+& Folders; scan again after allowing it. **Stop Scan**, or
+**Cancel Preparation** when turning on automatic scanning, stops once the
+open prompt is answered. The app data macOS protects, such as
 Mail, Messages and Safari, isn't checked, nor are the Trash and unsaved
 document autosaves, which macOS protects too, and Full Disk Access is never
 needed; [Supported checks](#supported-checks) lists those folders. Other
@@ -338,7 +339,7 @@ Quit lasts until the next login.
 
 After your first scan, or automatic scanning's first full pass, Loose Keys
 asks, at the bottom of the Overview, whether it may check for updates. If you
-choose **Check Automatically** rather than **Don’t Check**, the app asks
+choose **Check Automatically** rather than **Don't Check**, the app asks
 GitHub for the latest release when it starts and once a day while it is open.
 GitHub sees your IP address and that Loose Keys checked; nothing about your
 files or findings is sent. A newer version appears at the bottom of Overview,
