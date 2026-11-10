@@ -236,13 +236,20 @@ fn update_state<T>(app: &App, change: impl FnOnce(&mut review::Review) -> T) -> 
 
 /// As `update_state`, for a change the command can refuse. A refusal saves
 /// nothing, leaves this app's copy as it was and is not a storage failure.
+/// A store that could not be read or locked is a failure to read, which a
+/// later read that works clears: the change was never made, and the command
+/// says it failed.
 fn try_update_state<T>(
     app: &App,
     change: impl FnOnce(&mut review::Review) -> Answer<T>,
 ) -> Answer<T> {
     let store = app.store.as_ref().map_err(Clone::clone)?;
-    let mut refused = false;
-    let result = store.update(|state| change(state).inspect_err(|_| refused = true));
+    let (mut refused, mut made) = (false, false);
+    let result = store.update(|state| {
+        let out = change(state);
+        (refused, made) = (out.is_err(), out.is_ok());
+        out
+    });
     match result {
         Ok((state, out)) => {
             *app.review.lock().unwrap() = state;
@@ -252,12 +259,45 @@ fn try_update_state<T>(
         Err(e) => {
             let mut error = app.storage_error.lock().unwrap();
             *error = Some(e.clone());
-            app.storage_unsaved.store(true, Ordering::SeqCst);
+            if made {
+                app.storage_unsaved.store(true, Ordering::SeqCst);
+            }
             drop(error);
-            app.monitor.configure(false, true);
             Err(e)
         }
     }
+}
+
+/// As `try_update_state`, for a change that may find nothing to do: one that
+/// answers `Ok(false)` takes the refusal path, so nothing is saved and the
+/// helper is not woken, and the command succeeds.
+fn update_if_changed(
+    app: &App,
+    change: impl FnOnce(&mut review::Review) -> Answer<bool>,
+) -> Answer<()> {
+    let mut unchanged = false;
+    let saved = try_update_state(app, |state| match change(state) {
+        Ok(false) => {
+            unchanged = true;
+            Err(String::new())
+        }
+        changed => changed.map(drop),
+    });
+    if unchanged {
+        return Ok(());
+    }
+    saved
+}
+
+/// Save the shared state as it is, which wakes the helper and makes the
+/// fingerprint key where there is none. Nothing of the person's changes, so
+/// a save that fails loses nothing and is no storage error: the caller
+/// decides what to say.
+fn save_unchanged(app: &App) -> Answer<review::Review> {
+    let store = app.store.as_ref().map_err(Clone::clone)?;
+    let (state, ()) = store.update(|_| Ok(()))?;
+    *app.review.lock().unwrap() = state.clone();
+    Ok(state)
 }
 
 /// The shared state as the store has it now, with what the agent has written
@@ -278,12 +318,8 @@ fn refresh_state(app: &App) -> review::Review {
                 Ok(state) => {
                     *app.review.lock().unwrap() = state.clone();
                     let mut error = app.storage_error.lock().unwrap();
-                    if error.is_some() && !app.storage_unsaved.load(Ordering::SeqCst) {
+                    if !app.storage_unsaved.load(Ordering::SeqCst) {
                         *error = None;
-                        drop(error);
-                        // As `ready` sets it from a store it could read.
-                        app.monitor
-                            .configure(state.monitoring && !scan::is_root(), state.paused);
                     }
                     return state;
                 }
@@ -418,7 +454,6 @@ fn set_monitoring_with_login(
         state.paused = paused;
         (was_enabled, !state.menu_bar_off)
     })?;
-    app.monitor.configure(enabled, paused);
     let helper = 'helper: {
         // Registration survives a state reset or a launchctl bootout. New consent
         // refreshes an already-approved registration; it is not proof that the
@@ -597,7 +632,7 @@ fn wake_helper(app: &App) {
     let woken = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         app.ready();
         if app.storage_error.lock().unwrap().is_none() {
-            let _ = update_state(app, |_| ());
+            let _ = save_unchanged(app);
         }
     }));
     if woken.is_err() {
@@ -710,8 +745,8 @@ fn offered_folder(path: &str) -> Option<String> {
     folder_of(path).filter(|f| plain(f)).map(report::escape)
 }
 
-/// A stored item as the front end may have it: its names escaped, and
-/// without the fingerprint, the digest and what is kept about the file's
+/// A stored item as the front end may have it: its names and text escaped,
+/// and without the fingerprint, the digest and what is kept about the file's
 /// volume, which stay on this side.
 fn shown(item: &review::Item) -> review::Item {
     let mut shown = item.clone();
@@ -721,8 +756,36 @@ fn shown(item: &review::Item) -> review::Item {
     // file other programs can edit.
     shown.subject = shown.subject.as_ref().map(|s| report::escape(s));
     shown.detail = shown.detail.as_ref().map(|s| report::escape(s));
+    for text in [
+        &mut shown.rule,
+        &mut shown.title,
+        &mut shown.explanation,
+        &mut shown.severity,
+    ]
+    .into_iter()
+    .chain(&mut shown.steps)
+    .chain(shown.next_step.as_mut())
+    .chain(shown.link.as_mut())
+    .chain(shown.token_type.as_mut())
+    .chain(shown.first_seen.as_mut())
+    .chain(shown.resolved_at.as_mut())
+    {
+        *text = fixed_text(text);
+    }
     (shown.fingerprint, shown.secret, shown.mount, shown.scope) = (None, None, None, None);
     shown
+}
+
+/// The scanner's own text read back from the store, as the window may have
+/// it. That text is printable ASCII, and the window's translations are keyed
+/// by it exactly, quotes and all, so it passes as it is. Anything else was
+/// not written by the scanner and is escaped.
+fn fixed_text(text: &str) -> String {
+    if plain(text) {
+        text.to_owned()
+    } else {
+        report::escape(text)
+    }
 }
 
 /// What is worth reviewing, then the stored sign-ins still found, as the
@@ -843,21 +906,22 @@ fn entries(
                 .filter(|(i, d)| (i.resolved, d.is_some()) == tier)
                 .map(|(i, _)| &i.severity)
                 .min_by_key(|severity| review::rank(severity));
-            entry.item.severity = highest.unwrap_or(&lead.severity).clone();
+            entry.item.severity = fixed_text(highest.unwrap_or(&lead.severity));
         }
         // The credential was first seen where it was found first, fixed or
         // not. The same clock writes every date, so text order is time order.
         entry.item.first_seen = items
             .iter()
             .filter(|i| entry.places.iter().any(|p| p.id == i.id))
-            .filter_map(|i| i.first_seen.clone())
-            .min();
+            .filter_map(|i| i.first_seen.as_deref())
+            .min()
+            .map(fixed_text);
         let decision = open.iter().find_map(|(_, d)| *d);
         entry.set_aside = decision.map(|d| d.reason);
         // The organization's list was not decided at a time: it has none.
         entry.set_aside_at = decision
             .filter(|d| d.reason != review::Reason::Expected)
-            .map(|d| d.decided.clone());
+            .map(|d| fixed_text(&d.decided));
         entry.state = if open.is_empty() {
             "fixed"
         } else if open.iter().all(|(_, d)| d.is_some()) {
@@ -943,20 +1007,14 @@ fn set_expected(app: &App, entries: Vec<serde_json::Value>) -> Answer<()> {
         .filter_map(|entry| serde_json::from_value(entry).ok())
         .collect();
     // Compared with the store, which may no longer hold what this app last
-    // saved there. A list that changes nothing is refused, so nothing is saved.
-    let mut unchanged = false;
-    let saved = try_update_state(app, |state| {
-        if !state.expected_changes(&list) {
-            unchanged = true;
-            return Err(String::new());
+    // saved there.
+    update_if_changed(app, |state| {
+        let changes = state.expected_changes(&list);
+        if changes {
+            state.set_expected(list);
         }
-        state.set_expected(list);
-        Ok(())
-    });
-    if unchanged {
-        return Ok(());
-    }
-    saved
+        Ok(changes)
+    })
 }
 
 /// Stop checking the folder that holds this item. The front end names an
@@ -993,11 +1051,13 @@ fn unskip_folder(app: &App, index: usize, shown: String) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Loose Keys could not open its saved data.".into());
     }
-    update_state(app, |state| {
+    update_if_changed(app, |state| {
         let there = state.skipped.get(index);
-        if there.is_some_and(|skip| report::escape(&skip.path) == shown) {
+        let named = there.is_some_and(|skip| report::escape(&skip.path) == shown);
+        if named {
             state.skipped.remove(index);
         }
+        Ok(named)
     })
 }
 
@@ -1068,10 +1128,6 @@ impl App {
                 .and_then(review::Store::read);
             let storage_error = loaded.as_ref().err().cloned();
             let loaded = loaded.unwrap_or_default();
-            self.monitor.configure(
-                storage_error.is_none() && loaded.monitoring && !scan::is_root(),
-                loaded.paused,
-            );
             let wanted = loaded.monitoring && !loaded.menu_bar_off && !scan::is_root();
             *self.review.lock().unwrap() = loaded;
             let readable = storage_error.is_none();
@@ -1363,14 +1419,10 @@ fn places(app: &App) -> PlacesView {
     places_view(app, None)
 }
 
-/// A folder the person typed, or one they picked or dropped on the window.
+/// A folder the person picked or dropped on the window, by its path as it
+/// is: spaces at either end are part of the name.
 fn type_place(app: &App, text: String) -> PlacesView {
-    let text = text.trim();
-    let error = if text.is_empty() {
-        None
-    } else {
-        add_place(app, Path::new(text)).err()
-    };
+    let error = add_place(app, Path::new(&text)).err();
     places_view(app, error)
 }
 
@@ -1382,15 +1434,16 @@ fn remove_place(app: &App, index: usize, shown: String) -> PlacesView {
             Some("Loose Keys could not open its saved data.".into()),
         );
     }
-    let error = try_update_state(app, |state| {
+    let error = update_if_changed(app, |state| {
         if app.scanning.load(Ordering::SeqCst) {
             return Err("Wait for the scan to finish.".into());
         }
         let places = &mut state.selected_places;
-        if places.get(index).is_some_and(|place| show(place) == shown) {
+        let named = places.get(index).is_some_and(|place| show(place) == shown);
+        if named {
             places.remove(index);
         }
-        Ok(())
+        Ok(named)
     })
     .err();
     places_view(app, error)
@@ -1527,12 +1580,12 @@ fn results_view(r: &Report, home: Option<&Path>) -> ResultsView {
 
 /// Returns when the scan ends, so the front end calls it off its main thread.
 fn start_scan(app: &App) -> Answer<ResultsView> {
-    perform_scan(app, monitor::ScanKind::Manual)
+    perform_scan(app)
 }
 
 /// Said when the monitor refuses a scan the person asked for. In this process
 /// only `prepare_quit` brings that about: nothing here puts the monitor to
-/// sleep, and a pause or withdrawn consent refuses automatic work only.
+/// sleep.
 const SCAN_BLOCKED: &str =
     "Loose Keys is quitting, so the scan did not start. Open it again to scan.";
 
@@ -1543,7 +1596,7 @@ const SCAN_BLOCKED: &str =
 const LIST_REPLACED: &str =
     "The review list was replaced during the scan, so nothing it found was saved. Scan again.";
 
-fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
+fn perform_scan(app: &App) -> Answer<ResultsView> {
     let home = app.home.clone().map_err(|e| format!("Cannot scan: {e}."))?;
     if app.store.is_err() {
         return Err(
@@ -1561,7 +1614,7 @@ fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
         }
     }
     let _guard = Guard(&app.scanning);
-    if !app.monitor.arm(kind) {
+    if !app.monitor.arm(monitor::ScanKind::Manual) {
         return Err(SCAN_BLOCKED.into());
     }
     emit(c"monitor-status", ());
@@ -1572,10 +1625,20 @@ fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
     // copy has to do.
     let read = app.store.as_ref().ok().and_then(|store| store.read().ok());
     let state = read.unwrap_or_else(|| app.review.lock().unwrap().clone());
-    // The store creates the fingerprint key the first time it is changed.
+    // The store creates the fingerprint key the first time it is saved.
+    // Where it cannot be, as when it was unreadable from the start, the scan
+    // digests with a key of its own and runs to its end. Its save, below,
+    // then saves nothing and says why: the storage error is set, and a store
+    // that reads again by then has another key.
     let mut key = state.key.clone();
+    if key.is_empty() && app.storage_error.lock().unwrap().is_none() {
+        match save_unchanged(app) {
+            Ok(saved) => key = saved.key,
+            Err(e) => *app.storage_error.lock().unwrap() = Some(e),
+        }
+    }
     if key.is_empty() {
-        key = update_state(app, |state| state.key.clone())?;
+        key = review::new_key();
     }
     let skip = skipped_paths(&state, &home);
     let made_with = key.clone();
@@ -1585,21 +1648,17 @@ fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
         &skip,
         app.monitor.cancel.clone(),
         move |rule, bytes, shared| material_fingerprint(rule, &key, bytes, shared),
-        move |p| {
-            if kind == monitor::ScanKind::Manual {
-                emit(c"scan-progress", p);
-            }
-        },
+        |p| emit(c"scan-progress", p),
     );
     let view = results_view(&r, app.home.as_deref().ok());
     // Merge into the shared state in one step; the agent may be writing too.
     // The rechecks get their own time, counted once the store is locked:
     // from before the scan, or while the agent held the store, they could
     // have none left, and nothing was marked fixed.
-    let error = app.storage_error.lock().unwrap();
-    let saved = if error.is_none() {
-        drop(error);
-        update_state(app, |review| {
+    let unreadable = app.storage_error.lock().unwrap().clone();
+    let saved = match unreadable {
+        Some(error) => Err(error),
+        None => update_state(app, |review| {
             if review.key != made_with {
                 return None;
             }
@@ -1637,22 +1696,24 @@ fn perform_scan(app: &App, kind: monitor::ScanKind) -> Answer<ResultsView> {
                 review.stored.checked_at = Some(r.generated_at.clone());
             }
             Some(new)
-        })
-    } else {
-        // What the scan found and could have marked fixed is lost, so the
-        // error stays once the store reads again, as after a failed save. A
-        // cancelled scan with nothing to list, of either kind, would have
-        // changed nothing.
+        }),
+    };
+    // Where nothing was saved, what the scan found and could have marked
+    // fixed is lost, so the error stays once the store reads again.
+    // A cancelled scan with nothing to list, of either kind, would have
+    // changed nothing. A read that worked meanwhile may have cleared the
+    // error, which is then put back.
+    if let Err(e) = &saved {
         let found = r
             .findings
             .iter()
             .any(|f| matches!(f.kind, "review" | "inventory"));
         if found || !app.monitor.cancel.load(Ordering::SeqCst) {
+            let mut error = app.storage_error.lock().unwrap();
+            error.get_or_insert_with(|| e.clone());
             app.storage_unsaved.store(true, Ordering::SeqCst);
         }
-        drop(error);
-        Err("The review list is unavailable.".into())
-    };
+    }
     let replaced = matches!(saved, Ok(None));
     let new = matches!(saved, Ok(Some(true)));
     if !replaced {
@@ -1760,9 +1821,17 @@ fn full_path(rel: &str, home: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// A path as results list it, "~/..." or absolute, as the path it stands for.
+/// A "~/" name is always below the home: `join` would put an absolute rest,
+/// as in "~//Users", in the home's place, and ".." climbs out of it.
 fn real_path(rel: &str, home: Option<&Path>) -> Option<PathBuf> {
     match rel.strip_prefix("~/") {
-        Some(rest) => home.map(|h| h.join(rest)),
+        Some(rest) => {
+            let rest = Path::new(rest);
+            let below = rest
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)));
+            home.filter(|_| below).map(|h| h.join(rest))
+        }
         None if rel.starts_with('/') => Some(PathBuf::from(rel)),
         None => None,
     }
@@ -2943,6 +3012,35 @@ mod tests {
         std::fs::remove_dir_all(home).unwrap();
     }
 
+    /// A change refused because the state could not be read changed
+    /// nothing, and neither does a save that only wakes the helper, so
+    /// neither keeps the error once the state reads and saves again.
+    #[test]
+    fn a_failure_that_lost_no_change_is_cleared_by_a_later_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, app) = engine("storage-error-nothing-lost");
+        update_state(&app, |_| ()).unwrap();
+        let dir = home.join(review::STATE_DIR);
+        let state = dir.join("state.json");
+        let error = |app: &App| ask(app, "pending_review", "{}")["ok"]["error"].clone();
+        assert_eq!(error(&app), Value::Null);
+        // Unreadable before the change is made: no read has seen it yet.
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(ask(&app, "retry_notifications", "{}")["error"].is_string());
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(error(&app), Value::Null, "a failed read was kept");
+        // A wake that could not be saved.
+        std::fs::create_dir(dir.join("state.tmp")).unwrap();
+        wake_helper(&app);
+        std::fs::remove_dir(dir.join("state.tmp")).unwrap();
+        assert_eq!(error(&app), Value::Null, "a failed wake was kept");
+        assert_eq!(
+            ask(&app, "retry_notifications", "{}"),
+            json!({ "ok": null })
+        );
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
     /// A scan made while the state cannot be read saves nothing. Once the
     /// state reads again, the list would be shown without what that scan
     /// found, so the error stays as it does for a save that failed.
@@ -3127,7 +3225,59 @@ mod tests {
         let item = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
         assert_eq!(item["subject"], "profile\\u{202e}txt");
         assert_eq!(item["detail"], "\\u{7}2 saved logins");
+        // The scanner's own text, which the window's translations are keyed
+        // by, quotes and all, reaches it as it is.
+        let quoted = r#"Set "credsStore": "osxkeychain" in ~/.docker/config.json."#;
+        update_state(&app, |state| state.items[0].steps = vec![quoted.into()]).unwrap();
+        let item = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
+        assert_eq!(item["steps"], json!([quoted]));
+        // Anything else in that text was not written by the scanner.
+        update_state(&app, |state| {
+            let item = &mut state.items[0];
+            item.rule = "export.password-csv\u{202e}".into();
+            item.title = "Title\u{202e}".into();
+            item.explanation = "\u{1b}[2J".into();
+            item.next_step = Some("next\u{7}".into());
+            item.steps = vec!["step\u{202e}".into(), quoted.into()];
+            item.link = Some("https://example.invalid/\u{202e}".into());
+            item.token_type = Some("type\u{7}".into());
+            item.severity = "high\u{202e}".into();
+            item.first_seen = Some("2026\u{202e}".into());
+            item.resolved_at = Some("2026\u{7}".into());
+        })
+        .unwrap();
+        let item = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
+        let expected = [
+            ("rule", json!("export.password-csv\\u{202e}")),
+            ("title", json!("Title\\u{202e}")),
+            ("explanation", json!("\\u{1b}[2J")),
+            ("next_step", json!("next\\u{7}")),
+            ("steps", json!(["step\\u{202e}", quoted])),
+            ("link", json!("https://example.invalid/\\u{202e}")),
+            ("token_type", json!("type\\u{7}")),
+            ("severity", json!("high\\u{202e}")),
+            ("first_seen", json!("2026\\u{202e}")),
+            ("resolved_at", json!("2026\\u{7}")),
+        ];
+        for (field, escaped) in expected {
+            assert_eq!(item[field], escaped, "{field}");
+        }
+        // And when the item was set aside.
+        assert_eq!(
+            ask(
+                &app,
+                "decide_review",
+                r#"{"id":1,"revision":0,"reason":"testing"}"#
+            ),
+            json!({ "ok": null })
+        );
+        update_state(&app, |state| {
+            state.decisions[0].decided = "2026\u{202e}".into()
+        })
+        .unwrap();
+        let item = ask(&app, "pending_review", "{}")["ok"]["items"][0].clone();
         std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(item["set_aside_at"], "2026\\u{202e}");
     }
 
     #[test]
@@ -3370,10 +3520,31 @@ mod tests {
         std::fs::remove_dir_all(home).unwrap();
     }
 
+    /// The window sends the path of a folder picked or dropped, never text
+    /// typed, so spaces at either end are part of the name.
+    #[test]
+    fn a_folder_whose_name_ends_in_a_space_is_the_one_added() {
+        let (home, app) = engine("spaced-place");
+        for name in ["Spaced", "Spaced "] {
+            std::fs::create_dir(home.join(name)).unwrap();
+        }
+        let spaced = home.join("Spaced ");
+        let picked = json!({ "text": spaced.to_str().unwrap() }).to_string();
+        let places = ask(&app, "type_place", &picked);
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(places["ok"]["error"], Value::Null, "{places}");
+        assert_eq!(places["ok"]["extra"], json!([show(&spaced)]));
+    }
+
     #[test]
     fn a_folder_is_removed_or_put_back_only_while_it_is_the_one_shown() {
+        use std::os::unix::fs::MetadataExt;
         let (home, app) = engine("by-name");
         let shown = show(&home);
+        // A save replaces the file. One that changes nothing wakes the helper
+        // for nothing.
+        let state = home.join(review::STATE_DIR).join("state.json");
+        let saved = || std::fs::symlink_metadata(&state).unwrap().ino();
         // The window names a folder by its place in a list. By the time a
         // second press arrives the list may have moved up, so the press also
         // says which folder it was shown for, and only that one is acted on.
@@ -3384,7 +3555,9 @@ mod tests {
         let first = json!({ "index": 0, "shown": format!("{shown}/One") }).to_string();
         let left = json!([format!("{shown}/Two")]);
         assert_eq!(ask(&app, "remove_place", &first)["ok"]["extra"], left);
+        let before = saved();
         assert_eq!(ask(&app, "remove_place", &first)["ok"]["extra"], left);
+        assert_eq!(saved(), before, "a stale removal saved the state");
 
         update_state(&app, |state| {
             for path in ["~/a", "~/b"] {
@@ -3397,8 +3570,10 @@ mod tests {
         let first = r#"{"index":0,"shown":"~/a"}"#;
         assert_eq!(ask(&app, "unskip_folder", first), json!({ "ok": null }));
         assert_eq!(skipped(), json!(["~/b"]));
+        let before = saved();
         assert_eq!(ask(&app, "unskip_folder", first), json!({ "ok": null }));
         assert_eq!(skipped(), json!(["~/b"]));
+        assert_eq!(saved(), before, "a stale press saved the state");
         std::fs::remove_dir_all(home).unwrap();
     }
 
@@ -4250,9 +4425,9 @@ mod tests {
         )
         .unwrap();
 
-        // A typed folder is trimmed and added; a refused one says why.
+        // A picked folder is added; a refused one says why.
         assert_eq!(ask(&app, "places", "{}")["ok"]["home"], shown);
-        let typed = json!({ "text": format!("  {shown}/Backup ") }).to_string();
+        let typed = json!({ "text": format!("{shown}/Backup") }).to_string();
         let added = ask(&app, "type_place", &typed);
         assert_eq!(added["ok"]["extra"], json!([format!("{shown}/Backup")]));
         assert_eq!(added["ok"]["error"], Value::Null);
@@ -4715,6 +4890,87 @@ mod tests {
         assert_eq!(found(&again), found(&results));
         assert_eq!(ask(&app, "pending_review", "{}")["ok"]["error"], UNREADABLE);
         std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// A scan whose own save could not read the state has lost what it
+    /// found, though no other command saw the state unreadable first.
+    #[test]
+    fn a_scan_whose_save_could_not_read_the_state_keeps_the_error() {
+        let (home, app) = engine("scan-save-unreadable");
+        update_state(&app, |_| ()).unwrap();
+        std::fs::create_dir(home.join("Documents")).unwrap();
+        std::fs::write(
+            home.join("Documents/export.csv"),
+            "url,username,password\nhttps://fixture.invalid,fixture,synthetic\n",
+        )
+        .unwrap();
+        let state = home.join(review::STATE_DIR).join("state.json");
+        let damaged = state.clone();
+        let alone = one_scan();
+        *MID_SCAN.lock().unwrap() = Some(Box::new(move || {
+            std::fs::write(damaged, "{damaged").unwrap();
+        }));
+        ch_set_event_handler(Some(mid_scan));
+        let scan = ask(&app, "start_scan", "{}");
+        ch_set_event_handler(None);
+        drop(alone);
+        std::fs::remove_file(&state).unwrap();
+        let after = ask(&app, "pending_review", "{}")["ok"]["error"].clone();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scan["ok"]["review"], 1, "{scan}");
+        assert_eq!(
+            after, "The review list file is damaged or in an unknown format.",
+            "the scan's lost findings were not reported"
+        );
+    }
+
+    /// State that could not be read from the start gives the app no key to
+    /// digest with. A scan the person asks for still runs, saves nothing,
+    /// and the list says it is unavailable, not that it is empty.
+    #[test]
+    fn a_scan_runs_when_the_state_could_not_be_read_from_the_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!(
+            "credential-engine-test-{}-unreadable-from-start",
+            std::process::id()
+        ));
+        std::fs::create_dir(&home).unwrap();
+        drop(review::Store::open(&home).unwrap());
+        let state = home.join(review::STATE_DIR).join("state.json");
+        std::fs::write(&state, "{damaged").unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::create_dir(home.join("Documents")).unwrap();
+        std::fs::write(
+            home.join("Documents/export.csv"),
+            "url,username,password\nhttps://fixture.invalid,fixture,synthetic\n",
+        )
+        .unwrap();
+        let app = App::open(Ok(home.clone()));
+        app.ready();
+        const UNREADABLE: &str = "The review list file is damaged or in an unknown format.";
+        assert_eq!(ask(&app, "pending_review", "{}")["ok"]["error"], UNREADABLE);
+
+        let alone = one_scan();
+        SEEN.lock().unwrap().clear();
+        ch_set_event_handler(Some(seen));
+        let scan = ask(&app, "start_scan", "{}");
+        ch_set_event_handler(None);
+        let events = std::mem::take(&mut *SEEN.lock().unwrap());
+        drop(alone);
+
+        let saved = std::fs::read_to_string(&state).unwrap();
+        // What it found is lost, so the error stays once the state reads.
+        std::fs::remove_file(&state).unwrap();
+        let after = ask(&app, "pending_review", "{}")["ok"]["error"].clone();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(scan["ok"]["review"], 1, "{scan}");
+        assert_eq!(
+            events.last().map(|(name, _)| name.as_str()),
+            Some("monitor-status"),
+            "the window was not told the scan ended"
+        );
+        assert_eq!(saved, "{damaged", "the scan saved over the state");
+        assert_eq!(after, UNREADABLE);
     }
 
     #[test]
@@ -5272,6 +5528,29 @@ mod tests {
         }
         assert_eq!(full_path("~/x", None), None);
         assert_eq!(full_path("relative", Some(home)), None);
+        // A `~/` name stays below the home, whatever the store holds.
+        for outside in ["~//etc/x", "~//Users/a", "~/../x", "~/x/../../y", "~/./x"] {
+            assert_eq!(full_path(outside, Some(home)), None, "{outside}");
+            assert_eq!(recheck_path(outside, Some(home)), None, "{outside}");
+        }
+        assert_eq!(
+            full_path("~/x/", Some(home)),
+            Some(PathBuf::from("/Users/a/x/"))
+        );
+        // One skip of the home's own path, or of the folder above it, would
+        // leave out the whole home.
+        let mut state = review::Review::default();
+        for path in ["~//Users/a", "~//Users", "~/../a", "~/kept"] {
+            let added = "then".into();
+            state.skipped.push(review::Skip {
+                path: path.into(),
+                added,
+            });
+        }
+        assert_eq!(
+            skipped_paths(&state, home),
+            [PathBuf::from("/Users/a/kept")]
+        );
         // A listed file is read again under any name it can be listed by.
         assert_eq!(
             recheck_path("~/Documents/contrase\u{f1}as.csv", Some(home)),

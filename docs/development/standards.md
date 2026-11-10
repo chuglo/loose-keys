@@ -241,10 +241,20 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   again: what the change would have saved, such as a scan's findings, is
   lost, and the list is not what was found
   (`a_failed_read_is_cleared_by_a_later_one_and_a_failed_save_is_not`). A
-  scan whose save was skipped counts as such a change, unless it was
-  cancelled with nothing to list
+  change that failed because the store could not be read or locked was
+  never made, and the save that wakes the helper changes nothing, so
+  neither failure is kept that way
+  (`a_failure_that_lost_no_change_is_cleared_by_a_later_read`). A
+  scan whose save was skipped or failed counts as such a change, unless it
+  was cancelled with nothing to list
   (`a_scan_not_saved_keeps_the_error_after_the_state_reads_again`,
-  `a_stopped_scan_keeps_the_error_only_when_it_found_something`).
+  `a_scan_whose_save_could_not_read_the_state_keeps_the_error`,
+  `a_stopped_scan_keeps_the_error_only_when_it_found_something`). A scan
+  still runs when the state was unreadable from the start and holds no
+  fingerprint key yet: it digests with a key made for that run, saves
+  nothing, and scans the home alone, since the added places and skipped
+  folders are in the state it could not read
+  (`a_scan_runs_when_the_state_could_not_be_read_from_the_start`).
 - `Monitor` is the one condition variable. State is changed under its mutex
   and then notified. `wait` checks the state again in a loop, because a wait
   can return with no notification and a notification with no waiter is lost.
@@ -567,7 +577,10 @@ The threats are a local user racing a root run with links, and hostile files
   `lets_others_change` about each; no test runs as root, so its use in the
   root check is not run. The app's state, and the copy of the update
   answer beside it, are written to a new temporary file, synced, renamed
-  over the old one, and the folder synced (`Store::replace`).
+  over the old one, and the folder synced (`Store::replace`). The rename is
+  the save: a folder sync that fails after it is not reported as a failed
+  save, since every reader already has the new state. Not covered by a
+  test: a folder sync cannot be made to fail in one.
 - Everything read back is bounded and checked before use, the app's own state
   included: `Store::open` and `load` require the user's ownership, no access
   for others, one link, a size limit and sane counts; the update answer's
@@ -671,6 +684,14 @@ The threats are a local user racing a root run with links, and hostile files
   `tests/scan_scope.rs`. Not covered: a known location that is a link into a
   skipped folder is listed where the link leads, which the function does not
   follow, so that item stays open until the folder is included again.
+- A skip read from `state.json` is honoured only in the shape `skip_folder`
+  saves: a `~/` path with no `.`, `..` or empty part
+  (`review::honoured_skips`). And `real_path` takes no `~/` name outside the
+  home. `Path::components` reads `~//Users` as plain parts, and the home
+  joined to `/Users` is `/Users`, so one edited entry would leave out the
+  whole home. Tests: `a_skip_the_app_could_not_have_added_is_not_honoured`
+  in `gui/src/review.rs`, `only_plain_paths_are_acted_on` in
+  `gui/src/lib.rs`.
 
 ### Saved manual roots and grouped file actions
 
@@ -1074,7 +1095,11 @@ checker does not catch either. [8]
   neither), and `Incomplete`'s `Debug` shows only its fixed reason and hit
   count. What goes to the window is rebuilt field by field: `shown` clears
   `fingerprint`, `secret`, `mount` and `scope` from every item `review_items`
-  sends.
+  sends. The scanner's fixed text read back with an item (its rule, title,
+  steps, dates and the like) passes as it is only while it is printable
+  ASCII, which the scanner's always is; otherwise it is escaped, since
+  other programs can edit the state file (`fixed_text`). Escaping it all
+  would change the quotes the window's translations are keyed by.
 - A finding's `subject` (a profile, host or variable name) and `detail` are
   `#[serde(skip)]` in `report::Finding`: the window and the text summary
   show them (each a short printable name, as `rules::label` allows; the text

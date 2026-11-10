@@ -877,9 +877,6 @@
 /* not_checked reason scan-limit: label, then any help */
 "Only Partly Checked" = "Comprobado solo en parte";
 
-/* gui/src/lib.rs:1206 */
-"The review list is unavailable." = "La lista de revisión no está disponible.";
-
 /* gui/src/release.rs:12 */
 "Loose Keys couldn't read GitHub's response. Try again later." = "Loose Keys no pudo leer la respuesta de GitHub. Vuelve a intentarlo más tarde.";
 

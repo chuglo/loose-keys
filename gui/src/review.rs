@@ -138,12 +138,13 @@ pub struct Expected {
 /// How many of the organization's entries are honoured.
 pub const MAX_EXPECTED: usize = 32;
 
-/// A `~/...` path below the home folder, in plain components with no "..".
+/// A `~/...` path below the home folder, spelled as the app writes one: no
+/// "." or "..", and no empty part. Read by `Path::components`, "~//Users"
+/// would pass as three plain parts, though the home joined to "/Users" is
+/// "/Users".
 fn below_home(path: &str) -> bool {
-    let mut parts = Path::new(path).components();
-    parts.next() == Some(Component::Normal("~".as_ref()))
-        && parts.clone().next().is_some()
-        && parts.all(|part| matches!(part, Component::Normal(_)))
+    path.strip_prefix("~/")
+        .is_some_and(|rest| rest.split('/').all(|part| !matches!(part, "" | "." | "..")))
 }
 
 /// An entry of the organization's list that is honoured: a rule the scanner
@@ -331,27 +332,6 @@ impl UnreadPlaces {
 
     fn within_bounds(&self) -> bool {
         self.places.len() <= MAX_UNREAD && stored_size(self) <= UNREAD_BYTES
-    }
-}
-
-#[cfg(test)]
-#[derive(Debug, PartialEq)]
-pub enum Delivery {
-    Inline,
-    Native,
-    None,
-}
-
-#[cfg(test)]
-pub fn delivery(new: bool, persisted: bool, foreground: bool, authorized: bool) -> Delivery {
-    if !new {
-        Delivery::None
-    } else if foreground {
-        Delivery::Inline
-    } else if persisted && authorized {
-        Delivery::Native
-    } else {
-        Delivery::None
     }
 }
 
@@ -984,6 +964,15 @@ fn private_file(dir: &File, name: &CStr) -> bool {
     }
 }
 
+/// A random fingerprint key: digests under it are keyed, never a plain hash
+/// of a value.
+pub fn new_key() -> Vec<u8> {
+    let mut key = vec![0; 32];
+    // SAFETY: the buffer is writable for the length passed.
+    unsafe { libc::arc4random_buf(key.as_mut_ptr().cast(), key.len()) };
+    key
+}
+
 impl Store {
     fn lock(&self, kind: libc::c_int) -> Result<Locked<'_>, String> {
         if unsafe { libc::flock(self.dir.as_raw_fd(), kind) } != 0 {
@@ -1016,10 +1005,7 @@ impl Store {
         let _lock = self.lock(libc::LOCK_EX)?;
         let mut review = self.load()?;
         if review.key.is_empty() {
-            review.key = vec![0; 32];
-            unsafe {
-                libc::arc4random_buf(review.key.as_mut_ptr().cast(), 32);
-            }
+            review.key = new_key();
         }
         review.number();
         let out = change(&mut review)?;
@@ -1266,30 +1252,30 @@ impl Store {
             return Err("Could not save the review list.".into());
         }
         let mut file = unsafe { File::from_raw_fd(fd) };
-        let result = file
-            .write_all(json)
-            .and_then(|_| file.sync_all())
-            .and_then(|_| {
-                if unsafe {
-                    libc::renameat(
-                        self.dir.as_raw_fd(),
-                        name.as_ptr(),
-                        self.dir.as_raw_fd(),
-                        dest.as_ptr(),
-                    )
-                } == 0
-                {
-                    self.dir.sync_all()
-                } else {
-                    Err(std::io::Error::last_os_error())
-                }
-            });
-        if result.is_err() {
+        let written = file.write_all(json).and_then(|_| file.sync_all()).is_ok();
+        // SAFETY: an open folder and two NUL-terminated names; the new file
+        // itself is moved, not anything a name might point to.
+        let renamed = written
+            && unsafe {
+                libc::renameat(
+                    self.dir.as_raw_fd(),
+                    name.as_ptr(),
+                    self.dir.as_raw_fd(),
+                    dest.as_ptr(),
+                )
+            } == 0;
+        if !renamed {
             unsafe {
                 libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0);
             }
+            return Err("Could not save the review list.".into());
         }
-        result.map_err(|_| "Could not save the review list.".into())
+        // The rename is the save: every reader has the new file from here
+        // on, so a folder that could not be synced is no failed save to
+        // report. Only a crash before the system writes the folder could
+        // still lose it.
+        let _ = self.dir.sync_all();
+        Ok(())
     }
 }
 
@@ -2305,6 +2291,11 @@ mod tests {
             "~/.",
             "~/..",
             "~/a/../..",
+            "~/../x",
+            "~//Users",
+            "~/./x",
+            "~/x//y",
+            "~/trailing/",
             "~/caf\u{e9}",
             "Volumes",
         ];
@@ -2313,7 +2304,15 @@ mod tests {
         let honoured: Vec<&str> = state.honoured_skips().map(|s| s.path.as_str()).collect();
         assert_eq!(honoured, ["~/kept"]);
         assert!(state.skips("~/kept/deep/x"));
-        for elsewhere in ["~/other/x", "~/a/x", "/Volumes/Backup/x", "~/caf\u{e9}/x"] {
+        for elsewhere in [
+            "~/other/x",
+            "~/a/x",
+            "/Volumes/Backup/x",
+            "~/caf\u{e9}/x",
+            "/Users/other/x",
+            "~/x/y/z",
+            "~/trailing/x",
+        ] {
             assert!(!state.skips(elsewhere), "{elsewhere}");
         }
         // No more are honoured than the app lets a person add.
@@ -2446,20 +2445,6 @@ mod tests {
         let again = serde_json::to_value(&loaded).unwrap();
         assert_eq!(again["items"][0]["deferred"], false);
         assert!(again["items"][0].get("snoozed_until").is_none());
-    }
-
-    #[test]
-    fn foreground_is_inline_and_denied_permission_retains_review() {
-        let mut review = Review::default();
-        let new = review.ingest(&report(&[("review", "~/one.csv")]));
-        assert_eq!(delivery(new, true, true, true), Delivery::Inline);
-        assert_eq!(delivery(new, true, true, false), Delivery::Inline);
-        assert_eq!(delivery(new, true, false, false), Delivery::None);
-        assert_eq!(delivery(new, true, false, true), Delivery::Native);
-        assert_eq!(delivery(new, false, false, true), Delivery::None);
-        assert_eq!(delivery(false, true, false, true), Delivery::None);
-        assert_eq!(review.items.len(), 1);
-        assert!(!review.items[0].resolved);
     }
 
     #[test]
@@ -3366,6 +3351,8 @@ mod tests {
             bad("no.such-rule", "~/a".into()),
             bad("key.ssh.private", "/etc/a".into()),
             bad("key.ssh.private", "~/../a".into()),
+            bad("key.ssh.private", "~//etc/a".into()),
+            bad("key.ssh.private", "~/./a".into()),
             bad("key.ssh.private", "~".into()),
             bad("key.ssh.private", "~/caf\u{e9}/key".into()),
             bad("key.ssh.private", format!("~/{}", "x".repeat(4096))),

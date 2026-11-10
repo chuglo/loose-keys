@@ -176,8 +176,8 @@ mod tests {
     #[test]
     fn a_changed_setting_stops_automatic_work_but_not_a_manual_scan() {
         let m = Monitor::new(true, false);
-        // A scan the person started. A pause, consent given or withdrawn, and
-        // what a failed save asks for are all of the background checks.
+        // A scan the person started. A pause and consent given or withdrawn
+        // are of the background checks.
         assert!(m.arm(ScanKind::Manual));
         for (enabled, paused) in [(true, true), (true, false), (false, false), (false, true)] {
             m.configure(enabled, paused);
