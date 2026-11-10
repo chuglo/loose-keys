@@ -340,6 +340,7 @@ pub const RULES: &[Rule] = &[
     wallet::RECOVERY_PHRASE,
     wallet::WALLET_EXTENSION,
     wallet::DESKTOP_WALLET,
+    wallet::HARDWARE_WALLET_APP,
     apps::TELEGRAM_SESSION,
     apps::FILEZILLA_PASSWORD,
     apps::RCLONE_SECRET,
@@ -545,7 +546,7 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
                         ]
                         .contains(&key.as_str())
                         {
-                            if let Some(value) = scalar_literal(value) {
+                            if let Some(value) = scalar_literal_by(value, raw_literal) {
                                 fields.push(vec![
                                     lines[line - 1].trim().to_string(),
                                     key,
@@ -596,8 +597,14 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
                 } else {
                     '='
                 };
+                // As the rules judge them: YAML for gh and Yarn, raw for .npmrc.
+                let literal = if separator == ':' {
+                    unexpanded_literal
+                } else {
+                    raw_literal
+                };
                 if let Some((key, value)) = raw.split_once(separator) {
-                    if let Some(value) = scalar_literal(value) {
+                    if let Some(value) = scalar_literal_by(value, literal) {
                         fields.push(vec![key.trim().to_string(), value.to_string()]);
                     }
                 }
@@ -777,7 +784,7 @@ fn keyed_secret_lines(text: &str, keys: &[&str]) -> Vec<Hit> {
             let secret_name = ["key", "token", "secret", "password", "passwd"]
                 .iter()
                 .any(|word| lower.ends_with(word));
-            let value = scalar_literal(value.trim().trim_end_matches(','))?;
+            let value = scalar_literal_by(value.trim().trim_end_matches(','), unexpanded_literal)?;
             ((keys.contains(&name) || secret_name) && value.len() >= 8 && plausible(value))
                 .then(|| Hit::line(i + 1).about(name).at(text, value))
         })
@@ -789,8 +796,9 @@ fn json_has_secret(v: &serde_json::Value, keys: &[&str]) -> bool {
     match v {
         serde_json::Value::Object(o) => o.iter().any(|(k, v)| {
             (keys.contains(&k.as_str())
-                && v.as_str()
-                    .is_some_and(|s| s.len() >= 16 && inline_literal(s) && plausible(s)))
+                && v.as_str().is_some_and(|s| {
+                    s.len() >= 16 && unexpanded_literal(s, Some('"')) && plausible(s)
+                }))
                 || json_has_secret(v, keys)
         }),
         serde_json::Value::Array(a) => a.iter().any(|v| json_has_secret(v, keys)),
@@ -925,14 +933,11 @@ fn xml_attribute<'a>(mut attributes: &'a str, wanted: &str) -> Option<&'a str> {
     None
 }
 
-/// A literal, single-line secret candidate, never a shell expression or reference.
-fn inline_literal(s: &str) -> bool {
-    verbatim_literal(s) && !s.contains(['$', '`']) && !s.starts_with(['&', '!'])
-}
-
-/// As `inline_literal`, in a format that takes text as it is: one that
-/// expands no "$" or "`", and where a leading "!" or "&" is not a YAML tag or
-/// anchor. A template's "${...}" still stands in for a value there.
+/// A literal, single-line secret candidate, never a reference, in a format
+/// that takes text as it is: one that expands no "$" or "`", and where a
+/// leading "!" or "&" is not a YAML tag or anchor. A template's "${...}"
+/// still stands in for a value there. The rules for shell files add their
+/// own quoting rules to this (`env.rs`).
 fn verbatim_literal(s: &str) -> bool {
     !s.is_empty()
         && !s.contains("${")
@@ -943,14 +948,23 @@ fn verbatim_literal(s: &str) -> bool {
             .any(|prefix| s.starts_with(prefix))
 }
 
-/// Parse the single-line scalar subset emitted by these CLI configs. No YAML
-/// tags, aliases, collections, block scalars, interpolation or shell execution.
-fn scalar_literal(raw: &str) -> Option<&str> {
-    scalar_literal_by(raw, |value, _| inline_literal(value))
+/// As `verbatim_literal`, given the quote that held the value, in a format
+/// that expands nothing, as JSON, TOML and YAML do. Only an unquoted YAML
+/// value that opens with "!" or "&" is a tag or an anchor, not text.
+fn unexpanded_literal(s: &str, quote: Option<char>) -> bool {
+    verbatim_literal(s) && (quote.is_some() || !s.starts_with(['!', '&']))
 }
 
-/// As `scalar_literal`, with `literal` judging the value, given the quote
-/// that held it, if any.
+/// As `verbatim_literal`, for a value `scalar_literal_by` read, quoted or
+/// not, in a file read raw, as INI is: a leading "!" is text there.
+fn raw_literal(s: &str, _quote: Option<char>) -> bool {
+    verbatim_literal(s)
+}
+
+/// Parse the single-line scalar subset emitted by these CLI configs, with
+/// `literal` judging the value, given the quote that held it, if any. No
+/// YAML tags, aliases, collections, block scalars, interpolation or shell
+/// execution.
 fn scalar_literal_by(raw: &str, literal: fn(&str, Option<char>) -> bool) -> Option<&str> {
     let raw = raw.trim();
     if raw.starts_with(['#', ';']) {
@@ -1297,6 +1311,30 @@ mod rule_samples {
         );
     }
 
+    /// The command's report shows the findings of one rule id and reason as
+    /// one entry, with the first one's text. Rules that share an id and say
+    /// different things must differ in their reason, or one file gets the
+    /// other's advice.
+    #[test]
+    fn rules_shown_as_one_entry_say_the_same_thing() {
+        let mut mixed: Vec<&str> = Vec::new();
+        for a in RULES {
+            for b in RULES
+                .iter()
+                .filter(|b| b.id == a.id && b.reason == a.reason)
+            {
+                let same = a.title == b.title
+                    && a.explanation == b.explanation
+                    && a.next_step == b.next_step
+                    && a.advice.steps == b.advice.steps;
+                if !same && !mixed.contains(&a.id) {
+                    mixed.push(a.id);
+                }
+            }
+        }
+        assert_eq!(mixed, Vec::<&str>::new(), "two texts under one reason");
+    }
+
     #[test]
     fn every_rule_matches_its_samples() {
         for rule in RULES {
@@ -1366,9 +1404,33 @@ mod rule_samples {
         assert_ne!(composer("synthetic-first"), composer("synthetic-second"));
     }
 
+    /// A value found with "$" or a leading "!" in it is what the app
+    /// fingerprints, so a changed value is a changed finding.
+    #[test]
+    fn material_keeps_values_the_rules_take_as_written() {
+        for (rule, file) in [
+            (
+                "dev.aws.inline-credentials",
+                "[default]\naws_secret_access_key = !Synth$tic-@\n",
+            ),
+            (
+                "dev.gh.inline-token",
+                "github.com:\n    oauth_token: Synth$tic-@\n",
+            ),
+            (
+                "dev.npm.inline-credentials",
+                "//registry.npmjs.org/:_authToken=!Synth$tic-@\n",
+            ),
+            ("dev.npm.inline-credentials", "npmAuthToken: Synth$tic-@\n"),
+        ] {
+            let of = |value: &str| material(rule, file.replace('@', value).as_bytes());
+            assert_ne!(of("first"), of("second"), "{rule}: {file}");
+        }
+    }
+
     /// pip takes several URLs on a line, and each with a password is a hit.
-    /// The line was copied once for each of them, so a settings file of 1 MiB
-    /// could take some 20 GB to fingerprint.
+    /// Copied once for each of them, a settings file of 1 MiB could take some
+    /// 20 GB to fingerprint.
     #[test]
     fn material_copies_a_line_once_however_many_hits_are_on_it() {
         let line = "https://fixture:synthetic-only@host.invalid/simple ".repeat(4000);
@@ -1385,7 +1447,7 @@ mod rule_samples {
         };
         let before = peak();
         let material = material("dev.url.inline-password", file.as_bytes());
-        // On macOS the peak is in bytes. Copied once per hit, it grew 800 MB.
+        // On macOS the peak is in bytes. Copied once per hit, it grows 800 MB.
         let grew = peak() - before;
         assert!(
             grew < 64 << 20,
@@ -1396,8 +1458,8 @@ mod rule_samples {
     }
 
     /// Maven and FileZilla may write a password on lines of its own after
-    /// the tag that opens it. Only the tag's line was material, so a changed
-    /// password looked like the same one.
+    /// the tag that opens it. With only the tag's line as material, a changed
+    /// password would look like the same one.
     #[test]
     fn material_for_an_xml_password_follows_it_onto_its_own_lines() {
         for (rule, entry, password) in [
@@ -1417,7 +1479,7 @@ mod rule_samples {
                     "{rule}: {around:?}"
                 );
             }
-            // On one line, as before.
+            // On one line.
             let file = format!("<{entry}>\n<{password}>synthetic-first</{password}>\n</{entry}>\n");
             let line = format!("<{password}>synthetic-first</{password}>");
             let expected = serde_json::to_vec(&[[line]]).unwrap();
@@ -1425,9 +1487,9 @@ mod rule_samples {
         }
     }
 
-    /// A key in a .env file can run over several lines inside quotes. Only
-    /// the line that opens it was material, and that line is the same for
-    /// every key.
+    /// A key in a .env file can run over several lines inside quotes. The
+    /// line that opens it is the same for every key, so it alone is not
+    /// enough material.
     #[test]
     fn material_for_a_key_in_a_settings_file_takes_each_of_its_lines() {
         let of = |body: &str| {
@@ -1452,8 +1514,8 @@ mod rule_samples {
             let file = format!("<id>releases</id>\n<password>{value}</password>\n");
             test(file.as_bytes()).unwrap().len()
         };
-        // Each "{" once looked for its "}" to the end of the line, and each
-        // "{[" for its "]", so a line of them cost the square of its length.
+        // Were each "{" to look for its "}" to the end of the line, and each
+        // "{[" for its "]", a line of them would cost the square of its length.
         let long = 1000 * 1024;
         // Nor is what follows one "]" judged again for every "{[" before it.
         let shared = format!("{}]{}!}}", "{[".repeat(long / 4), "A".repeat(long / 2));
@@ -1466,7 +1528,7 @@ mod rule_samples {
             apart,
         ] {
             let started = std::time::Instant::now();
-            // Not encrypted and not a reference: a literal, as before.
+            // Not encrypted and not a reference: a literal.
             assert_eq!(hits(&value), 1);
             let took = started.elapsed();
             assert!(
@@ -1475,8 +1537,8 @@ mod rule_samples {
                 value.len()
             );
         }
-        // What counts as encrypted is as it was: the first "}" after a "{",
-        // and the first "]" after a "{[", wherever earlier ones stand.
+        // What counts as encrypted: the first "}" after a "{", and the first
+        // "]" after a "{[", wherever earlier ones stand.
         let encrypted = "c3ludGhldGljLW9ubHktdmFsdWU=";
         assert_eq!(hits(&format!("x}}{{{encrypted}}}")), 0);
         assert_eq!(hits(&format!("{{[a]{{{encrypted}}}")), 0);
@@ -1494,8 +1556,8 @@ mod rule_samples {
             (material("app.openvpn.embedded-key", file.as_bytes()), file)
         };
         // A planted profile: one block holding the line that opens a key
-        // again and again. Each of those lines once took every line after
-        // it, so the copy grew with the square of the profile.
+        // again and again. Were each of those lines to take every line after
+        // it, the copy would grow with the square of the profile.
         let bodies: Vec<String> = (0..2000).map(|n| format!("synthetic{n}")).collect();
         let bodies: Vec<&str> = bodies.iter().map(String::as_str).collect();
         let (material, file) = block(&bodies, "");
@@ -1523,7 +1585,7 @@ mod rule_samples {
             block(&["other", "second"], "")
         );
         // What else the block holds after its one key is part of that key's
-        // material, as it was: an item for such a profile does not change.
+        // material, so an item for such a profile keeps its identity.
         let certificate = |body: &str| format!("-----BEGIN CERTIFICATE-----\n{body}\n");
         assert_ne!(
             block(&["first"], &certificate("MIIDfirst")).0,

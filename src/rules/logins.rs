@@ -60,6 +60,10 @@ pub const CLI_LOGIN: Rule = Rule {
         (b"access_token: synthetic-only-value-1234\nmetrics_token: \n", true),
         (b"[auth]\ntoken=synthetic-only-value-1234\n", true),
         (b"synthetic-only-value-1234567890\n", true),
+        // None of these formats expands "$" or "`".
+        (br#"{"token": "Synth$tic-only-value-1234"}"#, true),
+        (b"access_token: Synth$tic-only-value-1234\n", true),
+        (b"Synth$tic-only-value-1234567890\n", true),
         (b"version: 2\nupdate_check: false\n", false),
         (br#"{"telemetry": true, "token": ""}"#, false),
         // Signed out of Expo.
@@ -93,7 +97,7 @@ fn stored_login_hits(bytes: &[u8]) -> Hits {
             let text = String::from_utf8_lossy(bytes);
             let only = text.trim();
             !keyed_secret_lines(&text, LOGIN_KEYS).is_empty()
-                || (only.len() >= 20 && inline_literal(only) && plausible(only))
+                || (only.len() >= 20 && unexpanded_literal(only, None) && plausible(only))
         }
     };
     Ok((found || token::has_token(bytes))
@@ -105,11 +109,11 @@ fn stored_login_hits(bytes: &[u8]) -> Hits {
 pub const AWS_SESSION: Rule = Rule {
     id: "dev.aws.session-cache",
     title: "AWS sign-in session stored by the AWS CLI",
-    explanation: "The AWS CLI keeps single sign-on and temporary role credentials in this folder. They expire on their own, usually within hours, but a refresh token here can last longer.",
+    explanation: "The AWS CLI keeps single sign-on, console sign-in and temporary role credentials in this folder. They expire on their own, usually within hours, but a refresh token here can last longer.",
     next_step: Some("Sign out when you finish working with AWS, which removes the cached sessions."),
     advice: Advice {
         steps: &[
-            "When you're done, sign out and clear the cache: aws sso logout",
+            "When you're done, sign out and clear the cache: run 'aws sso logout' for single sign-on, or 'aws logout --all' for a console sign-in.",
             "Ask for short session lengths in IAM Identity Center, so a copied session stops working soon.",
         ],
         link: None,
@@ -127,6 +131,7 @@ pub const AWS_SESSION: Rule = Rule {
         (br#"{"startUrl": "https://example.invalid/start", "accessToken": "synthetic-only-value-1234"}"#, true),
         (br#"{"Credentials": {"AccessKeyId": "x", "SecretAccessKey": "synthetic-only-value-1234"}}"#, true),
         (br#"{"startUrl": "https://example.invalid/start", "region": "us-east-1"}"#, false),
+        (br#"{"startUrl": "https://example.invalid/start", "accessToken": "Synth$tic-only-value-1234"}"#, true),
     ],
     ..CLI_LOGIN
 };
@@ -181,6 +186,9 @@ fn azure_principal_hits(bytes: &[u8]) -> Hits {
 /// What older versions of the Azure CLI kept for a service principal.
 pub const AZURE_LEGACY_PRINCIPAL: Rule = Rule {
     explanation: "An older version of the Azure CLI signed in as a service principal and kept its secret in this file as plain text. Loose Keys didn't check whether it still works or what it can access.",
+    // Not the current file's: the report shows one rule's findings with
+    // the same reason as one entry, in the first one's words.
+    reason: Some("A service principal secret works from any computer until it expires or is deleted, and often has broad access to a subscription. Current versions of the Azure CLI don't remove this file when you sign out."),
     next_step: Some("Replace the secret in Microsoft Entra, then delete this file. Deleting the file doesn't revoke the secret."),
     advice: Advice {
         steps: &[
@@ -231,6 +239,9 @@ pub const COMPOSER_AUTH: Rule = Rule {
         (br#"{"github-oauth": {"github.com": "synthetic-only-value"}}"#, true),
         (br#"{"http-basic": {"repo.example.invalid": {"username": "fixture", "password": "synthetic-only"}}}"#, true),
         (br#"{"github-oauth": {}, "http-basic": {}}"#, false),
+        // JSON expands nothing: "$", "`" and a leading "!" are the password's.
+        (br#"{"http-basic": {"repo.example.invalid": {"username": "fixture", "password": "Synth$tic-0nly"}}}"#, true),
+        (br#"{"http-basic": {"repo.example.invalid": {"username": "fixture", "password": "!Synth`tic-0nly"}}}"#, true),
     ],
     ..CLI_LOGIN
 };
@@ -239,7 +250,9 @@ pub const COMPOSER_AUTH: Rule = Rule {
 fn composer_hits(bytes: &[u8]) -> Hits {
     fn holds_value(v: &serde_json::Value) -> bool {
         match v {
-            serde_json::Value::String(s) => s.len() >= 8 && inline_literal(s) && plausible(s),
+            serde_json::Value::String(s) => {
+                s.len() >= 8 && unexpanded_literal(s, Some('"')) && plausible(s)
+            }
             serde_json::Value::Object(o) => {
                 o.iter().any(|(k, v)| k != "username" && holds_value(v))
             }
@@ -397,6 +410,8 @@ pub const BUNDLER_CREDENTIALS: Rule = Rule {
     },
     samples: &[
         (b"---\nBUNDLE_GEMS__EXAMPLE__INVALID: \"fixture:synthetic-only\"\n", true),
+        (b"---\nBUNDLE_GEMS__EXAMPLE__INVALID: \"fixture:Synth$tic-0nly\"\n", true),
+        (b"---\nBUNDLE_GEMS__EXAMPLE__INVALID: \"!fixture:synthetic-only\"\n", true),
         // A gem server whose name starts like one of Bundler's own settings,
         // and one with a "-" in its name, which Bundler writes as "___".
         (b"---\nBUNDLE_GEM__FURY__IO: \"fixture:synthetic-only\"\n", true),
@@ -418,11 +433,6 @@ pub const BUNDLER_CREDENTIALS: Rule = Rule {
     ..COMPOSER_AUTH
 };
 
-/// Host settings are the keys with "__": Bundler writes a "." in a name that
-/// way, and a "-" as "___". A key that is the server's whole URL is one too.
-/// Some of its own settings have a dot too: the "gem.<name>" ones listed
-/// here, "build.<gem>" and "local.<gem>", whose values are build flags and
-/// paths, and "mirror.<server>", whose value is a URL.
 /// Bundler's settings for `bundle gem`, as its settings list names them.
 const GEM_SETTINGS: &[&str] = &[
     "BUNDLE",
@@ -437,6 +447,11 @@ const GEM_SETTINGS: &[&str] = &[
     "TEST",
 ];
 
+/// Host settings are the keys with "__": Bundler writes a "." in a name that
+/// way, and a "-" as "___". A key that is the server's whole URL is one too.
+/// Some of its own settings have a dot too: the "gem.<name>" ones in
+/// `GEM_SETTINGS`, "build.<gem>" and "local.<gem>", whose values are build
+/// flags and paths, and "mirror.<server>", whose value is a URL.
 fn bundler_hits(bytes: &[u8]) -> Hits {
     utf8_lines(bytes, |text| {
         text.lines()
@@ -445,7 +460,8 @@ fn bundler_hits(bytes: &[u8]) -> Hits {
                 // At the colon with a blank after it: a key can be a URL.
                 let (key, value) = raw.trim().split_once(": ")?;
                 let name = key.strip_prefix("BUNDLE_")?.replace("___", "-");
-                let value = scalar_literal(value).filter(|v| v.len() >= 8)?;
+                let value =
+                    scalar_literal_by(value, unexpanded_literal).filter(|v| v.len() >= 8)?;
                 // A key that is a URL is a server, with or without a dot.
                 let url = name.contains("://") && !name.starts_with("MIRROR__");
                 let own = !url
@@ -475,14 +491,14 @@ fn bundler_hits(bytes: &[u8]) -> Hits {
 
 pub const URL_PASSWORD: Rule = Rule {
     id: "dev.url.inline-password",
-    title: "Password written inside a URL in a config file",
-    explanation: "A URL in this config file has a user name and password or token written into it, as in https://user:password@host. Loose Keys didn't check whether it still works or what it can access.",
+    title: "Password or token written inside a URL",
+    explanation: "A URL in this config file has a password or token written into it, as in https://user:password@host. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("The credential is plain text, and tools print these URLs in logs and error messages."),
     next_step: Some("Change the password or revoke the token at the host named here, and take it out of the URL."),
     advice: Advice {
         steps: &[
             "At the host named here, change the password or revoke the token.",
-            "Remove the user and password from the URL in this file.",
+            "Remove the password or token from the URL in this file.",
             "Let the tool fetch the credential instead: Git with 'git config --global credential.helper osxkeychain', pip with the 'keyring' package.",
         ],
         link: None,
@@ -509,6 +525,10 @@ pub const URL_PASSWORD: Rule = Rule {
         (b"[global]\nindex-url = https://fixture:!synthetic-only@pypi.example.invalid/simple\n", true),
         (b"[global]\nindex-url = https://fixture:synthetic$only@pypi.example.invalid/simple\n", true),
         (b"[global]\nindex-url = https://fixture:${PIP_PASSWORD}@pypi.example.invalid/simple\n", false),
+        // A remote added with its token and no user name, and a user name alone.
+        (b"[remote \"origin\"]\n\turl = https://synthetic0only0value0for0a0remote0url@git.example.invalid/repo\n", true),
+        (b"[remote \"origin\"]\n\turl = https://git@git.example.invalid/repo\n", false),
+        (b"[remote \"origin\"]\n\turl = ssh://git@git.example.invalid/repo\n", false),
     ],
     ..COMPOSER_AUTH
 };
@@ -525,16 +545,37 @@ fn url_password_hits(bytes: &[u8]) -> Hits {
                         let rest = &line[at + separator.len()..];
                         let authority = rest.split(['/', '?', '#', '"', '\'', ' ']).next()?;
                         let (userinfo, host) = authority.rsplit_once('@')?;
-                        let (user, password) = userinfo.split_once(':')?;
-                        (!host.is_empty()
-                            && !user.is_empty()
-                            && verbatim_literal(password)
-                            && plausible(password))
-                        .then(|| Hit::line(i + 1).about(host).at(text, password))
+                        let secret = url_secret(userinfo)?;
+                        (!host.is_empty() && verbatim_literal(secret) && plausible(secret))
+                            .then(|| Hit::line(i + 1).about(host).at(text, secret))
                     })
             })
             .collect()
     })
+}
+
+/// The credential in a URL's "user:password", in GitHub's
+/// "token:x-oauth-basic", or a userinfo with no ":" that is a token, as in
+/// a remote added as "https://<token>@host". A user name alone, as in
+/// "git@host", is none.
+fn url_secret(userinfo: &str) -> Option<&str> {
+    match userinfo.split_once(':') {
+        Some(("", _)) => None,
+        Some((user, password)) if password.eq_ignore_ascii_case("x-oauth-basic") => Some(user),
+        Some((_, password)) => Some(password),
+        None => token_shaped(userinfo).then_some(userinfo),
+    }
+}
+
+/// A known token format, or a long run of letters and digits with both in
+/// it: longer than user names and organization names usually are.
+fn token_shaped(s: &str) -> bool {
+    token::is_token(s.as_bytes())
+        || (s.len() >= 32
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            && s.bytes().any(|b| b.is_ascii_digit())
+            && s.bytes().any(|b| b.is_ascii_alphabetic()))
 }
 
 #[cfg(test)]
@@ -568,5 +609,55 @@ mod tests {
                 (Some(1), Some("two.example.invalid"), "synthetic-second"),
             ]
         );
+    }
+
+    /// The token is the credential, wherever in the URL it stands.
+    #[test]
+    fn a_token_in_a_url_is_what_the_finding_points_at() {
+        let known = concat!("gh", "p_0123456789abcdefghijABCDEFGHIJ012345");
+        for (url, token) in [
+            // GitHub's form, with the token where the user name goes.
+            (
+                "https://synthetic-only-value:x-oauth-basic@git.example.invalid/repo".to_string(),
+                "synthetic-only-value",
+            ),
+            // A remote added with its token and no user name.
+            (
+                "https://synthetic0only0value0for0a0remote0url@git.example.invalid/repo"
+                    .to_string(),
+                "synthetic0only0value0for0a0remote0url",
+            ),
+            (format!("https://{known}@git.example.invalid/repo"), known),
+        ] {
+            let text = format!("[remote \"origin\"]\n\turl = {url}\n");
+            let hits = url_password_hits(text.as_bytes()).unwrap();
+            let found: Vec<_> = hits
+                .iter()
+                .map(|h| {
+                    (
+                        h.subject.as_deref(),
+                        h.span.clone().and_then(|s| text.get(s)),
+                    )
+                })
+                .collect();
+            assert!(
+                found == [(Some("git.example.invalid"), Some(token))],
+                "{} hits for a URL with a token",
+                found.len()
+            );
+        }
+        // A user name alone is no credential.
+        for url in [
+            "https://git@git.example.invalid/repo",
+            "ssh://git@git.example.invalid/repo",
+            "https://fixture-organization@dev.example.invalid/org/_git/repo",
+            "https://fixture.person.name@git.example.invalid/repo",
+        ] {
+            let text = format!("[remote \"origin\"]\n\turl = {url}\n");
+            assert!(
+                url_password_hits(text.as_bytes()).unwrap().is_empty(),
+                "{url}"
+            );
+        }
     }
 }

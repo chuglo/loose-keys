@@ -256,13 +256,33 @@ pub const DESKTOP_WALLET: Rule = Rule {
         Target::Present("Library/Application Support/Binance/app-store.json", "Binance"),
         Target::Present("Library/Application Support/Bitcoin/wallet.dat", "Bitcoin Core"),
         Target::Present("Library/Application Support/Bitcoin/wallets", "Bitcoin Core"),
-        Target::Present("Library/Application Support/Ledger Live", "Ledger Wallet"),
-        Target::Present("Library/Application Support/@trezor/suite-desktop", "Trezor Suite"),
         Target::Present("Library/Application Support/@tonkeeper/desktop", "Tonkeeper"),
         Target::Present(".sparrow/wallets", "Sparrow"),
         Target::Present("Monero/wallets", "Monero"),
     ],
     ..WALLET_EXTENSION
+};
+
+/// The apps of hardware wallets, whose keys stay on the device: there is no
+/// wallet password here to guess, so the desktop wallets' words don't fit.
+/// Its own reason keeps the report from showing their findings as one entry.
+pub const HARDWARE_WALLET_APP: Rule = Rule {
+    title: "Hardware wallet app data",
+    explanation: "The app for a hardware wallet keeps its settings and account details here. The keys stay on the device. Loose Keys found the data but didn't open it.",
+    reason: Some("Some password-stealing malware replaces this app with a fake that asks for the recovery phrase."),
+    next_step: Some("Never type your recovery phrase into this app. If you restore a wallet, enter the words on the device."),
+    advice: Advice {
+        steps: &[
+            "Install and update the app only from the maker's official site.",
+            "If you no longer use this app, delete it and this data. Your funds don't depend on them.",
+        ],
+        link: None,
+    },
+    targets: &[
+        Target::Present("Library/Application Support/Ledger Live", "Ledger Wallet"),
+        Target::Present("Library/Application Support/@trezor/suite-desktop", "Trezor Suite"),
+    ],
+    ..DESKTOP_WALLET
 };
 
 #[cfg(test)]

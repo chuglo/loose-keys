@@ -32,6 +32,7 @@ pub const DOCKER_AUTH: Rule = Rule {
     },
     samples: &[
         (br#"{"auths":{"registry":{"auth":"c3ludGhldGlj"}}}"#, true),
+        (br#"{"auths":{"registry":{"auth":"Synth$tic`0nly"}}}"#, true),
         (br#"{"auths":{"registry":{"identitytoken":"synthetic-only-value"}}}"#, true),
         (br#"{"auths":{"registry":{"registrytoken":"synthetic-only-value"}}}"#, true),
         (br#"{"auths":{"registry":{"auth":"${DOCKER_AUTH}"}}}"#, false),
@@ -50,18 +51,14 @@ fn docker_hits(bytes: &[u8]) -> Hits {
     })
 }
 
-/// Docker stores token fields verbatim, alongside base64 username/password auth.
+/// Docker stores token fields verbatim, alongside base64 username/password
+/// auth, in JSON, which expands nothing.
 pub(super) fn credentials(auth: &serde_json::Value) -> impl Iterator<Item = (&'static str, &str)> {
     ["auth", "identitytoken", "registrytoken"]
         .into_iter()
         .filter_map(move |field| {
             let value = auth[field].as_str()?;
-            let literal = if field == "auth" {
-                inline_literal(value)
-            } else {
-                verbatim_literal(value)
-            };
-            literal.then_some((field, value))
+            verbatim_literal(value).then_some((field, value))
         })
 }
 

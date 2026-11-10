@@ -128,7 +128,7 @@ pub fn key_protection(head: &[u8]) -> KeyState {
     // Every key found below opens with PuTTY's version line or with an armor
     // line `key_header` takes, which begins "-----BEGIN ". A head with
     // neither is passed over before it is made text: for a binary file, that
-    // was most of the time checking it took.
+    // would be most of the time checking it takes.
     if !head.starts_with(b"PuTTY-User-Key-File-") && !has(head, b"-----BEGIN ") {
         return KeyState::NotAKey;
     }

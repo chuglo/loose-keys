@@ -32,6 +32,7 @@ pub const GIT_CREDENTIALS: Rule = Rule {
         (b"https://user:synthetic@example.com\n", true),
         (b"https://user:!synthetic$value@example.com\n", true),
         (b"https://user@example.com\n", false),
+        (b"https://synthetic-only-value:x-oauth-basic@example.com\n", true),
     ],
 };
 
@@ -51,8 +52,29 @@ fn git_credential_lines(text: &str) -> Vec<Hit> {
             let authority = rest.split(['/', '?', '#']).next()?;
             let (userinfo, host) = authority.rsplit_once('@')?;
             let (user, password) = userinfo.split_once(':')?;
-            (!host.is_empty() && !user.is_empty() && verbatim_literal(password))
-                .then(|| Hit::line(i + 1).about(host).at(text, password))
+            // In GitHub's "token:x-oauth-basic@host" the token is the user.
+            let secret = if password.eq_ignore_ascii_case("x-oauth-basic") {
+                user
+            } else {
+                password
+            };
+            (!host.is_empty() && !user.is_empty() && verbatim_literal(secret))
+                .then(|| Hit::line(i + 1).about(host).at(text, secret))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In GitHub's "token:x-oauth-basic@host" the token is the credential.
+    #[test]
+    fn a_github_token_in_the_user_name_is_what_the_finding_points_at() {
+        let text = "https://synthetic-only-value:x-oauth-basic@git.example.invalid\n";
+        let hits = git_credential_lines(text);
+        assert_eq!(hits.len(), 1);
+        let span = hits[0].span.clone().expect("a span");
+        assert!(text.get(span) == Some("synthetic-only-value"));
+    }
 }

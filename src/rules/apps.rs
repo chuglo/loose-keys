@@ -9,7 +9,7 @@ pub const TELEGRAM_SESSION: Rule = Rule {
     kind: "review",
     severity: "medium",
     title: "Telegram session stored on this Mac",
-    explanation: "Telegram Desktop keeps its signed-in session in this folder. Loose Keys found the folder but didn't open it.",
+    explanation: "Telegram Desktop keeps its signed-in session in the folder that holds this file. Loose Keys found the file but didn't open it.",
     reason: Some("Someone with a copy of this folder may be able to use your account without signing in. Loose Keys didn't check whether a local passcode protects it."),
     next_step: Some("Set a local passcode in Telegram, and check which devices are signed in."),
     advice: Advice {

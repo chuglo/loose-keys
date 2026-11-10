@@ -16,7 +16,8 @@ pub const PYPI_PASSWORD: Rule = Rule {
         steps: &[
             "In your PyPI account settings, delete the API token that was stored here.",
             "Create a replacement scoped to one project, and store it in the Keychain: keyring set https://upload.pypi.org/legacy/ __token__",
-            "Remove the password line from ~/.pypirc. twine reads the Keychain entry automatically.",
+            "In ~/.pypirc, remove the password line. twine reads the Keychain entry automatically.",
+            "In Poetry's auth.toml, remove the token. When you publish to PyPI, supply the replacement as POETRY_PYPI_TOKEN_PYPI from a password manager.",
             "For projects built in CI, use PyPI trusted publishing, which needs no stored token.",
         ],
         link: Some("https://pypi.org/manage/account/token/"),
@@ -38,6 +39,7 @@ pub const PYPI_PASSWORD: Rule = Rule {
         (b"[private]\npassword = !synthetic-only-value\n", true),
         // Poetry's auth.toml names a token by its repository.
         (b"[pypi-token]\nprivate-repository = \"synthetic-only-value\"\n", true),
+        (b"[pypi-token]\nprivate-repository = \"!Synth$tic-0nly-value\"\n", true),
         (b"[http-basic.private-repository]\nusername = \"fixture-user-name\"\n", false),
     ],
 };
@@ -48,8 +50,8 @@ fn pypi_hits(bytes: &[u8]) -> Hits {
 
 fn pypi_passwords(text: &str) -> Hits {
     // twine reads .pypirc raw, so "$" and "!" are text there.
-    let mut hits = ini_hits_by(text, &["password"], |value| {
-        scalar_literal_by(value, |value, _| verbatim_literal(value))
+    let mut hits = ini_hits_by(text, &["password"], |value, _| {
+        scalar_literal_by(value, raw_literal)
     });
     // Poetry: under [pypi-token], each name is a repository and each
     // value its token.
@@ -62,7 +64,7 @@ fn pypi_passwords(text: &str) -> Hits {
         if line.starts_with('[') {
             tokens = line == "[pypi-token]";
         } else if let Some((repository, value)) = line.split_once('=').filter(|_| tokens) {
-            if let Some(value) = scalar_literal(value) {
+            if let Some(value) = scalar_literal_by(value, unexpanded_literal) {
                 let repository = repository.trim().trim_matches('"');
                 hits.push(Hit::line(i + 1).about(repository).at(text, value));
             }
@@ -71,15 +73,21 @@ fn pypi_passwords(text: &str) -> Hits {
     capped_hits(hits, 100)
 }
 
-/// Lines in an INI or TOML file that set one of `keys` to a literal, labelled
-/// with their section.
+/// Lines in an INI, TOML or YAML file that set one of `keys` to a literal,
+/// labelled with their section. A line written "name: value" is YAML, where
+/// an unquoted "!" or "&" opens a tag or an anchor; in "name = value" it is
+/// text.
 fn ini_hits(text: &str, keys: &[&str]) -> Vec<Hit> {
-    ini_hits_by(text, keys, scalar_literal)
+    ini_hits_by(text, keys, |value, separator| match separator {
+        ':' => scalar_literal_by(value, unexpanded_literal),
+        _ => scalar_literal_by(value, raw_literal),
+    })
 }
 
 /// As `ini_hits`, with `literal` giving the value of a line's literal, if
-/// it is one. The hit says where that value is.
-fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> Option<&str>) -> Vec<Hit> {
+/// it is one, given the ":" or "=" before it. The hit says where that value
+/// is.
+fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str, char) -> Option<&str>) -> Vec<Hit> {
     let mut section = "";
     let mut out = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -87,8 +95,13 @@ fn ini_hits_by(text: &str, keys: &[&str], literal: fn(&str) -> Option<&str>) -> 
         if line.starts_with('[') && line.ends_with(']') {
             section = &line[1..line.len() - 1];
         } else if let Some((key, value)) = line.split_once(['=', ':']) {
+            let separator = if line[key.len()..].starts_with(':') {
+                ':'
+            } else {
+                '='
+            };
             if keys.contains(&key.trim()) {
-                if let Some(value) = literal(value) {
+                if let Some(value) = literal(value, separator) {
                     out.push(Hit::line(i + 1).about(section).at(text, value));
                 }
             }
@@ -123,6 +136,7 @@ pub const CARGO_TOKEN: Rule = Rule {
     samples: &[
         (b"[registry]\ntoken = \"synthetic-only\"\n", true),
         (b"[registry]\n# token = \"synthetic-only\"\n", false),
+        (b"[registry]\ntoken = \"Synth$tic-0nly\"\n", true),
     ],
     ..PYPI_PASSWORD
 };
@@ -155,6 +169,7 @@ pub const GEM_KEY: Rule = Rule {
         // A key for another host is kept under its URL.
         (b"---\nhttps://gems.example.invalid: synthetic-only\n", true),
         (b"---\nhttps://gems.example.invalid:\n", false),
+        (b"---\n:rubygems_api_key: Synth$tic-0nly\n", true),
         (b"---\n", false),
     ],
     ..PYPI_PASSWORD
@@ -183,7 +198,7 @@ fn gem_hits(bytes: &[u8]) -> Hits {
                         (url, value, url_host(rest))
                     }
                 };
-                scalar_literal(value).map(|value| {
+                scalar_literal_by(value, unexpanded_literal).map(|value| {
                     Hit::line(i + 1)
                         .about(shown)
                         .scoped(text, key)
@@ -345,6 +360,12 @@ pub const WAREHOUSE_PASSWORD: Rule = Rule {
         (concat!("      keyfile_json:\n        type: service_account\n        private_key: \"-----BEGIN ", "PRIVATE KEY-----\\nsynthetic\\n\"\n").as_bytes(), true),
         (b"      password: \"{{ env_var('DBT_PASSWORD') }}\"\n      sslkey: /Users/fixture/certs/client.key\n", false),
         (b"      authenticator: externalbrowser\n      private_key_path: /Users/fixture/keys/rsa_key.p8\n", false),
+        // YAML expands no "$", but an unquoted "&" or "!" opens an anchor or a tag.
+        (b"      password: Synth$tic-0nly-value\n", true),
+        (b"      password: \"!synthetic-only-value\"\n", true),
+        (b"      password: &synthetic-only-value\n", false),
+        // In INI, as SnowSQL's config is, a leading "!" is text.
+        (b"[connections.fixture]\npassword = !synthetic-only-value\n", true),
     ],
     advice: Advice {
         steps: &[
@@ -389,7 +410,7 @@ fn warehouse_passwords(text: &str) -> Hits {
 
 fn mycnf_hits(bytes: &[u8]) -> Hits {
     utf8_lines(bytes, |text| {
-        ini_hits_by(text, &["password"], mycnf_literal)
+        ini_hits_by(text, &["password"], |value, _| mycnf_literal(value))
     })
 }
 

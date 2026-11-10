@@ -123,8 +123,8 @@ fn is_bitwarden_export(v: &serde_json::Value) -> bool {
 /// A CSV header with URL, username and password columns, as written by
 /// Chrome, Firefox, Safari, Bitwarden, 1Password, RoboForm and others.
 pub fn is_password_export(head: &[u8]) -> bool {
-    // Only the first line can be the header, so only it is made text: a
-    // binary head was otherwise converted to its end.
+    // Only the first line can be the header, so only it is made text, not
+    // a binary head to its end.
     let line = head.split_inclusive(|b| *b == b'\n').next();
     let text = String::from_utf8_lossy(line.unwrap_or_default());
     let first = text

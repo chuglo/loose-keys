@@ -114,12 +114,12 @@
 
 /* rule dev.npm.inline-credentials */
 "Possible npm token stored in a config file" = "Posible token de npm guardado en un archivo de configuración";
-"A token or password is stored in npm's user config. Loose Keys didn't check whether it still works or what it can access." = "En la configuración de usuario de npm hay guardado un token o una contraseña. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
+"A token or password is stored in this npm, Yarn or pnpm config file. Loose Keys didn't check whether it still works or what it can access." = "En este archivo de configuración de npm, Yarn o pnpm hay guardado un token o una contraseña. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
 "Malware that spreads through packages often looks for npm tokens, because they can publish packages." = "El malware que se propaga por paquetes suele buscar tokens de npm, porque permiten publicar paquetes.";
 "Revoke this token and replace it with a narrower one. Removing the line doesn't revoke it." = "Revoca este token y sustitúyelo por uno más limitado. Quitar la línea no lo revoca.";
 "List your tokens with 'npm token list', then revoke this one: npm token revoke <id>" = "Consulta la lista de tus tokens con 'npm token list' y luego revoca este: npm token revoke <id>";
 "If you still publish from this Mac, create a granular access token limited to the packages you need, with an expiry date." = "Si todavía publicas desde tu Mac, crea un token de acceso granular (“granular access token”) limitado a los paquetes que necesites y con fecha de expiración.";
-"npm can't use the Keychain. To keep the value out of this file, supply NPM_TOKEN from a password manager when you publish, and write this line in its place: //registry.npmjs.org/:_authToken=${NPM_TOKEN}" = "npm no puede usar el llavero. Para que el valor no quede en este archivo, proporciona NPM_TOKEN desde un gestor de contraseñas cuando publiques y escribe esta línea en su lugar: //registry.npmjs.org/:_authToken=${NPM_TOKEN}";
+"To keep the value out of this file, write ${NPM_TOKEN} in place of the value, and supply NPM_TOKEN from a password manager when you publish. pnpm ignores ${NPM_TOKEN} in a project's .npmrc." = "Para que el valor no quede en este archivo, escribe ${NPM_TOKEN} en lugar del valor y proporciona NPM_TOKEN desde un gestor de contraseñas cuando publiques. pnpm ignora ${NPM_TOKEN} en el .npmrc de un proyecto.";
 "If you only install public packages, delete the line: no token is needed." = "Si solo instalas paquetes públicos, elimina la línea: no hace falta ningún token.";
 
 /* rule dev.kube.inline-credentials */
@@ -156,6 +156,7 @@
 "When you no longer need it, sign out and clear the stored tokens: run 'az logout', then 'az account clear'." = "Cuando ya no lo necesites, cierra sesión y borra los tokens guardados: ejecuta 'az logout' y, después, 'az account clear'.";
 "If the file may have been copied, ask your Azure admin to revoke your sessions. 'az logout' clears only this Mac." = "Si el archivo puede haberse copiado, pide a tu administrador de Azure que revoque tus sesiones. 'az logout' solo borra lo que hay en tu Mac.";
 "Older versions of the Azure CLI kept sign-in tokens in this file as plain text. Loose Keys didn't check whether the tokens still work or what they can access." = "Las versiones anteriores de la CLI de Azure guardaban tokens de inicio de sesión sin cifrar en este archivo. Loose Keys no comprobó si los tokens siguen funcionando ni a qué dan acceso.";
+"Refresh tokens in this file may work from another computer until they expire or are revoked. Current versions of the Azure CLI don't remove the file when you sign out." = "Los tokens de actualización de este archivo pueden funcionar desde otro dispositivo hasta que caduquen o se revoquen. Las versiones actuales de la CLI de Azure no eliminan el archivo al cerrar sesión.";
 "Delete this file, which current versions of the Azure CLI don't use." = "Elimina este archivo, que las versiones actuales de la CLI de Azure no usan.";
 "Delete this file, then empty the Trash. Current versions of the Azure CLI don't use it." = "Elimina este archivo y luego vacía la papelera. Las versiones actuales de la CLI de Azure no lo usan.";
 "If the file may have been copied, ask your Azure admin to revoke your sessions. Deleting the file clears only this Mac." = "Si el archivo puede haberse copiado, pide a tu administrador de Azure que revoque tus sesiones. Eliminar el archivo solo borra lo que hay en tu Mac.";
@@ -185,7 +186,8 @@
 "Revoke the token and keep the replacement in the Keychain. Removing the line doesn't revoke it." = "Revoca el token y guarda el nuevo en el llavero. Quitar la línea no lo revoca.";
 "In your PyPI account settings, delete the API token that was stored here." = "En la configuración de tu cuenta de PyPI, elimina el token de API que estaba guardado aquí.";
 "Create a replacement scoped to one project, and store it in the Keychain: keyring set https://upload.pypi.org/legacy/ __token__" = "Crea un token nuevo limitado a un solo proyecto y guárdalo en el llavero: keyring set https://upload.pypi.org/legacy/ __token__";
-"Remove the password line from ~/.pypirc. twine reads the Keychain entry automatically." = "Quita la línea de la contraseña de ~/.pypirc. twine lee automáticamente la entrada del llavero.";
+"In ~/.pypirc, remove the password line. twine reads the Keychain entry automatically." = "En ~/.pypirc, quita la línea de la contraseña. twine lee automáticamente la entrada del llavero.";
+"In Poetry's auth.toml, remove the token. When you publish to PyPI, supply the replacement as POETRY_PYPI_TOKEN_PYPI from a password manager." = "En el archivo auth.toml de Poetry, quita el token. Cuando publiques en PyPI, proporciona el nuevo como POETRY_PYPI_TOKEN_PYPI desde un gestor de contraseñas.";
 "For projects built in CI, use PyPI trusted publishing, which needs no stored token." = "En los proyectos que se compilan en CI, usa la publicación de confianza (trusted publishing) de PyPI, que no necesita ningún token guardado.";
 
 /* rule dev.cargo.inline-token */
@@ -216,6 +218,7 @@
 "In Microsoft Entra, open App registrations, choose the app, and under Certificates & secrets delete this client secret. If something still needs a secret, create a new one." = "En Microsoft Entra, abre Registros de aplicaciones, elige la aplicación y, en Certificados y secretos, elimina este secreto de cliente. Si algo todavía necesita un secreto, crea uno nuevo.";
 "For automation, prefer workload identity federation or a managed identity, which need no stored secret." = "Para la automatización, es preferible la federación de identidades de carga de trabajo o una identidad administrada, que no necesitan ningún secreto guardado.";
 "An older version of the Azure CLI signed in as a service principal and kept its secret in this file as plain text. Loose Keys didn't check whether it still works or what it can access." = "Una versión anterior de la CLI de Azure inició sesión como una entidad de servicio y guardó su secreto sin cifrar en este archivo. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
+"A service principal secret works from any computer until it expires or is deleted, and often has broad access to a subscription. Current versions of the Azure CLI don't remove this file when you sign out." = "El secreto de una entidad de servicio funciona desde cualquier dispositivo hasta que expire o se elimine, y a menudo tiene acceso amplio a una suscripción. Las versiones actuales de la CLI de Azure no eliminan este archivo al cerrar sesión.";
 "Replace the secret in Microsoft Entra, then delete this file. Deleting the file doesn't revoke the secret." = "Sustituye el secreto en Microsoft Entra y luego elimina este archivo. Eliminar el archivo no revoca el secreto.";
 
 /* rule dev.composer.auth */
@@ -246,12 +249,12 @@
 "Supply the credential when needed through the matching BUNDLE_ environment variable, set from a password manager." = "Cuando haga falta, proporciona la credencial mediante la variable de entorno BUNDLE_ correspondiente, con su valor tomado de un gestor de contraseñas.";
 
 /* rule dev.url.inline-password */
-"Password written inside a URL in a config file" = "Contraseña escrita dentro de una URL en un archivo de configuración";
-"A URL in this config file has a user name and password or token written into it, as in https://user:password@host. Loose Keys didn't check whether it still works or what it can access." = "Una URL de este archivo de configuración lleva escritos un nombre de usuario y una contraseña o un token, como en https://user:password@host. Loose Keys no comprobó si siguen funcionando ni a qué dan acceso.";
+"Password or token written inside a URL" = "Contraseña o token escritos dentro de una URL";
+"A URL in this config file has a password or token written into it, as in https://user:password@host. Loose Keys didn't check whether it still works or what it can access." = "Una URL de este archivo de configuración lleva escrita una contraseña o un token, como en https://user:password@host. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
 "The credential is plain text, and tools print these URLs in logs and error messages." = "La credencial está en texto sin cifrar, y las herramientas escriben estas URL en los registros y en los mensajes de error.";
 "Change the password or revoke the token at the host named here, and take it out of the URL." = "Cambia la contraseña o revoca el token en el host que aparece aquí, y quita la credencial de la URL.";
 "At the host named here, change the password or revoke the token." = "En el host que aparece aquí, cambia la contraseña o revoca el token.";
-"Remove the user and password from the URL in this file." = "Quita el usuario y la contraseña de la URL de este archivo.";
+"Remove the password or token from the URL in this file." = "Quita la contraseña o el token de la URL de este archivo.";
 "Let the tool fetch the credential instead: Git with 'git config --global credential.helper osxkeychain', pip with the 'keyring' package." = "En su lugar, deja que la herramienta obtenga la credencial: Git con 'git config --global credential.helper osxkeychain' y pip con el paquete 'keyring'.";
 
 /* rule dev.cli.stored-login */
@@ -264,9 +267,9 @@
 
 /* rule dev.aws.session-cache */
 "AWS sign-in session stored by the AWS CLI" = "Sesión de AWS guardada por la AWS CLI";
-"The AWS CLI keeps single sign-on and temporary role credentials in this folder. They expire on their own, usually within hours, but a refresh token here can last longer." = "La AWS CLI guarda en esta carpeta credenciales de inicio de sesión único y credenciales temporales de rol. Expiran por sí solas, normalmente en unas horas, pero un token de actualización guardado aquí puede durar más.";
+"The AWS CLI keeps single sign-on, console sign-in and temporary role credentials in this folder. They expire on their own, usually within hours, but a refresh token here can last longer." = "La AWS CLI guarda en esta carpeta credenciales de inicio de sesión único, de inicio de sesión en la consola y temporales de rol. Expiran por sí solas, normalmente en unas horas, pero un token de actualización guardado aquí puede durar más.";
 "Sign out when you finish working with AWS, which removes the cached sessions." = "Cierra sesión cuando termines de trabajar con AWS: así se eliminan las sesiones en caché.";
-"When you're done, sign out and clear the cache: aws sso logout" = "Cuando termines, cierra sesión y borra la caché: aws sso logout";
+"When you're done, sign out and clear the cache: run 'aws sso logout' for single sign-on, or 'aws logout --all' for a console sign-in." = "Cuando termines, cierra sesión y borra la caché: ejecuta 'aws sso logout' para el inicio de sesión único o 'aws logout --all' para un inicio de sesión en la consola.";
 "Ask for short session lengths in IAM Identity Center, so a copied session stops working soon." = "Pide una duración de sesión corta en IAM Identity Center, para que una sesión copiada deje de funcionar pronto.";
 
 /* rule key.gpg.private */
@@ -320,13 +323,13 @@
 "Where the warehouse offers it, use browser sign-in, or key-pair sign-in with a passphrase." = "Si el almacén de datos lo ofrece, usa el inicio de sesión a través del navegador o con un par de claves protegido con una frase de contraseña.";
 
 /* rule dev.mcp.inline-secret */
-"Secret written into an MCP server config" = "Secreto escrito en la configuración de un servidor MCP";
-"An MCP server entry in this file has a key, token or password written out in full. Loose Keys didn't check whether it still works or what it can access." = "Una entrada de servidor MCP de este archivo tiene escrita completa una clave, un token o una contraseña. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
+"Secret written into an AI tool's config" = "Secreto escrito en la configuración de una herramienta de IA";
+"A key, token or password is written out in full in this AI tool's config, for an MCP server, a model or the tool itself. Loose Keys didn't check whether it still works or what it can access." = "La configuración de esta herramienta de IA tiene escrita completa una clave, un token o una contraseña, para un servidor MCP, un modelo o la propia herramienta. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
 "Any program that can read this file can copy the credential." = "Cualquier programa que pueda leer este archivo puede copiar la credencial.";
 "Revoke the key at its service and stop storing it in the config. Removing the entry doesn't revoke it." = "Revoca la clave en su servicio y deja de guardarla en la configuración. Quitar la entrada no la revoca.";
-"Revoke or replace the key at the service this MCP server connects to." = "Revoca o sustituye la clave en el servicio al que se conecta este servidor MCP.";
-"If the server supports sign-in (OAuth), use that instead of a key: remove the key and let the tool prompt you." = "Si el servidor admite el inicio de sesión (OAuth), úsalo en lugar de una clave: elimina la clave y deja que la herramienta te pida iniciar sesión.";
-"If it doesn't, keep the key out of the config. Start the server through a wrapper that reads the key from the Keychain, for example: security find-generic-password -s <name> -w" = "Si no lo admite, deja la clave fuera de la configuración. Inicia el servidor con un script que lea la clave del llavero, por ejemplo: security find-generic-password -s <name> -w";
+"Revoke or replace the key at the service it's for." = "Revoca o sustituye la clave en el servicio al que corresponde.";
+"If the service supports sign-in (OAuth), use that instead of a key: remove the key and let the tool prompt you." = "Si el servicio admite el inicio de sesión (OAuth), úsalo en lugar de una clave: elimina la clave y deja que la herramienta te pida iniciar sesión.";
+"If it doesn't, keep the key out of the config. Start the tool or server through a wrapper that reads the key from the Keychain, for example: security find-generic-password -s <name> -w" = "Si no lo admite, deja la clave fuera de la configuración. Inicia la herramienta o el servidor con un script que lea la clave del llavero, por ejemplo: security find-generic-password -s <name> -w";
 "Remove the value from this file, and check that the file was never committed or synced." = "Quita el valor de este archivo y comprueba que el archivo nunca se subió a un repositorio ni se sincronizó.";
 
 /* rule dev.ai.stored-login */
@@ -334,7 +337,7 @@
 "An AI coding tool keeps its sign-in token or API key in this file as plain text. That's how the tool works. Loose Keys didn't check whether it still works or what it can access." = "Una herramienta de programación con IA guarda en este archivo su token de inicio de sesión o su clave de API como texto sin cifrar. Así funciona la herramienta. Loose Keys no comprobó si sigue funcionando ni a qué da acceso.";
 "For a tool you still use, leave this in place." = "Si todavía usas la herramienta, deja esto como está.";
 "If the file may have been copied, revoke the tool's access at the provider as well. Signing out removes this copy but doesn't always revoke the token." = "Si el archivo puede haberse copiado, revoca también el acceso de la herramienta en el proveedor. Cerrar sesión elimina esta copia, pero no siempre revoca el token.";
-"For a tool you no longer use, sign out in the tool (for example 'codex logout' or 'gh auth logout'), then delete this file." = "Si ya no usas la herramienta, cierra sesión en ella (por ejemplo, 'codex logout' o 'gh auth logout') y después elimina este archivo.";
+"For a tool you no longer use, sign out in the tool (for example 'codex logout'), then delete this file." = "Si ya no usas la herramienta, cierra sesión en ella (por ejemplo, 'codex logout') y después elimina este archivo.";
 "If the file holds an API key, revoke that key at the provider when you stop using the tool." = "Si el archivo contiene una clave de API, revócala en el proveedor cuando dejes de usar la herramienta.";
 
 /* rule dev.oauth.token-file */
@@ -398,6 +401,7 @@
 
 /* rule wallet.desktop.data */
 "Desktop crypto wallet data" = "Datos de una billetera de criptomonedas de escritorio";
+"Hardware wallet app data" = "Datos de la app de una billetera de hardware";
 "A desktop crypto wallet keeps its data here. Loose Keys found it but didn't open it." = "Una billetera de criptomonedas de escritorio guarda aquí sus datos. Loose Keys los encontró, pero no los abrió.";
 "Password-stealing malware copies desktop wallet folders and guesses the password offline. Some versions also replace the wallet app with a fake that asks for the recovery phrase." = "El malware que roba contraseñas copia las carpetas de las billeteras de escritorio y adivina la contraseña sin conexión. Algunas versiones también sustituyen la app de la billetera por una falsa que pide la frase de recuperación.";
 "Use a hardware wallet for funds you can't afford to lose, and never type a recovery phrase into an app on this Mac." = "Usa una billetera de hardware para los fondos que no puedes permitirte perder, y nunca escribas una frase de recuperación en una app de tu Mac.";
@@ -405,10 +409,15 @@
 "Give this wallet a long password used nowhere else, and make sure its recovery phrase isn't stored on this Mac." = "Ponle a esta billetera una contraseña larga que no uses en ningún otro lugar, y asegúrate de que su frase de recuperación no esté guardada en tu Mac.";
 "Install and update the wallet app only from its official site or the App Store. If it ever asks for your recovery phrase unexpectedly, stop and find out why." = "Instala y actualiza la app de la billetera solo desde su sitio oficial o el App Store. Si te pide la frase de recuperación sin motivo aparente, detente y averigua por qué.";
 "If you no longer use this wallet, move any funds out, then delete the app and this data." = "Si ya no usas esta billetera, retira los fondos que tenga y después elimina la app y estos datos.";
+"The app for a hardware wallet keeps its settings and account details here. The keys stay on the device. Loose Keys found the data but didn't open it." = "La app de una billetera de hardware guarda aquí su configuración y los datos de las cuentas. Las claves se quedan en el dispositivo. Loose Keys encontró los datos, pero no los abrió.";
+"Some password-stealing malware replaces this app with a fake that asks for the recovery phrase." = "Algunos tipos de malware que roban contraseñas sustituyen esta app por una falsa que pide la frase de recuperación.";
+"Never type your recovery phrase into this app. If you restore a wallet, enter the words on the device." = "Nunca escribas tu frase de recuperación en esta app. Si restauras una billetera, introduce las palabras en el dispositivo.";
+"Install and update the app only from the maker's official site." = "Instala y actualiza la app solo desde el sitio oficial del fabricante.";
+"If you no longer use this app, delete it and this data. Your funds don't depend on them." = "Si ya no usas esta app, elimínala junto con estos datos. Tus fondos no dependen de ellos.";
 
 /* rule app.telegram.session */
 "Telegram session stored on this Mac" = "Sesión de Telegram guardada en tu Mac";
-"Telegram Desktop keeps its signed-in session in this folder. Loose Keys found the folder but didn't open it." = "Telegram Desktop guarda su sesión iniciada en esta carpeta. Loose Keys encontró la carpeta, pero no la abrió.";
+"Telegram Desktop keeps its signed-in session in the folder that holds this file. Loose Keys found the file but didn't open it." = "Telegram Desktop guarda su sesión iniciada en la carpeta que contiene este archivo. Loose Keys encontró el archivo, pero no lo abrió.";
 "Someone with a copy of this folder may be able to use your account without signing in. Loose Keys didn't check whether a local passcode protects it." = "Alguien con una copia de esta carpeta podría usar tu cuenta sin iniciar sesión. Loose Keys no comprobó si la protege un código local.";
 "Set a local passcode in Telegram, and check which devices are signed in." = "Configura un código de bloqueo local en Telegram y revisa qué dispositivos tienen la sesión iniciada.";
 "In Telegram, open Settings > Privacy and Security > Local Passcode and set one. The stored session is then encrypted with it." = "En Telegram, abre Ajustes > Privacidad y seguridad > Código de bloqueo y crea uno. La sesión guardada queda entonces cifrada con él.";

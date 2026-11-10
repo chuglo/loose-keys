@@ -179,11 +179,6 @@ pub fn is_sqlite(file: &[u8]) -> bool {
     file.starts_with(b"SQLite format 3\0")
 }
 
-/// Count only rows reachable through the live schema and table b-trees.
-pub(super) fn sqlite_table_rows(db: &[u8], table: &[u8]) -> Option<Rows> {
-    super::sqlite::table_rows(db, table)
-}
-
 pub const CHROMIUM_CARDS: Rule = Rule {
     id: "browser.chromium.saved-cards",
     title: "Payment cards saved in a browser",
@@ -213,7 +208,7 @@ const NO_CARDS: [u8; 1024] = sqlite_sample_of(b"credit_cards", 0);
 
 fn card_hits(bytes: &[u8]) -> Hits {
     Ok(
-        match sqlite_table_rows(bytes, b"credit_cards").ok_or("unreadable")? {
+        match super::sqlite::table_rows(bytes, b"credit_cards").ok_or("unreadable")? {
             Rows::Exactly(0) => vec![],
             Rows::Exactly(1) => vec![Hit::file().noting("1 saved card")],
             Rows::Exactly(n) => vec![Hit::file().noting(&format!("{n} saved cards"))],
@@ -270,14 +265,14 @@ mod tests {
         let mut db = sqlite_fixture::table("credentials", 1);
         let fake = b"tableloginslogins\x02CREATE TABLE logins (";
         db[200..200 + fake.len()].copy_from_slice(fake);
-        assert_eq!(sqlite_table_rows(&db, b"logins"), None);
+        assert_eq!(sqlite::table_rows(&db, b"logins"), None);
     }
 
     #[test]
     fn truncated_database_is_not_an_empty_table() {
         let mut db = sqlite_fixture::table("logins", 0);
         db.truncate(520);
-        assert_eq!(sqlite_table_rows(&db, b"logins"), None);
+        assert_eq!(sqlite::table_rows(&db, b"logins"), None);
     }
 
     /// Each time someone answers "Never" when Chrome offers to save a
@@ -325,7 +320,7 @@ mod tests {
              WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100) \
              INSERT INTO logins SELECT printf('%080d', x) FROM n;",
         );
-        assert_eq!(sqlite_table_rows(&db, b"logins"), Some(Rows::Many));
+        assert_eq!(sqlite::table_rows(&db, b"logins"), Some(Rows::Many));
     }
 
     #[test]
@@ -339,7 +334,7 @@ mod tests {
                 "CREATE TABLE logins(value TEXT); INSERT INTO logins VALUES ('synthetic');",
             );
             let db = sqlite_fixture::database(&sql);
-            assert_eq!(sqlite_table_rows(&db, b"logins"), Some(Rows::Exactly(1)));
+            assert_eq!(sqlite::table_rows(&db, b"logins"), Some(Rows::Exactly(1)));
         }
     }
 
@@ -349,7 +344,7 @@ mod tests {
         for (offset, value) in [(520, 0), (521, 0), (516, 255), (517, 255), (518, 255)] {
             let mut db = original.clone();
             db[offset] = value;
-            assert_eq!(sqlite_table_rows(&db, b"logins"), None, "offset {offset}");
+            assert_eq!(sqlite::table_rows(&db, b"logins"), None, "offset {offset}");
         }
         let mut db = sqlite_fixture::database(
             "PRAGMA page_size=512; CREATE TABLE logins(value TEXT); \
@@ -358,7 +353,7 @@ mod tests {
         );
         // Root's rightmost child points back to itself.
         db[520..524].copy_from_slice(&2u32.to_be_bytes());
-        assert_eq!(sqlite_table_rows(&db, b"logins"), None);
+        assert_eq!(sqlite::table_rows(&db, b"logins"), None);
     }
 
     #[test]
@@ -368,30 +363,30 @@ mod tests {
             "CREATE TABLE logins(value TEXT PRIMARY KEY) WITHOUT ROWID;",
             "PRAGMA page_size=512; CREATE TABLE logins(value TEXT); INSERT INTO logins VALUES(zeroblob(2000));",
         ] {
-            assert_eq!(sqlite_table_rows(&sqlite_fixture::database(sql), b"logins"), None);
+            assert_eq!(sqlite::table_rows(&sqlite_fixture::database(sql), b"logins"), None);
         }
     }
 
     #[test]
     fn row_counts_require_valid_live_cells() {
         assert_eq!(
-            sqlite_table_rows(&sqlite_sample(0), b"logins"),
+            sqlite::table_rows(&sqlite_sample(0), b"logins"),
             Some(Rows::Exactly(0))
         );
         assert_eq!(
-            sqlite_table_rows(&sqlite_sample(7), b"logins"),
+            sqlite::table_rows(&sqlite_sample(7), b"logins"),
             Some(Rows::Exactly(7))
         );
         let mut interior = sqlite_sample(0);
         interior[512] = 0x05;
         // A changed page tag alone does not make a valid interior tree.
-        assert_eq!(sqlite_table_rows(&interior, b"logins"), None);
+        assert_eq!(sqlite::table_rows(&interior, b"logins"), None);
         // Not a database, no such table, or a root page past the end.
-        assert_eq!(sqlite_table_rows(b"plain text", b"logins"), None);
-        assert_eq!(sqlite_table_rows(&sqlite_sample(1), b"cookies"), None);
+        assert_eq!(sqlite::table_rows(b"plain text", b"logins"), None);
+        assert_eq!(sqlite::table_rows(&sqlite_sample(1), b"cookies"), None);
         let mut truncated = sqlite_sample(1).to_vec();
         truncated.truncate(400);
-        assert_eq!(sqlite_table_rows(&truncated, b"logins"), None);
+        assert_eq!(sqlite::table_rows(&truncated, b"logins"), None);
     }
 
     #[test]

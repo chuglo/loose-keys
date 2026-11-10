@@ -835,6 +835,8 @@ fn repository_configs_are_read_for_url_credentials_and_nothing_else_in_git_is() 
         [
             ("dev.url.inline-password", "~/work/project/.git/config", 4),
             ("secret.service-token", "~/work/project/.git/config", 6),
+            // A token alone in a URL is a credential written into it too.
+            ("dev.url.inline-password", "~/work/project/.git/config", 6),
         ]
     );
     assert_eq!(r["status"], "complete");

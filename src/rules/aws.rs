@@ -32,6 +32,8 @@ pub const AWS_KEYS: Rule = Rule {
         (b"[default]\naws_secret_access_key = synthetic\naws_session_token = synthetic\n", true),
         (b"[default]\nregion = us-east-1\n", false),
         (b"[fixture]\naws_secret_access_key = #comment-only\n", false),
+        // botocore reads the file raw: "$" and "!" are the key's own.
+        (b"[default]\naws_secret_access_key = !Synth$tic-0nly\n", true),
     ],
 };
 
@@ -71,7 +73,8 @@ pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
             let profile = name.strip_prefix("profile ").map_or(name, str::trim);
             sections.push((i + 1, profile, false, false));
         } else if let (Some(section), Some((k, v))) = (sections.last_mut(), l.split_once('=')) {
-            if scalar_literal(v).is_some() {
+            // botocore reads the file raw: "$" and "!" are part of a value.
+            if scalar_literal_by(v, raw_literal).is_some() {
                 match k.trim().to_ascii_lowercase().as_str() {
                     "aws_secret_access_key" => section.2 = true,
                     // The older name, which botocore also reads (unverified).

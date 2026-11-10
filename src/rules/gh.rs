@@ -27,6 +27,9 @@ pub const GH_TOKEN: Rule = Rule {
         (b"github.com:\n    oauth_token: synthetic\n", true),
         (b"github.com:\n    oauth_token: ${GH_TOKEN}\n", false),
         (b"example.invalid:\n  oauth_token: #comment-only\n", false),
+        // YAML expands no "$", but an unquoted "&" opens an anchor.
+        (b"github.com:\n    oauth_token: Synth$tic-0nly\n", true),
+        (b"github.com:\n    oauth_token: &synthetic-anchor\n", false),
     ],
     ..GIT_CREDENTIALS
 };
@@ -55,7 +58,7 @@ fn gh_token_lines(text: &str) -> Vec<Hit> {
             && parents.iter().all(|(_, _, mapping)| *mapping)
             && (parents.len() == 1 || (parents.len() == 3 && parents[1].1 == "users"));
         if key == "oauth_token" && supported_parent {
-            if let Some(token) = scalar_literal(value) {
+            if let Some(token) = scalar_literal_by(value, unexpanded_literal) {
                 out.push(Hit::line(i + 1).about(parents[0].1).at(text, token));
             }
         }

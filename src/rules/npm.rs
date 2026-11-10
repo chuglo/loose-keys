@@ -1,4 +1,4 @@
-//! Inline tokens and passwords in npm's user config.
+//! Inline tokens and passwords in npm, Yarn and pnpm configs.
 
 use super::git::GIT_CREDENTIALS;
 use super::*;
@@ -7,14 +7,14 @@ pub const NPM_CREDENTIALS: Rule = Rule {
     id: "dev.npm.inline-credentials",
     title: "Possible npm token stored in a config file",
     severity: "high",
-    explanation: "A token or password is stored in npm's user config. Loose Keys didn't check whether it still works or what it can access.",
+    explanation: "A token or password is stored in this npm, Yarn or pnpm config file. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("Malware that spreads through packages often looks for npm tokens, because they can publish packages."),
     next_step: Some("Revoke this token and replace it with a narrower one. Removing the line doesn't revoke it."),
     advice: Advice {
         steps: &[
             "List your tokens with 'npm token list', then revoke this one: npm token revoke <id>",
             "If you still publish from this Mac, create a granular access token limited to the packages you need, with an expiry date.",
-            "npm can't use the Keychain. To keep the value out of this file, supply NPM_TOKEN from a password manager when you publish, and write this line in its place: //registry.npmjs.org/:_authToken=${NPM_TOKEN}",
+            "To keep the value out of this file, write ${NPM_TOKEN} in place of the value, and supply NPM_TOKEN from a password manager when you publish. pnpm ignores ${NPM_TOKEN} in a project's .npmrc.",
             "If you only install public packages, delete the line: no token is needed.",
         ],
         link: Some("https://docs.npmjs.com/revoking-access-tokens"),
@@ -38,6 +38,11 @@ pub const NPM_CREDENTIALS: Rule = Rule {
         (b"//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n", false),
         (b"npmScopes:\n  fixture:\n    npmAuthToken: synthetic\n", true),
         (b"npmAuthToken: \"${NPM_TOKEN}\"\n", false),
+        // npm and Yarn expand only "${...}"; .npmrc takes a leading "!" as
+        // text, and Yarn's YAML as a tag.
+        (b"//registry.npmjs.org/:_authToken=!Synth$tic-0nly\n", true),
+        (b"npmAuthToken: Synth$tic-0nly\n", true),
+        (b"npmAuthToken: !synthetic-tag\n", false),
         // A comment is not a value.
         (b"_authToken=#comment-only\n_password=;comment-only\n_auth= # comment\n", false),
     ],
@@ -59,7 +64,8 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
             // Yarn: "npmAuthToken: value" at any depth.
             if let Some((key, value)) = line.split_once(':') {
                 if matches!(key.trim(), "npmAuthToken" | "npmAuthIdent") {
-                    return scalar_literal(value).map(|value| Hit::line(i + 1).at(text, value));
+                    return scalar_literal_by(value, unexpanded_literal)
+                        .map(|value| Hit::line(i + 1).at(text, value));
                 }
             }
             let (key, value) = line.split_once('=')?;
@@ -75,7 +81,8 @@ fn npm_credential_lines(text: &str) -> Vec<Hit> {
             let registry = key
                 .rsplit_once(':')
                 .map_or("", |(r, _)| r.trim_matches('/'));
-            scalar_literal(value).map(|value| {
+            // npm expands only "${...}", which `raw_literal` passes over.
+            scalar_literal_by(value, raw_literal).map(|value| {
                 Hit::line(i + 1)
                     .about(url_host(registry))
                     .scoped(text, key)

@@ -8,15 +8,15 @@ pub const MCP_SECRET: Rule = Rule {
     category: "developer-cloud",
     kind: "review",
     severity: "high",
-    title: "Secret written into an MCP server config",
-    explanation: "An MCP server entry in this file has a key, token or password written out in full. Loose Keys didn't check whether it still works or what it can access.",
+    title: "Secret written into an AI tool's config",
+    explanation: "A key, token or password is written out in full in this AI tool's config, for an MCP server, a model or the tool itself. Loose Keys didn't check whether it still works or what it can access.",
     reason: Some("Any program that can read this file can copy the credential."),
     next_step: Some("Revoke the key at its service and stop storing it in the config. Removing the entry doesn't revoke it."),
     advice: Advice {
         steps: &[
-            "Revoke or replace the key at the service this MCP server connects to.",
-            "If the server supports sign-in (OAuth), use that instead of a key: remove the key and let the tool prompt you.",
-            "If it doesn't, keep the key out of the config. Start the server through a wrapper that reads the key from the Keychain, for example: security find-generic-password -s <name> -w",
+            "Revoke or replace the key at the service it's for.",
+            "If the service supports sign-in (OAuth), use that instead of a key: remove the key and let the tool prompt you.",
+            "If it doesn't, keep the key out of the config. Start the tool or server through a wrapper that reads the key from the Keychain, for example: security find-generic-password -s <name> -w",
             "Remove the value from this file, and check that the file was never committed or synced.",
         ],
         link: None,
@@ -70,6 +70,11 @@ pub const MCP_SECRET: Rule = Rule {
         // A key that is public by design, and where a key file is.
         (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"STRIPE_PUBLISHABLE_KEY": "synthetic-only-value", "SSH_KEY": "/Users/fixture/.ssh/id_ed25519"}}}}"#, false),
         (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"SSH_KEY": "/app/.ssh/id_rsa", "TLS_KEY": "certs/server.key"}}}}"#, false),
+        // JSON expands nothing, so these are the values' own characters. A
+        // value that is only "$NAME" was meant as a variable.
+        (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"FIXTURE_API_KEY": "Synth$tic-0nly-value"}}}}"#, true),
+        (br#"{"models": [{"title": "fixture", "apiKey": "!Synth`tic-0nly-value"}]}"#, true),
+        (br#"{"mcpServers": {"fixture": {"command": "npx", "env": {"FIXTURE_API_KEY": "$FIXTURE_API_KEY"}}}}"#, false),
     ],
 };
 
@@ -77,14 +82,17 @@ fn mcp_hits(bytes: &[u8]) -> Hits {
     let v = settings(bytes).ok_or("unreadable")?;
     let mut found = Vec::new();
     secrets(&v, 0, true, &mut found);
-    let mut names: Vec<&str> = found.iter().map(|secret| secret.0).collect();
-    names.sort();
-    names.dedup();
+    let mut shown: Vec<(bool, &str)> = found.iter().map(Secret::shown).collect();
+    shown.sort();
+    shown.dedup();
     // One past the cap, as `capped_hits` looks for it.
-    let mut hits: Vec<Hit> = names
+    let mut hits: Vec<Hit> = shown
         .iter()
         .take(101)
-        .map(|name| Hit::file().about(&format!("server {name}")))
+        .map(|&(server, name)| match server {
+            true => Hit::file().about(&format!("server {name}")),
+            false => Hit::file().about(name),
+        })
         .collect();
     // A holder's one value, where the file has it as written, is what the
     // service-token rule finds there. A holder with several values, or shown
@@ -93,8 +101,8 @@ fn mcp_hits(bytes: &[u8]) -> Hits {
     for n in 0..hits.len() {
         let mut values = found
             .iter()
-            .filter(|secret| secret.0 == names[n])
-            .map(|secret| secret.2);
+            .filter(|secret| secret.shown() == shown[n])
+            .map(|secret| secret.value);
         let value = values.next().filter(|first| values.all(|v| v == *first));
         let alone = hits.iter().filter(|h| h.subject == hits[n].subject).count() == 1;
         if let (Some(text), Some(value), true) = (text, value, alone) {
@@ -111,6 +119,10 @@ pub(super) fn mcp_material(bytes: &[u8]) -> Option<Vec<u8>> {
     let v = settings(bytes)?;
     let mut found = Vec::new();
     secrets(&v, 0, false, &mut found);
+    let mut found: Vec<_> = found
+        .iter()
+        .map(|secret| (secret.holder, secret.field, secret.value))
+        .collect();
     found.sort();
     found.dedup();
     serde_json::to_vec(&found).ok()
@@ -173,6 +185,26 @@ fn without_comments(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+/// A literal secret: what holds it, the field it is in, and the value. The
+/// holder is a server's name, or "settings" for the file's own settings and
+/// "apiKey" for a model's key, which no server holds.
+struct Secret<'a> {
+    holder: &'a str,
+    server: bool,
+    field: &'a str,
+    value: &'a str,
+}
+
+impl Secret<'_> {
+    /// What the finding is about: its server, or else the field holding it.
+    fn shown(&self) -> (bool, &str) {
+        match self.server {
+            true => (true, self.holder),
+            false => (false, self.field),
+        }
+    }
+}
+
 /// Each literal secret, as what holds it (a server, or the file's own
 /// settings), the field it is in, and the value. Server maps sit at the top
 /// level or under per-project settings. For identity, only authorization
@@ -181,19 +213,25 @@ fn secrets<'a>(
     v: &'a serde_json::Value,
     depth: usize,
     for_identity: bool,
-    out: &mut Vec<(&'a str, &'a str, &'a str)>,
+    out: &mut Vec<Secret<'a>>,
 ) {
     let Some(object) = v.as_object().filter(|_| depth < 6) else {
         return;
     };
     // A settings file's own environment block and model keys count as well.
     if depth == 0 {
-        server_secrets("settings", v, for_identity, out);
+        server_secrets(("settings", false), v, for_identity, out);
     }
     for (key, value) in object {
         if let Some(s) = value.as_str().filter(|_| key == "apiKey") {
-            if s.len() >= 12 && !reference(s) && inline_literal(s) && plausible(s) {
-                out.push(("apiKey", "apiKey", s));
+            let literal = unexpanded_literal(s, Some('"'));
+            if s.len() >= 12 && !reference(s) && literal && plausible(s) {
+                out.push(Secret {
+                    holder: "apiKey",
+                    server: false,
+                    field: "apiKey",
+                    value: s,
+                });
             }
         }
         if let Some(list) = value.as_array() {
@@ -209,7 +247,7 @@ fn secrets<'a>(
                 ) =>
             {
                 for (name, server) in servers {
-                    server_secrets(name, server, for_identity, out);
+                    server_secrets((name, true), server, for_identity, out);
                 }
             }
             _ => secrets(value, depth + 1, for_identity, out),
@@ -217,12 +255,14 @@ fn secrets<'a>(
     }
 }
 
-/// The literal secrets in one server's environment, headers and arguments.
+/// The literal secrets in one server's environment, headers and arguments,
+/// or in those of the file's own settings: the holder's name, and whether
+/// it is a server.
 fn server_secrets<'a>(
-    holder: &'a str,
+    (holder, is_server): (&'a str, bool),
     server: &'a serde_json::Value,
     for_identity: bool,
-    out: &mut Vec<(&'a str, &'a str, &'a str)>,
+    out: &mut Vec<Secret<'a>>,
 ) {
     // Zed once kept the command, its arguments and its environment together
     // in one object, and files it has not opened since still do.
@@ -243,7 +283,12 @@ fn server_secrets<'a>(
                     } else {
                         s
                     };
-                    out.push((holder, name, value));
+                    out.push(Secret {
+                        holder,
+                        server: is_server,
+                        field: name,
+                        value,
+                    });
                 }
             }
         }
@@ -251,7 +296,12 @@ fn server_secrets<'a>(
         for field in ["args", "command"] {
             for argument in part[field].as_array().into_iter().flatten() {
                 if let Some(s) = argument.as_str().filter(|s| secret("", s)) {
-                    out.push((holder, field, s));
+                    out.push(Secret {
+                        holder,
+                        server: is_server,
+                        field,
+                        value: s,
+                    });
                 }
             }
         }
@@ -274,7 +324,7 @@ fn secret(name: &str, s: &str) -> bool {
             && literal.len() >= 12
             && !reference(literal)
             && !path_value(literal)
-            && inline_literal(literal)
+            && unexpanded_literal(literal, Some('"'))
             && plausible(literal))
 }
 
@@ -285,9 +335,14 @@ fn after_scheme(s: &str) -> &str {
         .map_or(s, |(_, value)| value)
 }
 
-/// opencode's way of naming a variable or a file to read the value from.
+/// opencode's way of naming a variable or a file to read the value from, or
+/// a value that is only "$NAME". These files expand neither, but whoever
+/// wrote "$NAME" meant a variable, not a secret.
 fn reference(s: &str) -> bool {
-    s.starts_with("{env:") || s.starts_with("{file:")
+    let variable = s.strip_prefix('$').is_some_and(|name| {
+        !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    });
+    variable || s.starts_with("{env:") || s.starts_with("{file:")
 }
 
 /// Continue's current config is YAML; config.json above is its older form.
@@ -304,6 +359,14 @@ pub const CONTINUE_YAML: Rule = Rule {
         ),
         (
             b"models:\n  - name: fixture\n    apiKey: ${{ secrets.FIXTURE_KEY }}\n",
+            false,
+        ),
+        (
+            b"models:\n  - name: fixture\n    apiKey: Synth$tic-0nly-value\n",
+            true,
+        ),
+        (
+            b"models:\n  - name: fixture\n    apiKey: &synthetic-only-value\n",
             false,
         ),
     ],
@@ -324,6 +387,7 @@ pub const CODEX_MCP: Rule = Rule {
         (b"[mcp_servers.fixture.http_headers]\n\"X-Api-Key\" = \"synthetic-only-value\"\n", true),
         (b"[mcp_servers.fixture]\nbearer_token_env_var = \"FIXTURE_TOKEN\"\nenv_http_headers = { \"X-Api-Key\" = \"FIXTURE_API_KEY\" }\n", false),
         (b"[mcp_servers.fixture]\nhttp_headers = { \"Authorization\" = \"Bearer ${FIXTURE_TOKEN}\" }\n", false),
+        (b"[mcp_servers.fixture.http_headers]\n\"X-Api-Key\" = \"Synth$tic-0nly-value\"\n", true),
     ],
     ..MCP_SECRET
 };
@@ -412,7 +476,7 @@ pub const AI_TOOL_LOGIN: Rule = Rule {
     advice: Advice {
         steps: &[
             "For a tool you still use, leave this in place.",
-            "For a tool you no longer use, sign out in the tool (for example 'codex logout' or 'gh auth logout'), then delete this file.",
+            "For a tool you no longer use, sign out in the tool (for example 'codex logout'), then delete this file.",
             "If the file holds an API key, revoke that key at the provider when you stop using the tool.",
             "If the file may have been copied, revoke the tool's access at the provider as well. Signing out removes this copy but doesn't always revoke the token.",
         ],
@@ -438,6 +502,7 @@ pub const AI_TOOL_LOGIN: Rule = Rule {
     samples: &[
         (br#"{"tokens": {"refresh_token": "synthetic-only-value"}}"#, true),
         (br#"{"OPENAI_API_KEY": null, "tokens": {}}"#, false),
+        (br#"{"tokens": {"refresh_token": "Synth$tic-only-value"}}"#, true),
     ],
 };
 
@@ -467,6 +532,7 @@ pub const OAUTH_TOKENS: Rule = Rule {
         (br#"{"access_token":"synthetic-only-value-1234","token_type":"Bearer","refresh_token":"synthetic-only-value-5678"}"#, true),
         (br##"{"color":{"primary":{"value":"#0055ff"}}}"##, false),
         (br#"{"access_token":"","token_type":"Bearer"}"#, false),
+        (br#"{"access_token":"Synth$tic-only-value-1234","token_type":"Bearer"}"#, true),
         (b"not json", false),
     ],
     ..AI_TOOL_LOGIN
@@ -481,7 +547,7 @@ fn oauth_token_hits(bytes: &[u8]) -> Hits {
     let stored = |key: &str| {
         v[key]
             .as_str()
-            .is_some_and(|s| s.len() >= 16 && inline_literal(s) && plausible(s))
+            .is_some_and(|s| s.len() >= 16 && unexpanded_literal(s, Some('"')) && plausible(s))
     };
     Ok(
         (v["token_type"].is_string() && (stored("access_token") || stored("refresh_token")))
@@ -534,6 +600,33 @@ mod tests {
         let hits = mcp_hits(config.to_string().as_bytes()).unwrap();
         let names: Vec<_> = hits.iter().map(|h| h.subject.as_deref().unwrap()).collect();
         assert_eq!(names, ["server db", "server search"]);
+    }
+
+    /// A value of the file's own settings or a model's key is named by the
+    /// field that holds it, not as a server, even beside a server named
+    /// "settings".
+    #[test]
+    fn a_secret_outside_a_server_is_named_by_its_field() {
+        let config = serde_json::json!({
+            "env": {"FIXTURE_API_KEY": "synthetic-first-value",
+                    "OTHER_TOKEN": "synthetic-second-value"},
+            "models": [{"title": "fixture", "apiKey": "synthetic-third-value"}],
+            "mcpServers": {"settings": {"env": {"FIXTURE_TOKEN": "synthetic-fourth-value"}}},
+        })
+        .to_string();
+        let hits = mcp_hits(config.as_bytes()).unwrap();
+        let subjects: Vec<_> = hits.iter().map(|h| h.subject.as_deref()).collect();
+        assert_eq!(
+            subjects,
+            [
+                Some("FIXTURE_API_KEY"),
+                Some("OTHER_TOKEN"),
+                Some("apiKey"),
+                Some("server settings")
+            ]
+        );
+        // Each has its one value as its place.
+        assert!(hits.iter().all(|h| h.span.is_some()));
     }
 
     /// A holder's one value is where the file has it, as the service-token

@@ -220,6 +220,7 @@ impl<'a> Database<'a> {
     }
 }
 
+/// Count only rows reachable through the live schema and table b-trees.
 pub(super) fn table_rows(bytes: &[u8], name: &[u8]) -> Option<Rows> {
     rows_except(bytes, name, None)
 }

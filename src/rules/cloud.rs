@@ -90,6 +90,10 @@ pub const KUBE_CREDENTIALS: Rule = Rule {
         // What "kubectl config view" prints in place of the values.
         (b"users:\n- name: fixture\n  user:\n    client-key-data: DATA+OMITTED\n    token: REDACTED\n", false),
         (b"users:\n- name: fixture\n  user:\n    token: your-token-here\n", false),
+        // YAML expands no "$", but an unquoted "&" or "!" opens an anchor or a tag.
+        (b"users:\n- name: fixture\n  user:\n    password: Synth$tic-0nly-value\n", true),
+        (b"users:\n- name: fixture\n  user:\n    password: '!synthetic-only-value'\n", true),
+        (b"users:\n- name: fixture\n  user:\n    password: &synthetic-only-value\n", false),
     ],
 };
 
@@ -99,7 +103,7 @@ fn kube_hits(bytes: &[u8]) -> Hits {
             .enumerate()
             .filter_map(|(i, raw)| {
                 let (key, value) = raw.trim().trim_start_matches("- ").split_once(':')?;
-                let (key, value) = (key.trim(), scalar_literal(value)?);
+                let (key, value) = (key.trim(), scalar_literal_by(value, unexpanded_literal)?);
                 // What "kubectl config view" prints in place of a value, and
                 // the token of a sample file.
                 // A signed token (three parts with dots between) is one
@@ -190,7 +194,7 @@ const GCLOUD_ONE: [u8; 1024] = browser::sqlite_sample_of(GCLOUD_SCHEMA, 1);
 const GCLOUD_NONE: [u8; 1024] = browser::sqlite_sample_of(GCLOUD_SCHEMA, 0);
 
 fn gcloud_store_hits(bytes: &[u8]) -> Hits {
-    let rows = browser::sqlite_table_rows(bytes, b"credentials").ok_or("unreadable")?;
+    let rows = sqlite::table_rows(bytes, b"credentials").ok_or("unreadable")?;
     Ok((rows != browser::Rows::Exactly(0))
         .then(Hit::file)
         .into_iter()
@@ -229,6 +233,9 @@ fn azure_hits(bytes: &[u8]) -> Hits {
 /// entry per sign-in. A user's entry holds its refresh and access tokens.
 pub const AZURE_LEGACY_LOGIN: Rule = Rule {
     explanation: "Older versions of the Azure CLI kept sign-in tokens in this file as plain text. Loose Keys didn't check whether the tokens still work or what they can access.",
+    // Not the current file's: the report shows one rule's findings with
+    // the same reason as one entry, in the first one's words.
+    reason: Some("Refresh tokens in this file may work from another computer until they expire or are revoked. Current versions of the Azure CLI don't remove the file when you sign out."),
     next_step: Some("Delete this file, which current versions of the Azure CLI don't use."),
     advice: Advice {
         steps: &[
@@ -253,11 +260,11 @@ pub const AZURE_LEGACY_LOGIN: Rule = Rule {
 /// Whether accessTokens.json holds a service principal's secret when
 /// `principals`, or a user's sign-in tokens otherwise.
 pub(super) fn azure_legacy_hits(bytes: &[u8], principals: bool) -> Hits {
-    if principals {
-        json_hits(bytes, |v| azure_legacy_entries(v, true))
-    } else {
-        json_hits(bytes, |v| azure_legacy_entries(v, false))
-    }
+    let v: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| "unreadable")?;
+    Ok(azure_legacy_entries(&v, principals)
+        .then(Hit::file)
+        .into_iter()
+        .collect())
 }
 
 fn azure_legacy_entries(v: &serde_json::Value, principals: bool) -> bool {
@@ -328,14 +335,19 @@ pub const VAULT_TOKEN: Rule = Rule {
         candidate: any,
         test: vault_hits,
     },
-    samples: &[(b"hvs.synthetic-only-value\n", true), (b"\n", false)],
+    samples: &[
+        (b"hvs.synthetic-only-value\n", true),
+        // The CLI reads the file as it is.
+        (b"hvs.Synth$tic-0nly-value\n", true),
+        (b"\n", false),
+    ],
     ..KUBE_CREDENTIALS
 };
 
 fn vault_hits(bytes: &[u8]) -> Hits {
     utf8_lines(bytes, |text| {
         let token = text.trim();
-        inline_literal(token)
+        verbatim_literal(token)
             .then(|| Hit::file().at(text, token))
             .into_iter()
             .collect()
@@ -397,6 +409,8 @@ pub const TERRAFORM_STATE: Rule = Rule {
         // "result" is a secret for a generated password, not for a name suffix.
         (br#"{"version":4,"terraform_version":"1.9.0","resources":[{"mode":"managed","type":"random_password","name":"fixture","instances":[{"attributes":{"result":"synthetic-only-value"}}]}]}"#, true),
         (br#"{"version":4,"terraform_version":"1.9.0","resources":[{"mode":"managed","type":"random_string","name":"suffix","instances":[{"attributes":{"result":"k3v9x2qa","length":8}}]}]}"#, false),
+        // A map Terraform marked sensitive as a whole.
+        (br#"{"version":4,"terraform_version":"1.9.0","resources":[{"mode":"managed","type":"kubernetes_secret","name":"fixture","instances":[{"attributes":{"data":{"credentials":"synthetic-only-value"}},"sensitive_attributes":[[{"type":"get_attr","value":"data"}]]}]}]}"#, true),
         (br#"{"password":"synthetic-only-value"}"#, false),
         (b"", false),
     ],
@@ -564,31 +578,44 @@ fn resource_secrets<'a>(
     let mut secrets = Vec::new();
     *limited |= instances.clone().nth(1000).is_some();
     for instance in instances.take(1000) {
-        // What Terraform itself marked sensitive, then the usual names.
-        let marked = instance["sensitive_attributes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|path| path[0]["value"].as_str());
-        let usual = STATE_SECRETS.iter().copied().chain(generated);
-        // Counted by name: a helm_release marks one attribute at a path
-        // for each of its set_sensitive blocks.
+        let attributes = &instance["attributes"];
+        // What Terraform itself marked sensitive, by the attribute each path
+        // starts at. Counted by that name: a helm_release marks one attribute
+        // at a path for each of its set_sensitive blocks.
         let mut names: Vec<&str> = Vec::new();
-        for name in marked {
-            if names.contains(&name) {
+        // The maps and lists already examined, so that many paths marking
+        // one large map cost no more than one.
+        let mut examined = std::collections::HashSet::new();
+        let paths = instance["sensitive_attributes"].as_array().into_iter();
+        for path in paths.flatten() {
+            let Some(name) = path.get(0).and_then(|step| step["value"].as_str()) else {
                 continue;
+            };
+            if !names.contains(&name) {
+                if names.len() == 100 {
+                    *limited = true;
+                    break;
+                }
+                names.push(name);
             }
-            if names.len() == 100 {
-                *limited = true;
-                break;
-            }
-            names.push(name);
+            let Some(at) = marked_value(attributes, path) else {
+                continue;
+            };
+            let values: Vec<_> = match at {
+                serde_json::Value::Object(map) if examined.insert(std::ptr::from_ref(at)) => {
+                    map.values().collect()
+                }
+                serde_json::Value::Array(list) if examined.insert(std::ptr::from_ref(at)) => {
+                    list.iter().collect()
+                }
+                serde_json::Value::Object(_) | serde_json::Value::Array(_) => Vec::new(),
+                value => vec![value],
+            };
+            secrets.extend(values.into_iter().filter_map(stored).map(|v| (name, v)));
         }
-        names.extend(usual);
-        names.sort_unstable();
-        names.dedup();
-        for name in names {
-            if let Some(value) = stored(&instance["attributes"][name]) {
+        let usual = STATE_SECRETS.iter().copied().chain(generated);
+        for name in usual {
+            if let Some(value) = stored(&attributes[name]) {
                 secrets.push((name, value));
             }
         }
@@ -600,6 +627,27 @@ fn resource_secrets<'a>(
         secrets,
         low: matches!(kind, "aws_eks_cluster_auth" | "aws_ecr_authorization_token"),
     })
+}
+
+/// What a path Terraform marked sensitive leads to in the attributes: a
+/// value, or a map or list marked whole, as a kubernetes_secret's "data" is.
+/// Each step names an attribute ("get_attr", whose value is the name), or a
+/// list position or map key ("index", whose value says which).
+fn marked_value<'a>(
+    attributes: &'a serde_json::Value,
+    path: &serde_json::Value,
+) -> Option<&'a serde_json::Value> {
+    let mut at = attributes;
+    for step in path.as_array()? {
+        let key = &step["value"];
+        at = match (key, key["type"].as_str()) {
+            (serde_json::Value::String(name), _) => at.get(name.as_str())?,
+            (_, Some("number")) => at.get(usize::try_from(key["value"].as_u64()?).ok()?)?,
+            (_, Some("string")) => at.get(key["value"].as_str()?)?,
+            _ => return None,
+        };
+    }
+    Some(at)
 }
 
 #[cfg(test)]
@@ -650,7 +698,8 @@ mod tests {
             .to_string()
         };
         // A helm_release marks each of its set_sensitive blocks: many paths,
-        // one name, and nothing left unexamined.
+        // one name, and nothing left unexamined. Only the last block holds a
+        // value, inside the list, under no name a secret usually has.
         for count in [100, 101] {
             let paths = (0..count)
                 .map(|n| {
@@ -659,8 +708,9 @@ mod tests {
                            {"type": "get_attr", "value": "value"}])
                 })
                 .collect();
-            let attributes = json!({"password": "synthetic-only-value",
-                "set_sensitive": [{"name": "fixture", "value": "synthetic-only-value"}]});
+            let mut blocks = vec![json!({"name": "fixture", "value": ""}); count - 1];
+            blocks.push(json!({"name": "fixture", "value": "synthetic-only-value"}));
+            let attributes = json!({"set_sensitive": blocks});
             let hits = tfstate_hits(state(paths, attributes).as_bytes());
             assert_eq!(hits.map(|hits| hits.len()).ok(), Some(1), "{count}");
         }
@@ -681,5 +731,59 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A value Terraform marked sensitive is examined wherever the marked
+    /// path leads: a whole map, or one entry of it.
+    #[test]
+    fn marked_values_inside_maps_are_examined() {
+        let state = |paths: serde_json::Value, data: serde_json::Value| {
+            json!({"version": 4, "terraform_version": "1.9.0", "resources": [
+                {"mode": "managed", "type": "kubernetes_secret", "name": "fixture",
+                 "instances": [{"attributes": {"data": data, "type": "Opaque"},
+                                "sensitive_attributes": paths}]},
+            ]})
+            .to_string()
+        };
+        let data = |value: &str| json!({"username": "", "credentials": value});
+        let whole = json!([[{"type": "get_attr", "value": "data"}]]);
+        let entry = json!([[{"type": "get_attr", "value": "data"},
+                            {"type": "index", "value": {"value": "credentials", "type": "string"}}]]);
+        for paths in [whole, entry] {
+            let found = state(paths.clone(), data("synthetic-only-value"));
+            let hits = tfstate_hits(found.as_bytes()).unwrap();
+            let subjects: Vec<_> = hits.iter().map(|h| h.subject.as_deref()).collect();
+            assert_eq!(subjects, [Some("kubernetes_secret.fixture")]);
+            // What the app fingerprints follows the value.
+            let other = state(paths.clone(), data("synthetic-second-value"));
+            assert_ne!(
+                tfstate_material(found.as_bytes()),
+                tfstate_material(other.as_bytes())
+            );
+            assert!(tfstate_hits(state(paths, data("")).as_bytes())
+                .unwrap()
+                .is_empty());
+        }
+    }
+
+    /// Many marked paths that lead to one large map examine it once.
+    #[test]
+    fn a_map_marked_many_times_is_examined_once() {
+        let data: serde_json::Map<String, serde_json::Value> =
+            (0..20_000).map(|n| (format!("k{n}"), json!(""))).collect();
+        let paths = vec![json!([{"type": "get_attr", "value": "data"}]); 20_000];
+        let state = json!({"version": 4, "terraform_version": "1.9.0", "resources": [
+            {"mode": "managed", "type": "kubernetes_secret", "name": "fixture",
+             "instances": [{"attributes": {"data": data}, "sensitive_attributes": paths}]},
+        ]})
+        .to_string();
+        let started = std::time::Instant::now();
+        assert!(tfstate_hits(state.as_bytes()).unwrap().is_empty());
+        let took = started.elapsed();
+        assert!(
+            took < std::time::Duration::from_secs(10),
+            "checking {} bytes took {took:?}",
+            state.len()
+        );
     }
 }

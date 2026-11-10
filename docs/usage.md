@@ -390,9 +390,11 @@ helper refused.
 - AWS access keys in `~/.aws/credentials` and `~/.aws/config`;
 - HTTP(S) username/password URLs in `~/.git-credentials` and
   `~/.config/git/credentials`;
-- `user:password` pairs inside URLs, and tokens in a known issuer format
-  anywhere, in each repository's `.git/config` (nothing else in a `.git`
-  folder is read);
+- `user:password` pairs inside URLs, a token written alone where a URL's
+  user name goes (a known issuer format, or 32 or more letters and digits
+  with both in it, so never a name such as `git`), and tokens in a known
+  issuer format anywhere, in each repository's `.git/config` (nothing else
+  in a `.git` folder is read);
 - GitHub CLI `oauth_token` fields in `~/.config/gh/hosts.yml`;
 - npm auth, token and password fields in `~/.npmrc`;
 - service tokens in about 140 known issuer formats (AWS, GitHub, GitLab, OpenAI,

@@ -1147,9 +1147,11 @@ one place, with its condition or place first ("If the key may have been
 copied, …", "In HCP Terraform, …"). Use one verb per act: revoke at the
 issuer, delete the local file, sign out of a session; name a vendor's control
 by its label. A command that ends a step follows a colon with nothing after
-it; one inside a sentence goes in single quotes. Rules that share an id are
-one entry in the command's report, and a rule that copies another's fields
-copies its text, so that text must fit every file each covers. The
+it; one inside a sentence goes in single quotes. Rules that share an id and
+a reason are one entry in the command's report, in the first finding's
+words, so they share their text and it must fit every file each covers. A
+rule that shares an id but needs other words has its own reason
+(`rules_shown_as_one_entry_say_the_same_thing`). The
 [Apple Style Guide](https://support.apple.com/guide/applestyleguide/welcome/web)
 and [Google's guide to procedures](https://developers.google.com/style/procedures)
 have the general rules.
@@ -1292,7 +1294,8 @@ names the token fields, and [SaveToWriter](https://github.com/docker/cli/blob/fb
 preserves them while encoding username/password auth. This is source-level
 format evidence, not a live Docker login check. Tokens are not decoded or
 validated. Empty values, nonstrings, whitespace and reference/masking forms
-are skipped; JSON token values otherwise retain literal shell characters.
+are skipped; JSON expands nothing, so any value otherwise keeps its "$"
+and backticks.
 
 The rule emits one finding per file, with no registry subject or value. It
 runs no helpers and reads the config without following links, up to 1 MiB.
