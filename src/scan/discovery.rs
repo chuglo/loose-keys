@@ -3,7 +3,8 @@
 //! `traversal` keeps the walk's order and budget.
 
 use super::traversal::{Visit, Walk};
-use super::{Scan, ASKS, EXCLUDED, LAST};
+use super::{Scan, ASKS, EXCLUDED, LAST, MAX_FINDINGS, MAX_GAPS};
+use crate::fsutil::FOLDER_ENTRIES;
 use crate::rules::{Target, RULES};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -63,14 +64,7 @@ impl Scan {
         tops.sort_unstable();
         tops.dedup();
         for top in tops {
-            let path = self.rel(&top);
-            if !self
-                .not_checked
-                .iter()
-                .any(|g| g.reason == "scan-limit" && g.path == path)
-            {
-                self.gap(&top, "scan-limit");
-            }
+            self.gap(&top, "scan-limit");
         }
         self.traversal.defer(unreached);
     }
@@ -101,7 +95,7 @@ impl Scan {
         if let Some(g) = entries.gap {
             self.gap(dir, g);
             // The budget ran out, not the fixed 10,000-entry limit per folder.
-            interrupted = g == "scan-limit" && entries.entries.len() < 10_000;
+            interrupted = g == "scan-limit" && entries.entries.len() < FOLDER_ENTRIES;
         }
         let open = entries.handle.map(|handle| (dir.to_path_buf(), handle));
         let outer = std::mem::replace(&mut self.folder, open);
@@ -110,7 +104,7 @@ impl Scan {
         let ordered = !interrupted;
         // A sweep lists it again from its start in its next slice, which
         // passes all its subfolders on then. Passed on here as well, those
-        // listed now were walked twice, with all they hold.
+        // listed now would be walked twice, with all they hold.
         let pass_on = ordered || !self.traversal.resumable();
         let mut reached = after.clone();
         let mut subfolders = Vec::new();
@@ -153,8 +147,8 @@ impl Scan {
                 // that gap, and then nothing would say what was dropped.
                 let cancelled = self.cancel.as_ref();
                 let cancelled = cancelled.is_some_and(|c| c.load(Ordering::SeqCst));
-                let unsaid = self.not_checked.len() >= 4096;
-                let alone = if self.findings.len() >= 4096 {
+                let unsaid = self.not_checked.len() >= MAX_GAPS;
+                let alone = if self.findings.len() >= MAX_FINDINGS {
                     held == 0
                 } else {
                     self.started.elapsed() >= self.limit && began < self.limit / 2

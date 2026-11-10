@@ -559,8 +559,8 @@ and accepts a path it cannot look up, such as a folder that is not there or
 one inside a folder you cannot open. A folder given in another case, such as
 `~/documents` for `~/Documents`, is taken as the disk spells it, for
 `--select` too. Leaving a folder out does not make the scan partial, and a
-folder selected inside it, or selected as well, is left out with it: the JSON
-report still lists it in `roots`, and the text summary leaves it out. A scan
+folder selected inside it, or selected as well, is left out with it, and
+neither report lists it among the folders scanned. A scan
 still reads known sign-in files in a folder left out, such as
 `~/.aws/credentials`, and files directly in an AI tool's own folder. Where
 your home folder is reached through a link, a path through that link, as the

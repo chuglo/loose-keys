@@ -1,7 +1,6 @@
 //! Report format v1 (schema/report-1.schema.json) and the plain-text summary.
 
 use serde::Serialize;
-use std::path::Path;
 
 #[derive(Serialize, Default)]
 pub struct Finding {
@@ -106,8 +105,8 @@ pub fn to_device_counts_json(report: &Report, device_id: &str) -> String {
 
 fn counts_json(report: &Report, device_id: Option<&str>) -> String {
     use std::collections::BTreeMap;
-    /// One risk level's findings worth reviewing. Open is all of them for
-    /// now: this command keeps no record of what anyone has set aside.
+    /// One risk level's findings worth reviewing. Open is all of them: this
+    /// command keeps no record of what anyone has set aside.
     #[derive(Default, Serialize)]
     struct Level<'a> {
         open: usize,
@@ -412,15 +411,9 @@ pub fn to_text(r: &Report, limits: bool) -> String {
     push_gaps(&mut s, r);
     s.push('\n');
     let c = &r.coverage;
-    // A root in a folder left out on request is left out with it.
     let roots: Vec<String> = c
         .roots
         .iter()
-        .filter(|p| {
-            !c.excluded_by_user
-                .iter()
-                .any(|x| Path::new(p).starts_with(x))
-        })
         .map(|p| format!("\"{}\"", escape(p)))
         .collect();
     s.push_str(&format!("Scanned: {}\n", roots.join(", ")));

@@ -100,7 +100,7 @@ A counts file's `schema` is `loose-keys/feedback/1`, or
 `loose-keys/device-counts/1` with `--device-id`, which adds `device_id` and
 `generated_at`. It also gives `tool_version`, `platform`, `architecture`, the
 scan's `status` and `context`, `requested_roots` (how many folders the scan
-was asked to check, the home folder included), `excluded_by_user` (how many
+covered, the home folder included), `excluded_by_user` (how many
 folders were skipped, not which) and `not_checked_by_reason`. For each risk
 level, `review` counts the findings worth reviewing (`open` and
 `open_by_rule`), the ones `--fail-on-open` checks.

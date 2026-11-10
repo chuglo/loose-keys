@@ -1,11 +1,12 @@
 //! Checking one file again outside a scan, to learn whether a review item is
 //! still there.
 
-use super::read::{long_line_cut, settled};
+use super::read::{settled, take_piece, value_key, READ_PIECE};
 use super::{is_root, CONFIG_MAX, HEADER, STREAM_MAX};
-use crate::fsutil::{list_dir, open_regular, read_config, read_head, through_links};
+use crate::fsutil::{
+    list_dir, open_regular, read_config, read_head, through_links, FOLDER_ENTRIES,
+};
 use crate::rules::{Hit, Matcher, Rule, Target, RULES};
-use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::Path;
 
@@ -30,7 +31,7 @@ pub fn recheck(
 /// single value. Two credentials of one kind at one place are told apart by
 /// it, so that one of them being gone is something a fresh read can say. A
 /// record read in full gives each different value once, as a scan does.
-pub fn recheck_values(
+pub(super) fn recheck_values(
     rule: &str,
     path: &Path,
     home: &Path,
@@ -90,12 +91,12 @@ fn recheck_by(
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
     let mut still = Vec::new();
-    // What a scan lists as a stored sign-in, as `Scan::add_from` decides it:
-    // a test credential, or what its rule stores while others cannot read
-    // the file. Asked about for review, what it always kept.
+    // What a scan lists as `identities`' kind, as `Scan::add_from` decides
+    // it. A stored sign-in: a test credential, or what its rule stores while
+    // others cannot read the file. Worth reviewing: anything else.
     let kept = |rule: &Rule, hit: &Hit, shared: bool| match identities {
         Some(Want::Stored) => hit.low || (rule.kind == "inventory" && !shared),
-        _ => rule.kind == "review" || shared,
+        _ => !hit.low && (rule.kind == "review" || shared),
     };
     // The value alone, under no rule's name, as `Scan::add_from` asks for it.
     let valued = |hit: Hit, bytes: &[u8]| {
@@ -136,6 +137,10 @@ fn recheck_by(
                     Some(Ok(real)) if !is_root() => real,
                     Some(_) => return None,
                 };
+                // Past a link that leads nowhere, nothing is known.
+                if crate::fsutil::dangling_link(&at, home).is_some() {
+                    return None;
+                }
                 if std::fs::symlink_metadata(at).is_ok() {
                     let named = rule.targets.iter().filter_map(|t| match *t {
                         Target::Present(_, what) | Target::Extension(_, what)
@@ -164,16 +169,13 @@ fn recheck_by(
                 if len > STREAM_MAX {
                     return None;
                 }
-                // As long as it was when opened, in pieces that end at a line
-                // break, as the scan reads it: one large file read whole
-                // could take longer than the rechecks are given. The pieces
-                // must be cut as the loop in `read.rs` cuts them, or a recheck
-                // would not see what the scan saw.
+                // As long as it was when opened, in pieces as the scan reads
+                // it: one large file read whole could take longer than the
+                // rechecks are given.
                 let mut file = file.take(len);
-                let mut buffer = vec![0u8; 1024 * 1024];
+                let mut buffer = vec![0u8; READ_PIECE];
                 let mut carry = Vec::new();
-                // Each value once, known by a hash of its bytes, which are
-                // compared here and not kept.
+                // Each value once, as the scan lists it.
                 let mut seen = std::collections::HashSet::new();
                 loop {
                     if stop() {
@@ -181,24 +183,10 @@ fn recheck_by(
                     }
                     let read = file.read(&mut buffer).ok()?;
                     carry.extend_from_slice(buffer.get(..read)?);
-                    let cut = match carry.iter().rposition(|b| *b == b'\n') {
-                        _ if read == 0 => carry.len(),
-                        Some(end) => end + 1,
-                        None if carry.len() > 4 * buffer.len() => long_line_cut(&carry),
-                        None => 0,
-                    };
-                    if cut > 0 {
-                        let piece: Vec<u8> = carry.drain(..cut).collect();
-                        let wanted =
-                            |hit: &Hit| identities != Some(Want::Stored) || kept(rule, hit, shared);
+                    if let Some(piece) = take_piece(&mut carry, read == 0) {
+                        let wanted = |hit: &Hit| kept(rule, hit, shared);
                         for hit in test(&piece, 1).ok()?.into_iter().filter(wanted) {
-                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                            hit.subject.hash(&mut hasher);
-                            hit.span
-                                .clone()
-                                .and_then(|s| piece.get(s))
-                                .hash(&mut hasher);
-                            if seen.insert(hasher.finish()) {
+                            if seen.insert(value_key(&hit, &piece)) {
                                 still.push(valued(hit, &piece));
                             }
                         }
@@ -267,7 +255,7 @@ fn linked(target: &Target, path: &Path, home: &Path) -> bool {
     // follows: the entry, or the named file in it.
     let entry = |d: &str, file: Option<&str>| {
         let dir = real(d).unwrap_or_else(|| home.join(d));
-        let mut remaining = 10_000;
+        let mut remaining = FOLDER_ENTRIES;
         list_dir(&dir, false, &mut remaining).is_ok_and(|listing| {
             listing.entries.iter().any(|(p, _)| {
                 let at = file.map_or_else(|| p.clone(), |f| p.join(f));

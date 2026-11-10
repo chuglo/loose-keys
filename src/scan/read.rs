@@ -70,17 +70,48 @@ fn holds_nothing(path: &Path) -> Result<bool, Gap> {
     }
 }
 
+/// How much of a file read through is read at a time.
+pub(super) const READ_PIECE: usize = 1024 * 1024;
+
+/// The next piece of a file read through, taken from `carry`, what is held
+/// of it: up to its last line break, or all of it once the file has
+/// `ended`. A line longer than four reads is cut by `long_line_cut`. None:
+/// read more first. A scan and a recheck both cut with this, so that a
+/// recheck sees what the scan saw.
+pub(super) fn take_piece(carry: &mut Vec<u8>, ended: bool) -> Option<Vec<u8>> {
+    let cut = match carry.iter().rposition(|b| *b == b'\n') {
+        _ if ended => carry.len(),
+        Some(end) => end + 1,
+        None if carry.len() > 4 * READ_PIECE => long_line_cut(carry),
+        None => 0,
+    };
+    (cut > 0).then(|| carry.drain(..cut).collect())
+}
+
+/// What tells one value in a piece from another: a hash of its subject and
+/// its bytes, which are not kept.
+pub(super) fn value_key(hit: &Hit, piece: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hit.subject.hash(&mut hasher);
+    hit.span
+        .clone()
+        .and_then(|s| piece.get(s))
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Where to cut a line too long to hold whole: after the last byte near its
 /// end that no token format contains and that says nothing about where the
 /// next one starts, so that no token is cut in two there. "[" and ";" are
-/// not such bytes: a colour code before a token has them. A run with no such
-/// byte, as in encoded binary data, is cut short of its end, and a token
-/// across that place can be missed.
-pub(super) fn long_line_cut(carry: &[u8]) -> usize {
+/// not such bytes: a colour code before a token has them. Nor is ":", which
+/// a webhook URL's format begins with. A run with no such byte, as in
+/// encoded binary data, is cut short of its end, and a token across that
+/// place can be missed.
+fn long_line_cut(carry: &[u8]) -> usize {
     let near = carry.len().saturating_sub(4096);
     carry[near..]
         .iter()
-        .rposition(|b| b" \t\"'{}]()<>:&%|?#@".contains(b))
+        .rposition(|b| b" \t\"'{}]()<>&%|?#@".contains(b))
         .map_or(carry.len().saturating_sub(512), |at| near + at + 1)
 }
 
@@ -123,7 +154,7 @@ impl Scan {
         let mut file = file.take(len);
         let mut seen = HashSet::new();
         let (mut carry, mut line) = (Vec::new(), 1);
-        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut buffer = vec![0u8; READ_PIECE];
         let (mut dropped, mut full) = (false, false);
         let begun = Instant::now();
         loop {
@@ -147,26 +178,11 @@ impl Scan {
                 return true;
             }
             carry.extend_from_slice(&buffer[..read]);
-            // Test up to the last line break and keep the rest for the next
-            // piece. A very long line is cut where no token is, if it can be.
-            let cut = match carry.iter().rposition(|b| *b == b'\n') {
-                _ if read == 0 => carry.len(),
-                Some(end) => end + 1,
-                None if carry.len() > 4 * buffer.len() => long_line_cut(&carry),
-                None => 0,
-            };
-            if cut > 0 {
-                let piece: Vec<u8> = carry.drain(..cut).collect();
+            if let Some(piece) = take_piece(&mut carry, read == 0) {
                 let hits = self.matcher_hits(p, test(&piece, line));
                 for hit in hits {
                     // Only a hash of the bytes is kept, and only for this file.
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    hit.subject.hash(&mut hasher);
-                    hit.span
-                        .clone()
-                        .and_then(|s| piece.get(s))
-                        .hash(&mut hasher);
-                    let value = hasher.finish();
+                    let value = value_key(&hit, &piece);
                     if seen.contains(&value) {
                         continue;
                     }
@@ -174,7 +190,7 @@ impl Scan {
                     // is a limit reached, which is said once for the file.
                     if seen.len() == RECORD_HITS {
                         if !std::mem::replace(&mut full, true) {
-                            self.matcher_gap(p, "scan-limit");
+                            self.gap(p, "scan-limit");
                         }
                         continue;
                     }
@@ -206,11 +222,7 @@ impl Scan {
             Ok(h) => h,
             // One gap per folder: a synced folder can hold thousands of these.
             Err("cloud-only-file") => {
-                let dir = p.parent().unwrap_or(p).to_path_buf();
-                if self.cloud_dir.as_ref() != Some(&dir) {
-                    self.gap(&dir, "cloud-only-file");
-                    self.cloud_dir = Some(dir);
-                }
+                self.gap(p.parent().unwrap_or(p), "cloud-only-file");
                 None
             }
             Err(g) => {
@@ -314,26 +326,10 @@ impl Scan {
         match result {
             Ok(hits) => hits,
             Err(incomplete) => {
-                self.matcher_gap(path, incomplete.reason);
+                self.gap(path, incomplete.reason);
                 incomplete.hits
             }
         }
-    }
-
-    fn matcher_gap(&mut self, path: &Path, reason: Gap) {
-        // A streamed file can hit both the matcher's and the record's cap,
-        // or reach the cap in several pieces. Report that limit once.
-        if reason == "scan-limit" {
-            let shown = self.rel(path);
-            if self
-                .not_checked
-                .iter()
-                .any(|gap| gap.reason == reason && gap.path == shown)
-            {
-                return;
-            }
-        }
-        self.gap(path, reason);
     }
 
     /// Read a whole file, recording a gap if it cannot be, unless for

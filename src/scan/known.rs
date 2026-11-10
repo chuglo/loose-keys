@@ -2,7 +2,7 @@
 //! name, checked before discovery.
 
 use super::{trees, Scan, EXCLUDED, TREE_DEPTH, TREE_ENTRIES, TREE_SKIP};
-use crate::fsutil::{list_dir, through_links};
+use crate::fsutil::{dangling_link, list_dir, through_links, FOLDER_ENTRIES};
 use crate::rules::browser::CHROMIUM;
 use crate::rules::{Hit, Rule, Target, RULES};
 use std::collections::VecDeque;
@@ -114,10 +114,37 @@ impl Scan {
 
     /// Report a file or folder that is there. Nothing in it is read.
     pub(super) fn present(&mut self, rule: &Rule, at: &Path, what: &str) {
-        if let Some(real) = self.targeted(at) {
-            if self.there(&real).is_some() {
-                self.add(rule, &real, Hit::file().about(what), false, &[]);
+        let Some(real) = self.targeted(at) else {
+            return;
+        };
+        match self.there(&real) {
+            Some(meta) if !meta.file_type().is_symlink() => {
+                self.add(rule, &real, Hit::file().about(what), false, &[])
             }
+            _ => self.leads_nowhere(&real),
+        }
+    }
+
+    /// Report the storage folder of a listed browser extension at `at`, a
+    /// place in a profile, if it is there.
+    pub(super) fn store_at(&mut self, rule: &Rule, at: &Path, what: &str) {
+        let Some(store) = self.targeted(at) else {
+            return;
+        };
+        match self.there(&store) {
+            Some(meta) if meta.is_dir() => {
+                self.add(rule, &store, Hit::file().about(what), false, &[])
+            }
+            _ => self.leads_nowhere(&store),
+        }
+    }
+
+    /// For a place found not to be there, as `targeted` gave it: a link at
+    /// it or on the way to it that leads nowhere is a gap, as whether
+    /// anything is there is not known.
+    fn leads_nowhere(&mut self, p: &Path) {
+        if let Some(link) = dangling_link(p, &self.home) {
+            self.gap(&link, "unreadable");
         }
     }
 
@@ -127,11 +154,19 @@ impl Scan {
             let Some(dir) = self.targeted(&self.home.join(parent)) else {
                 continue;
             };
-            let mut remaining = 10_000;
-            let Ok(profiles) = list_dir(&dir, false, &mut remaining) else {
-                continue;
+            let mut remaining = FOLDER_ENTRIES;
+            let listing = list_dir(&dir, false, &mut remaining);
+            self.counts.entries += FOLDER_ENTRIES - remaining;
+            let profiles = match listing {
+                Ok(profiles) => profiles,
+                Err(g) => {
+                    self.gap(&dir, g);
+                    continue;
+                }
             };
-            self.counts.entries += 10_000 - remaining;
+            if let Some(g) = profiles.gap {
+                self.gap(&dir, g);
+            }
             self.stores(&dir, profiles.entries, false);
         }
     }
@@ -163,12 +198,7 @@ impl Scan {
             for &(rule, id, what) in &wanted {
                 // A link on the way is followed as for any known location.
                 let at = profile.join("Local Extension Settings").join(id);
-                let Some(store) = self.targeted(&at) else {
-                    continue;
-                };
-                if self.there(&store).is_some_and(|m| m.is_dir()) {
-                    self.add(rule, &store, Hit::file().about(what), false, &[]);
-                }
+                self.store_at(rule, &at, what);
             }
         }
     }
@@ -209,13 +239,13 @@ impl Scan {
     ) -> Vec<(PathBuf, usize, Option<PathBuf>)> {
         let mut queue = VecDeque::from([(start, depth, after)]);
         let mut remaining = TREE_ENTRIES;
-        // One gap for the tree, at the first folder too deep to read.
-        let mut too_deep = false;
+        // One gap for the tree at the first folder too deep to read, and one
+        // at the first folder its entries ran out in: nothing is listed of
+        // the folders after that one.
+        let (mut too_deep, mut spent) = (false, false);
         while let Some((dir, depth, after)) = queue.pop_front() {
             if self.stopped() {
-                let said = self.unread;
-                self.unread(&dir);
-                if self.unread == said {
+                if !self.unread(&dir) {
                     // Gone: nothing of it is unread, but the next may be.
                     continue;
                 }
@@ -233,7 +263,10 @@ impl Scan {
                 }
             };
             if let Some(g) = entries.gap {
-                self.gap(&dir, g);
+                let out = g == "scan-limit" && remaining == 0;
+                if !(out && std::mem::replace(&mut spent, true)) {
+                    self.gap(&dir, g);
+                }
             }
             // Subfolders first, so a walk stopped among the files has them all.
             let (folders, files): (Vec<_>, Vec<_>) =
@@ -279,11 +312,12 @@ impl Scan {
             return;
         };
         if self.stopped() {
-            return self.unread(&dir);
+            self.unread(&dir);
+            return;
         }
-        let mut remaining = 10_000;
+        let mut remaining = FOLDER_ENTRIES;
         let listing = list_dir(&dir, false, &mut remaining);
-        self.counts.entries += 10_000 - remaining;
+        self.counts.entries += FOLDER_ENTRIES - remaining;
         let entries = match listing {
             Ok(e) => e,
             Err(g) => return self.gap(&dir, g),
@@ -304,11 +338,12 @@ impl Scan {
             return;
         };
         if self.stopped() {
-            return self.unread(&dir);
+            self.unread(&dir);
+            return;
         }
-        let mut remaining = 10_000;
+        let mut remaining = FOLDER_ENTRIES;
         let listing = list_dir(&dir, false, &mut remaining);
-        self.counts.entries += 10_000 - remaining;
+        self.counts.entries += FOLDER_ENTRIES - remaining;
         let entries = match listing {
             Ok(e) => e,
             Err(g) => return self.gap(&dir, g),

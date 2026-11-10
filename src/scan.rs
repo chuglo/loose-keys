@@ -12,7 +12,7 @@ mod traversal;
 
 pub use known::read_when_skipped;
 pub use paths::{change_at, home, is_root, named_folder, on_disk, selected_root, skipped_folder};
-pub use recheck::{recheck, recheck_identities, recheck_values, Want};
+pub use recheck::{recheck, recheck_identities, Want};
 
 use recheck::scope_digest;
 use traversal::Traversal;
@@ -49,6 +49,11 @@ const TREE_ENTRIES: usize = 50_000;
 const TREE_DEPTH: usize = 16;
 /// Different tokens listed for one file that is read through.
 const RECORD_HITS: usize = 50;
+/// The findings a cancellable scan keeps before it stops.
+const MAX_FINDINGS: usize = 4096;
+/// The rows of `not_checked` a cancellable scan keeps, the last of which
+/// says that more was not checked than the list names.
+const MAX_GAPS: usize = 4096;
 /// Folders inside an AI tool's own folder that hold programs, not records.
 const TREE_SKIP: &[&str] = &[
     "extensions",
@@ -93,7 +98,7 @@ pub const EXCLUDED: &[&str] = &[
     "Music/Music",
     // Data macOS keeps from other programs without Full Disk Access, which
     // Loose Keys never asks for. Listing one is refused on nearly every Mac and
-    // was a gap after every scan. No rule reads them. Listed only where logs
+    // would be a gap after every scan. No rule reads them. Listed only where logs
     // of refusals from 2022 to macOS 14.5, or the guest named below, show
     // them; a protected folder not here is still a gap.
     "Library/Mail",
@@ -260,8 +265,6 @@ pub struct Scan {
     /// check's entries ran out before its end. No more of them for one
     /// browser than the check may list entries.
     profiles: HashMap<PathBuf, (Vec<(PathBuf, bool)>, bool)>,
-    /// The last folder reported as holding cloud-only files.
-    cloud_dir: Option<PathBuf>,
     /// The folder discovery is checking the files of, open, as it was
     /// listed: its files are opened from it, not walked to from "/" again.
     folder: Option<(PathBuf, std::fs::File)>,
@@ -355,7 +358,8 @@ impl Scan {
             if s.skipped(root) {
                 continue;
             }
-            // Limited subtrees can be retried with an independent budget.
+            // Each root has a budget of its own, so a selected folder that an
+            // earlier root's walk ran out of entries in is walked again.
             s.traversal.remaining = budget;
             s.discover(root, vec![(root.clone(), 0)]);
         }
@@ -381,7 +385,6 @@ impl Scan {
             links: HashMap::new(),
             linked_target_cache: HashMap::new(),
             profiles: HashMap::new(),
-            cloud_dir: None,
             folder: None,
             folders: Default::default(),
             limit: Duration::from_secs(30),
@@ -549,32 +552,14 @@ impl Scan {
         (s.finish().into_report(&[home.to_path_buf()]), unreached)
     }
 
-    /// Scan home plus `selected` and build the report both front ends show.
-    pub fn report(home: &Path, selected: &[PathBuf]) -> Report {
-        Self::report_excluding(home, selected, &[])
-    }
-
-    /// As `report`, leaving out folders the person asked not to be checked.
+    /// Scan home plus `selected`, leaving out folders the person asked not
+    /// to be checked, and build the report the command shows.
     pub fn report_excluding(home: &Path, selected: &[PathBuf], skip: &[PathBuf]) -> Report {
         Self::report_options(home, selected, skip, None, None, None)
     }
 
-    pub fn report_with_progress(
-        home: &Path,
-        selected: &[PathBuf],
-        observer: impl FnMut(Progress) + Send + 'static,
-    ) -> Report {
-        Self::report_observed(home, selected, Some(Box::new(observer)))
-    }
-
-    fn report_observed(
-        home: &Path,
-        selected: &[PathBuf],
-        observer: Option<Box<dyn FnMut(Progress) + Send>>,
-    ) -> Report {
-        Self::report_options(home, selected, &[], observer, None, None)
-    }
-
+    /// As `report_excluding`, for the app: cancellable, with the digests a
+    /// review list is kept by, and telling `observer` how far it has got.
     pub fn report_controlled(
         home: &Path,
         selected: &[PathBuf],
@@ -624,7 +609,11 @@ impl Scan {
             },
             context: if is_root() { "system" } else { "user" },
             coverage: report::Coverage {
-                roots: roots.iter().map(|p| s.rel(p)).collect(),
+                // A root in a skipped folder is left out with it.
+                roots: (roots.iter())
+                    .filter(|p| !s.skipped(p))
+                    .map(|p| s.rel(p))
+                    .collect(),
                 excluded_directories: EXCLUDED,
                 excluded_by_user: s.skip.iter().map(|p| s.rel(p)).collect(),
                 limitations: report::LIMITATIONS,
@@ -645,15 +634,21 @@ impl Scan {
         if reason == "scan-limit" {
             self.unread += 1;
         }
+        self.list_gap(p, reason);
+    }
+
+    /// As `gap`, not counted in `unread`: said of a place that no reader of
+    /// a known location left unread.
+    fn list_gap(&mut self, p: &Path, reason: Gap) {
         let path = self.rel(p);
         if self.gaps_listed.contains(&(path.clone(), reason)) {
             return;
         }
-        if self.cancel.is_some() && self.not_checked.len() >= 4096 - 1 {
+        if self.cancel.is_some() && self.not_checked.len() >= MAX_GAPS - 1 {
             // The last row a report keeps says that more was not checked
             // than the list names, even if the home is listed already: a
-            // full list is one of 4,096 rows.
-            if self.not_checked.len() == 4096 - 1 {
+            // full list is one of `MAX_GAPS` rows.
+            if self.not_checked.len() == MAX_GAPS - 1 {
                 let path = self.rel(&self.home);
                 let reason = "scan-limit";
                 self.not_checked.push(NotChecked { path, reason });
@@ -665,14 +660,16 @@ impl Scan {
     }
 
     /// A place not read because the scan was stopped. Not said of one that
-    /// is not there: nothing would have been read of it.
-    fn unread(&mut self, p: &Path) {
+    /// is not there: nothing would have been read of it. Returns whether it
+    /// was said.
+    fn unread(&mut self, p: &Path) -> bool {
         let gone =
             std::fs::symlink_metadata(p).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
         if !gone {
             self.gap(p, "scan-limit");
             self.work_unfinished = true;
         }
+        !gone
     }
 
     fn stopped(&self) -> bool {
@@ -689,7 +686,7 @@ impl Scan {
     fn halted(&self) -> bool {
         self.cancel
             .as_ref()
-            .is_some_and(|c| c.load(Ordering::SeqCst) || self.findings.len() >= 4096)
+            .is_some_and(|c| c.load(Ordering::SeqCst) || self.findings.len() >= MAX_FINDINGS)
     }
 
     /// The place to read for a known location. A link is followed only when
@@ -759,14 +756,7 @@ impl Scan {
         };
         if stop {
             self.work_unfinished = true;
-            // One gap for the file, however many of its hits are dropped.
-            let path = self.rel(p);
-            let last = self.not_checked.last();
-            if !last.is_some_and(|g| g.reason == "scan-limit" && g.path == path) {
-                self.gap(p, "scan-limit");
-            } else {
-                self.unread += 1;
-            }
+            self.gap(p, "scan-limit");
             return false;
         }
         if source.is_none() {

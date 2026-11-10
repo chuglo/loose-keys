@@ -358,7 +358,12 @@ The threats are a local user racing a root run with links, and hostile files
   is named, which reports it. Test:
   `a_known_location_whose_presence_cannot_be_told_is_a_gap`. Not covered: a
   macOS privacy denial, which the test stands in for with a folder of mode
-  000 (unverified).
+  000 (unverified). Where such a place, or a wallet extension's storage,
+  is not there and a link at it or on the way to it leads nowhere, as to a
+  drive that is not connected, `fsutil::dangling_link` names the link: the
+  scan and a check of changes give it an `unreadable` gap, and a recheck
+  knows nothing. Test:
+  `a_dangling_link_where_presence_is_the_finding_is_not_checked`.
 - `through_links` is the one deliberate exception to following no links in
   what is scanned. A known sign-in location that is a link is resolved once,
   used only if the real path is inside the home folder, and never as root. Do
@@ -776,8 +781,9 @@ at the file, so the other kind, once moved back, stays open.
 
 A recheck asks for one kind (`Want`): `Want::Stored` keeps a test-format
 hit, or an inventory rule's hit in a file others can't read, which is what a
-scan lists as a stored sign-in, and skips presence-only rules.
-`stored.checked_at` is set by a manual scan that wasn't stopped and by the
+scan lists as a stored sign-in, and skips presence-only rules;
+`Want::Review` keeps the rest of what the rule finds, never a test-format
+hit. `stored.checked_at` is set by a manual scan that wasn't stopped and by the
 helper's last slice of a full pass; until then the window says no sign-ins
 yet rather than none. `pending_review` also counts the saved ones no longer
 found (`stored_gone`). When a scan this session counted more sign-ins than

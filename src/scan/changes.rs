@@ -2,10 +2,10 @@
 //! locations it touches, and where the links in a known folder lead.
 
 use super::{is_root, Scan, Unreached, ASKS, EXCLUDED, TREE_DEPTH, TREE_SKIP};
-use crate::fsutil::{list_dir, through_links};
+use crate::fsutil::{list_dir, through_links, FOLDER_ENTRIES};
 use crate::report::NotChecked;
 use crate::rules::browser::CHROMIUM;
-use crate::rules::{Hit, Rule, Target, RULES};
+use crate::rules::{Rule, Target, RULES};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
@@ -36,7 +36,7 @@ impl Scan {
                         self.gap(dir, g);
                         // The budget ran out, not the fixed 10,000-entry
                         // limit per folder.
-                        cut = g == "scan-limit" && listing.entries.len() < 10_000;
+                        cut = g == "scan-limit" && listing.entries.len() < FOLDER_ENTRIES;
                     }
                     entries = listing.entries;
                 }
@@ -134,7 +134,7 @@ impl Scan {
                         gap = listing.gap;
                         // The budget ran out, not the fixed 10,000-entry
                         // limit per folder.
-                        cut = gap == Some("scan-limit") && listing.entries.len() < 10_000;
+                        cut = gap == Some("scan-limit") && listing.entries.len() < FOLDER_ENTRIES;
                         listing.entries
                     }
                     Err(g) => {
@@ -168,9 +168,7 @@ impl Scan {
                 if !self.not_checked.iter().any(said) {
                     // Said of the folder, not by a known place at the
                     // changed path: a stopped check still names that path.
-                    let unread = self.unread;
-                    self.gap(dir, reason);
-                    self.unread = unread;
+                    self.list_gap(dir, reason);
                 }
             }
             self.linked_target_cache.insert(key.clone(), (real, !cut));
@@ -429,9 +427,7 @@ impl Scan {
                             }
                             // A link on the way, the changed path too, is
                             // followed as a scan follows it.
-                            if let Some(store) = self.targeted(&at).filter(|s| folder(self, s)) {
-                                self.add(rule, &store, Hit::file().about(what), false, &[]);
-                            }
+                            self.store_at(rule, &at, what);
                         }
                         // Or where a link in a browser's folder puts a
                         // profile's storage folder: at or under the change,
@@ -447,10 +443,7 @@ impl Scan {
                                 }
                             }
                             for at in stores {
-                                if let Some(store) = self.targeted(&at).filter(|s| folder(self, s))
-                                {
-                                    self.add(rule, &store, Hit::file().about(what), false, &[]);
-                                }
+                                self.store_at(rule, &at, what);
                             }
                         }
                     }

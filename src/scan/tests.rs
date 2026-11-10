@@ -1,6 +1,7 @@
 use super::paths::in_home;
+use super::recheck::recheck_values;
 use super::*;
-use crate::fsutil::list_dir;
+use crate::fsutil::{list_dir, FOLDER_ENTRIES};
 use crate::rules::browser::CHROMIUM;
 use std::fs;
 use std::sync::{Arc, Mutex};
@@ -1167,6 +1168,18 @@ fn a_full_list_of_what_was_not_checked_says_it_is_full() {
 
 /// A folder selected inside the home is reached from both roots. What could
 /// not be checked there is listed once, as what was found there is.
+/// A selected folder inside a skipped one is left out with it, and the
+/// report does not name it among the places scanned.
+#[test]
+fn a_selected_folder_in_a_skipped_one_is_not_listed_as_scanned() {
+    let f = Fixture::new("selected-in-skipped");
+    put(&f.0, "skip/sel/export.csv", b"url,username,password\n");
+    let r = Scan::report_excluding(&f.0, &[f.0.join("skip/sel")], &[f.0.join("skip")]);
+    assert!(r.findings.is_empty());
+    assert_eq!(r.coverage.roots, ["~/"]);
+    assert_eq!(r.coverage.excluded_by_user, ["~/skip"]);
+}
+
 #[test]
 fn a_place_reached_from_two_roots_is_listed_once_as_not_checked() {
     use std::os::unix::fs::PermissionsExt;
@@ -1178,7 +1191,7 @@ fn a_place_reached_from_two_roots_is_listed_once_as_not_checked() {
     let selected = [f.0.join("Documents")];
     let cancel = Arc::new(AtomicBool::new(false));
     for r in [
-        Scan::report(&f.0, &selected),
+        Scan::report_excluding(&f.0, &selected, &[]),
         Scan::report_controlled(&f.0, &selected, &[], cancel, digest, |_| {}),
     ] {
         let gaps: Vec<_> = r
@@ -1579,6 +1592,35 @@ fn a_record_that_takes_too_long_is_left_with_a_gap_and_not_tried_again() {
     s.record_time = Duration::ZERO;
     assert!(s.stream(rule, &path));
     assert_eq!(s.findings.len(), 1);
+}
+
+/// Once a tree of records has listed all the entries it may, the folders
+/// still queued are not listed, and that is said once, as for its depth.
+#[test]
+fn a_tree_out_of_entries_is_one_gap() {
+    let f = Fixture::new("records-entries");
+    // Seven folders: the first five list the whole budget, with the root's
+    // own seven entries spent before them.
+    for name in ["a", "b", "c", "d", "e", "f", "g"] {
+        let dir = f.0.join(".claude").join(name);
+        fs::create_dir_all(&dir).unwrap();
+        let files = if name < "f" { FOLDER_ENTRIES } else { 1 };
+        for n in 0..files {
+            fs::File::create(dir.join(format!("{n:05}"))).unwrap();
+        }
+    }
+    let mut s = Scan::new(&f.0, None, None, None, 1000);
+    let rule = RULES
+        .iter()
+        .find(|r| r.id == "secret.agent-record")
+        .unwrap();
+    s.tree(rule, ".claude");
+    let gaps: Vec<_> = s
+        .not_checked
+        .iter()
+        .map(|g| (g.path.as_str(), g.reason))
+        .collect();
+    assert_eq!(gaps, [("~/.claude/e", "scan-limit")]);
 }
 
 #[test]
@@ -2163,6 +2205,41 @@ fn a_link_that_cannot_be_resolved_is_not_said_to_leave_the_home() {
 /// be absent where only its presence is asked: a place whose presence is
 /// the finding, a browser extension's storage, or a sweep's tree of
 /// records. Each is now a gap, as a known file read there is.
+/// A sweep's slice can begin at the extensions' storage, with no other rule
+/// listing the browser's folder in it: that the folder could not be listed
+/// is still said.
+#[test]
+fn a_browser_folder_the_extension_check_cannot_list_is_a_gap() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new("extensions-denied");
+    let chrome = f.0.join(CHROMIUM[0]);
+    fs::create_dir_all(&chrome).unwrap();
+    fs::set_permissions(&chrome, fs::Permissions::from_mode(0o000)).unwrap();
+    let dirs: HashSet<_> = RULES
+        .iter()
+        .flat_map(|r| r.targets)
+        .filter_map(|t| match *t {
+            Target::Dir(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    let targets: usize = RULES.iter().map(|r| r.targets.len()).sum();
+    let extensions = Step::Known(dirs.len() + targets);
+    // Left out of discovery, which would say so of the folder itself.
+    let skip = [f.0.join("Library")];
+    let cancel = Arc::new(AtomicBool::new(false));
+    let resume = Some(vec![extensions]);
+    let (r, _) = Scan::sweep(&f.0, &skip, resume, limits(100_000), cancel, digest);
+    fs::set_permissions(&chrome, fs::Permissions::from_mode(0o700)).unwrap();
+    let gaps: Vec<_> = r
+        .not_checked
+        .iter()
+        .map(|g| (g.path.as_str(), g.reason))
+        .collect();
+    let path = format!("~/{}", CHROMIUM[0]);
+    assert_eq!(gaps, [(path.as_str(), "permission-denied")]);
+}
+
 #[test]
 fn a_known_location_whose_presence_cannot_be_told_is_a_gap() {
     use std::os::unix::fs::PermissionsExt;
@@ -3770,6 +3847,29 @@ fn a_token_is_not_cut_in_two_where_a_very_long_line_is_split() {
 }
 
 #[test]
+fn a_very_long_line_is_not_split_inside_a_webhook_url() {
+    // The last byte that could end a piece is the ":" of "https:" in the
+    // URL's fixed beginning, which is part of the format.
+    let f = Fixture::new("long-line-url");
+    let url = format!(
+        "https://hooks.{}.com/services/T{}/B{}/{}",
+        "slack", "ABC123", "DEF456", "abcdefghijklmnopqrstuvwx"
+    );
+    let mut line = vec![b'x'; 6 * 1024 * 1024];
+    let at = 5 * 1024 * 1024 - 20;
+    line[at - 1] = b' ';
+    line[at..at + url.len()].copy_from_slice(url.as_bytes());
+    line[at + url.len()] = b' ';
+    let rel = ".claude/projects/p/s.json";
+    put(&f.0, rel, &line);
+    let s = Scan::run(&f.0, std::slice::from_ref(&f.0));
+    let types: Vec<_> = s.findings.iter().filter_map(|x| x.token_type).collect();
+    assert_eq!(types, ["Slack webhook URL"]);
+    let still = recheck("secret.agent-record", &f.0.join(rel), &f.0, None);
+    assert_eq!(still, Some(vec![Some("Slack webhook URL".to_string())]));
+}
+
+#[test]
 fn recheck_reports_what_is_still_there_or_that_nothing_is_known() {
     let f = Fixture::new("recheck");
     let npmrc = f.0.join(".npmrc");
@@ -3812,7 +3912,8 @@ fn recheck_reports_what_is_still_there_or_that_nothing_is_known() {
 
 /// A recheck for a stored sign-in keeps what a scan would list as one: a
 /// protected key while only its owner can read it, and a test credential
-/// in a record. A recheck for review keeps what it always has.
+/// in a record. A recheck for review keeps what a scan would list as worth
+/// reviewing, and so never a test credential.
 #[test]
 fn a_recheck_for_stored_sign_ins_keeps_what_a_scan_would_list_as_one() {
     use std::os::unix::fs::PermissionsExt;
@@ -3848,10 +3949,17 @@ fn a_recheck_for_stored_sign_ins_keeps_what_a_scan_would_list_as_one() {
         ask(records, &record, Want::Stored),
         Some(vec![stripe.clone()])
     );
-    assert_eq!(
-        ask(records, &record, Want::Review),
-        Some(vec![stripe, github])
+    assert_eq!(ask(records, &record, Want::Review), Some(vec![github]));
+    // The same in a file read whole.
+    put(
+        &f.0,
+        ".zsh_history",
+        format!("export KEY={test_key}\n").as_bytes(),
     );
+    let history = f.0.join(".zsh_history");
+    let tokens = "secret.service-token";
+    assert_eq!(ask(tokens, &history, Want::Stored), Some(vec![stripe]));
+    assert_eq!(ask(tokens, &history, Want::Review), Some(vec![]));
 }
 
 #[test]
@@ -3905,6 +4013,37 @@ fn a_recheck_says_which_values_are_still_there() {
         still(&export, "export.password-csv"),
         Some(vec![(None, None)])
     );
+}
+
+/// A link at a place whose presence is the finding, leading nowhere, as to
+/// a drive that is not connected: what it stands for is not known to be
+/// there, nor known to be gone.
+#[test]
+fn a_dangling_link_where_presence_is_the_finding_is_not_checked() {
+    let telegram = "Library/Application Support/Telegram Desktop/tdata";
+    let settings = format!("{}/Default/Local Extension Settings", CHROMIUM[0]);
+    let metamask = "nkbihfbeogaeaoehlefnkodbefgpgknn";
+    let (session, store) = (
+        format!("{telegram}/key_datas"),
+        format!("{settings}/{metamask}"),
+    );
+    // The link, at the place a rule names or on the way to it, and the rule.
+    let cases = [
+        (session.clone(), &session, "app.telegram.session"),
+        (telegram.to_string(), &session, "app.telegram.session"),
+        (store.clone(), &store, "wallet.extension.vault"),
+        (settings.clone(), &store, "wallet.extension.vault"),
+    ];
+    for (link, place, rule) in cases {
+        let f = Fixture::new("present-dangling");
+        let at = f.0.join(&link);
+        fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(f.0.join("detached/place"), &at).unwrap();
+        let unread: Seen = (vec![], vec![(format!("~/{link}"), "unreadable")]);
+        assert_eq!(full(&f.0), unread, "{link}");
+        assert_eq!(change(&f.0, &[], &link), unread, "{link}");
+        assert_eq!(recheck(rule, &f.0.join(place), &f.0, None), None, "{link}");
+    }
 }
 
 /// A recheck this build cannot make says nothing, rather than that the
@@ -4417,7 +4556,10 @@ fn progress_is_aggregate_and_targeted_checks_precede_discovery() {
     fs::write(f.0.join(".npmrc"), "_authToken=synthetic-only\n").unwrap();
     let events = Arc::new(Mutex::new(Vec::new()));
     let observed = events.clone();
-    let r = Scan::report_with_progress(&f.0, &[], move |p| observed.lock().unwrap().push(p));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let r = Scan::report_controlled(&f.0, &[], &[], cancel, digest, move |p| {
+        observed.lock().unwrap().push(p)
+    });
     let events = events.lock().unwrap();
     assert_eq!(events[0].phase, "targeted-checks");
     let discovery = events.iter().find(|p| p.phase == "discovery").unwrap();

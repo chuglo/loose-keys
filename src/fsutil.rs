@@ -18,9 +18,14 @@ pub struct Head {
     pub shared: bool,
 }
 
+/// The flag macOS sets on a file whose contents are in the cloud only.
+const SF_DATALESS: u32 = 0x4000_0000;
+
+/// The most entries `list_dir` gives of one folder.
+pub const FOLDER_ENTRIES: usize = 10_000;
+
 fn is_dataless(meta: &fs::Metadata) -> bool {
     use std::os::macos::fs::MetadataExt as MacExt;
-    const SF_DATALESS: u32 = 0x4000_0000;
     meta.st_flags() & SF_DATALESS != 0
 }
 
@@ -61,7 +66,7 @@ fn head_of(file: File, max: u64) -> Result<Head, Gap> {
 
 /// An empty buffer with room for a file that says it holds `len` bytes, read
 /// up to `max`, so that one read usually fills it: grown from nothing, it
-/// took a read for each doubling. `max` caps the room, whatever `len` says.
+/// takes a read for each doubling. `max` caps the room, whatever `len` says.
 fn with_room(len: u64, max: u64) -> Vec<u8> {
     Vec::with_capacity(usize::try_from(len.min(max)).unwrap_or(0))
 }
@@ -173,7 +178,7 @@ fn open_at(dir: &File, name: &OsStr, want_dir: bool) -> Result<Option<File>, Gap
     {
         return Ok(None);
     }
-    if stat.st_flags & 0x4000_0000 != 0 {
+    if stat.st_flags & SF_DATALESS != 0 {
         return Err("cloud-only-file");
     }
     let flags = libc::O_RDONLY
@@ -232,6 +237,23 @@ pub fn through_links(path: &Path, home: &Path) -> Option<Result<PathBuf, Gap>> {
             }
             Ok(_) => {}
             Err(_) => return None,
+        }
+    }
+    None
+}
+
+/// The link at `path`, or on the way to it below `home`, that leads nowhere,
+/// as to a drive that is not connected: what it stands for can be told
+/// neither to be there nor to be gone. `through_links` gives None for such a
+/// path, as for one with nothing at its end. Nothing is opened.
+pub fn dangling_link(path: &Path, home: &Path) -> Option<PathBuf> {
+    let mut current = home.to_path_buf();
+    for part in path.strip_prefix(home).ok()?.components() {
+        current.push(part);
+        let meta = fs::symlink_metadata(&current).ok()?;
+        let nowhere = |e: io::Error| matches!(e.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR));
+        if meta.file_type().is_symlink() && fs::canonicalize(&current).is_err_and(nowhere) {
+            return Some(current);
         }
     }
     None
@@ -311,8 +333,8 @@ fn still_mounted(path: &Path, count: u32) -> bool {
 /// Links, cloud-only locations, special files, and denied access are not evidence.
 /// Nor is a file that is not there while its volume may be what is missing.
 /// `mount` is what `mounted_at` said when the file was found, and a volume
-/// must still be mounted there. With nothing kept, as for an item listed
-/// before this was, a folder that cannot be opened is passed by only inside
+/// must still be mounted there. With nothing kept, a folder that cannot be
+/// opened is passed by only inside
 /// `home`, where deleting a whole folder is the usual clean-up: outside it,
 /// the file's own folder must open.
 pub fn checked_or_absent(path: &Path, mount: Option<u32>, home: &Path) -> bool {
@@ -646,8 +668,8 @@ const KEPT: usize = 32;
 
 /// The folders above the last one `Folders::list` listed, open, so that
 /// listing the next opens only the names below what the two share instead of
-/// walking from "/" again: for a walk breadth-first, that walk was most of
-/// the time spent opening folders. Each is opened from the one above it as
+/// walking from "/" again: in a breadth-first walk, walking from "/" is most
+/// of the time spent opening folders. Each is opened from the one above it as
 /// `open_path` opens them, without following links. One kept here is used as
 /// it was opened: if its path is swapped for a link after that, what is
 /// listed is still in the folder, never behind the link, as for the entries
@@ -698,7 +720,8 @@ impl Folders {
             Some(root) => root,
             empty => empty.insert(File::open("/").map_err(|e| gap(&e))?),
         };
-        for parent in parents.get(shared..).unwrap_or_default() {
+        // `shared` counts names zipped with `parents`, so it is at most its length.
+        for parent in &parents[shared..] {
             let above = self.above.last().map_or(&*root, |(_, folder)| folder);
             let Some(folder) = open_at(above, parent, true)? else {
                 return Ok(None);
@@ -762,7 +785,7 @@ fn listing(
         if name.to_bytes() == b"." || name.to_bytes() == b".." {
             continue;
         }
-        if out.len() == 10_000 || *remaining == 0 {
+        if out.len() == FOLDER_ENTRIES || *remaining == 0 {
             incomplete = Some("scan-limit");
             break;
         }
@@ -1119,9 +1142,8 @@ mod tests {
         for path in ["drive/kept/absent", "drive/gone/absent"] {
             assert!(absent(path, Some(1)), "{path}");
         }
-        // Nothing kept, as for an item listed before this was: in the home
-        // folder as it was, and outside it only when the file's own folder
-        // can be opened.
+        // Nothing kept: in the home folder as it was, and outside it only
+        // when the file's own folder can be opened.
         for path in ["home/kept/absent", "home/gone/absent", "drive/kept/absent"] {
             assert!(absent(path, None), "{path}");
         }
