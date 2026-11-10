@@ -63,8 +63,9 @@ its `VM:` line, after reporting the result.
 The test driver needs Accessibility, given in the guest's System Settings to
 the process macOS holds responsible for it: Terminal, or the Tart guest agent
 under `tart exec` (unverified). Without it the check stops with
-`Accessibility is not granted to the driver responsible client`. Whether the
-base image already grants it is unverified.
+`Accessibility is not granted to the driver responsible client`. A new clone
+of `lk-sip-base` already has it under `tart exec`: the helper check passes
+there with no screen.
 
 In the guest, from `~/work`, with a new work folder and the screen awake and
 unlocked:
@@ -173,6 +174,7 @@ Keep the base pristine; do not use it for a test or walkthrough.
 
 If that base is absent, preparing it is a separate, supervised setup step:
 clone a macOS image, use Tart's Recovery window to enable SIP with
-`csrutil enable`, and verify `csrutil status` and `spctl --status` after a
-normal boot. Do not disable either protection or answer unrelated security
+`csrutil enable`, answering n when it offers full boot security (y hung
+Recovery on macOS 26), and verify `csrutil status` and `spctl --status` after
+a normal boot. Do not disable either protection or answer unrelated security
 prompts to get the checks running.

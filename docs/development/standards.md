@@ -845,9 +845,10 @@ one off. Keep them when changing `gui/src/agent.rs`:
   `a_changed_folder_the_check_did_not_begin_is_checked_in_the_next_round`,
   `a_folder_too_large_for_a_check_is_finished_while_other_changes_keep_coming`).
 - A slice of a full pass whose entries run out partway through a folder's
-  listing lists that folder again first in the next slice, so no subfolder
-  is walked twice (`a_listing_cut_by_the_budget_passes_on_no_subfolder_twice`
-  and `resumed_sweeps_agree_with_an_uninterrupted_pass` in
+  listing passes on no subfolder twice
+  (`a_listing_cut_by_the_budget_passes_on_no_subfolder_twice`), and a pass
+  made in slices finds what an uninterrupted one finds
+  (`resumed_sweeps_agree_with_an_uninterrupted_pass`, both in
   `src/scan/tests.rs`).
 - When FSEvents drops events because the helper fell behind (`UserDropped`),
   the helper opens its stream again (`ch_watch_resume`) from the last batch it
