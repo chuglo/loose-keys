@@ -8,9 +8,10 @@ checkout. Change nothing until the person has seen the findings and said
 which to fix, except before a commit: what that commit's change made wrong
 is fixed in it.
 
-The docs are every tracked Markdown file: `README.md`, `docs/`, the
-`AGENTS.md` files (each nested one is relative to its own folder) and the
-`SKILL.md` files under `.agents/skills/`. Audit the pages the person named,
+The docs are every tracked or new Markdown file: `README.md`, `SECURITY.md`,
+`docs/`, the `AGENTS.md` files (each nested one is relative to its own
+folder) and the `SKILL.md` files under `.agents/skills/`. Audit the pages the
+person named,
 or all of them. Window text in `gui/app/` and finding text in `src/rules/`
 are not docs; AGENTS.md has their rules.
 
@@ -112,6 +113,7 @@ A fact belongs on one page:
 
 - `README.md`: installing, building and the command line, for a person
   using the app.
+- `SECURITY.md`: how to report a security problem.
 - `docs/usage.md`: the app's controls, and the numbers, limits, timing and
   caveats the window leaves out.
 - `AGENTS.md` files: short rules for agents. A nested one does not repeat

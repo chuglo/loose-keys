@@ -65,13 +65,13 @@ command, what it needs and what it does not cover:
 | anything under `src/` | the security harness's scanner gate and platform check |
 | `security-tests/`, `schema/` | the whole security harness, self-test included |
 | rules, scan/report code, the engine's scan/export commands, the detection corpus | `sh security-tests/check_detection.sh` |
-| `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, `gui/icons/`, `.cargo/config.toml`, the C interface | the bundle build and its contract test |
+| `gui/app/`, `gui/macos/`, `gui/build-macos.sh`, `gui/icons/`, `.cargo/config.toml`, `LICENSE`, `THIRD_PARTY_NOTICES`, the C interface | the bundle build and its contract test |
 | `gui/app/`, `gui/macos/en.lproj/`, `gui/macos/Info.plist` | also the window check and the model check |
 | `gui/package-dmg.sh` | the installer disk image commands |
 | the helper runner or its Settings driver | the harness self-test; the native helper check and its negative control, when asked |
 | `gui/src/notifications.m` | the bridge checks |
 | a check script or test under `gui/tests/` | that check (the shipped-bundle and helper ones when asked) |
-| `tests/check-all.sh`, `gui/tests/check-window-guest.sh` | their self-tests, which `cargo test` runs (`security_harness`) |
+| `tests/check-all.sh`, `gui/tests/check-window-guest.sh`, `gui/tests/check-window.sh` | their self-tests, which `cargo test` runs (`security_harness`) |
 | a dependency or `Cargo.lock` | the dependency advisories and the harness self-test |
 | a script under `.agents/skills/` | the checks in its skill's `SKILL.md`, or `sh -n` where it has none |
 
@@ -127,7 +127,7 @@ sample window check runs in a guest whenever the matrix requires it.
   authorizes the merge, push and tag needed for that release; preparing or
   reviewing a release alone does not. Before tagging, the list in "Before a
   push to `main`" must pass on the exact release commit. Report passed checks
-  and list omitted checks under "Not verified", including guest checks.
+  and list omitted checks under "Not verified".
   Omitted optional checks do not require another confirmation to publish;
   a failed or blocked required check still prevents release. The `release`
   skill (`.agents/skills/release/`) has the steps and scripts for a release.
@@ -148,7 +148,7 @@ sample window check runs in a guest whenever the matrix requires it.
   shown on the Mac but not written to the JSON report; `token_type` is from
   the scanner's fixed list, so it may be.
 - **File names are hostile.** Show one only through `report::escape`. The
-  window names a finding by index or id, never by path, and the engine hands
+  window names a finding by id, never by path, and the engine hands
   back a path to act on only when `full_path` accepts it. Reading a listed
   file again is not acting on it: `recheck_path` takes any name that could
   be listed as it is.
@@ -254,12 +254,14 @@ run from the repository or worktree root as their instructions specify.
   it is closed exactly once.
 - **The C interface** stays at five functions: add a command to `dispatch` in
   `gui/src/lib.rs`, not a function. Only `ch_free` releases what `ch_call`
-  returned. A panic in a command is caught in `call`; in any other
-  `extern "C"` function it ends the process, so keep those small.
+  returned. A panic in a command is caught in `call`; in another
+  `extern "C"` function it ends the process unless the function catches it,
+  as `notification_permission` does, so keep those small.
 - **Locks.** In new code, copy what you need out of a `Mutex` and drop the
   guard before calling the scanner, the store, the event handler, `Monitor`
-  or a `ch_*` function (`app_login` alone is held across them, to order
-  Login Items changes). Where two locks are held, take `app_login` first,
+  or a `ch_*` function (`app_login` alone is held across the store, `Monitor`
+  and `ch_*` calls, to order Login Items changes). Where two locks are held,
+  take `app_login` first,
   then `review` before `storage_error` or `report` in the app, and `inbox`
   before `known` in the agent; take `Monitor`'s with no other held.
 - **Files.** Open and read scanned files only through `src/fsutil.rs`, which
@@ -268,7 +270,8 @@ run from the repository or worktree root as their instructions specify.
   resolve to a path inside the home folder, never as root. That resolved
   path is then opened without following links. Do not add another exception.
   For a presence check use `symlink_metadata`, never `Path::exists` or
-  `fs::metadata`, which follow links.
+  `fs::metadata`, which follow links: "Files" in the standards has the one
+  call that follows a link out of the home folder on purpose.
 - **Tests.** Synthetic data only, in a folder under `TMPDIR` named for the
   process and the test. Give a child its `HOME` with `Command::env`, never
   `std::env::set_var`. Wait for another thread with a deadline that fails

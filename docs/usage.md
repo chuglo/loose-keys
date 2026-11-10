@@ -395,7 +395,7 @@ helper refused.
   folder is read);
 - GitHub CLI `oauth_token` fields in `~/.config/gh/hosts.yml`;
 - npm auth, token and password fields in `~/.npmrc`;
-- service tokens in about 130 known issuer formats (AWS, GitHub, GitLab, OpenAI,
+- service tokens in about 140 known issuer formats (AWS, GitHub, GitLab, OpenAI,
   Anthropic, Google Gemini, Stripe, Slack, npm, PyPI, Cloudflare, Vercel and
   more) and Slack and Discord webhook URLs, in the first 4 KiB of any file up
   to 1 MiB, and anywhere in `.env*`, `*.env`, `.envrc`, `.dev.vars*`, `secrets.toml`,

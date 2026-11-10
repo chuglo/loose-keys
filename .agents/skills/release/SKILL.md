@@ -19,22 +19,15 @@ interactive desktop agent or VNC.
    It changes five version files. Stage those files by name.
 3. Commit the bump, keeping the configured commit signing. Announce the
    sample-data window check, then run `sh .agents/skills/release/prepare.sh`
-   with Tart on `PATH`. It runs `tests/check-all.sh` on the exact commit,
-   then `candidate.sh` from it, prints every exit status and the candidate,
-   and stops at a failed check or a changed tree. They do not run side by
-   side: the release build's load made a timed check fail. It then writes
-   `check-all` (the commit and `passed`) and `check-all.log` into the
-   candidate; `publish.sh` refuses a candidate without that record, so a
-   candidate from `candidate.sh` alone cannot be published. Record the
-   commit, each exit status, and any failed runs. `check-all.sh` skips the
-   window check and the harness self-test when their files match
-   `origin/main`.
-4. `candidate.sh` builds an ad-hoc bundle and harness from the commit, checks
-   the bundle and versions, mounts the disk image read-only at a folder of
-   its own, checks its signature and Applications shortcut, and compares its
-   app with the unzipped ZIP. Keep the candidate directory: the guest checks
-   use this ZIP, and publication uses both tested packages. A new build needs
-   new checks.
+   with Tart installed (`docs/testing/guest.md`). It runs
+   `tests/check-all.sh` on the exact commit, then `candidate.sh` from it,
+   prints every exit status and the candidate, and stops at a failed check
+   or a changed tree. It then writes `check-all` (the commit and `passed`)
+   and `check-all.log` into the candidate; `publish.sh` refuses a candidate
+   without that record, so a candidate from `candidate.sh` alone cannot be
+   published. Record the commit, each exit status, and any failed runs.
+4. Keep the candidate directory: the guest checks use its ZIP, and
+   publication uses both tested packages. A new build needs new checks.
 
 ## Guest checks
 
@@ -50,11 +43,10 @@ The helper check needs a stopped, pristine `lk-sip-base` with SIP and
 Gatekeeper on. Setup and permission rules are in `docs/testing/guest.md`.
 
 The scripts reject changed candidate files, check transfers, stop their
-clones and delete a clone whose cloning did not finish. Logs and helper `results.json` files stay in the candidate directory.
-Report each helper case and exit status. A negative control must fail at its
-intended assertion. Failed cleanup leaves the helper's state unknown: stop
-that guest and use a fresh clone. Keep failed logs. Delete test VMs when
-requested, preserving the reusable bases.
+clones and delete a clone whose cloning did not finish. Logs and helper
+`results.json` files stay in the candidate directory. Report the helper
+check as `gui/tests/AGENTS.md` says, with each exit status. Keep failed
+logs. Delete test VMs when requested, preserving the reusable bases.
 
 ## Optional walkthrough
 
@@ -82,17 +74,14 @@ when they affect what a person must do or can rely on, such as the beta's
 notarization notice or a known bug. Omit internal test inventories, VM details,
 process history and lists of unverified scenarios.
 
-An explicit request to publish or cut this release authorizes its merge,
-push, tag and publication. Do not ask again solely because optional checks
-were omitted: report them under "Not verified". Preparation or review alone
-requires publication approval after the candidate and release notes are ready.
-A failed or blocked required check still prevents release; run guest checks
-only when requested.
+`AGENTS.md` says what a request to publish authorizes. Preparation or review
+alone requires publication approval after the candidate and release notes are
+ready.
 
 Releases are published immutable. Once published, the release's tag and
 packages cannot be changed or deleted, and the tag name cannot be reused even
-after the release is deleted, so a wrong package needs a new patch version.
-A changed release commit needs new checks and a new candidate.
+after the release is deleted (unverified), so a wrong package needs a new
+patch version. A changed release commit needs new checks and a new candidate.
 
 Write the notes to a file, with both packages' checksums as
 `Loose-Keys-0.y.z.zip: <SHA-256>` lines, then run:
@@ -115,7 +104,7 @@ verifies the commit and tag signatures; and downloads both packages to
 compare them with the tested copies. A step already done for the same commit
 is checked and skipped, so a stopped run can be repeated. `gh release create`
 publishes only after every upload succeeds; a failed upload deletes its
-draft.
+draft (unverified).
 
 It pushes from the worktree, so the main checkout's `main` stays behind until
 `git pull --ff-only` runs there.

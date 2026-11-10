@@ -10,8 +10,8 @@ The [root](../../AGENTS.md), [GUI](../AGENTS.md) and
   target from `gui/macos/Info.plist`.
 - When the window check fails, read `report.txt` and `report.txt.log` in its
   work folder.
-- `check-window.sh` runs only in a guest. Set `LOOSE_KEYS_WINDOW_CHECK=host`
-  only when the person asks for a run on the host.
+- A run of `check-window.sh` on the host that the person asked for needs
+  `LOOSE_KEYS_WINDOW_CHECK=host`.
 - `refresh-order.swift` runs the real model against a stand-in engine that
   controls response order. A pass says nothing about the running bundle or
   the orders macOS produces.
@@ -23,8 +23,8 @@ The [root](../../AGENTS.md), [GUI](../AGENTS.md) and
   background items.
 - A negative control must fail at its intended assertion, not at an unrelated
   prerequisite.
-- If helper cleanup fails, keep the work folder, stop the guest and reset the
-  clone before another run. Do not say the helper is off.
+- If helper cleanup fails or the run is killed, keep the work folder, stop the
+  guest and reset the clone before another run. Do not say the helper is off.
 - Report the helper check's PASS, FAIL, BLOCKED and NOT RUN result for each
   case.
 

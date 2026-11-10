@@ -17,7 +17,8 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   `macos/dev.loosekeys.agent.plist`.
 - `src/monitor.rs`: the helper's schedule, cancellation and the gate for
   manual scans.
-- `src/review.rs`: the review store, shared by the app and the helper.
+- `src/review.rs` and `src/review/`: the review store, shared by the app and
+  the helper.
 - `src/release.rs`: reads GitHub's reply for `check_release` (the window
   fetches it in `app/Updates.swift`), and holds the test that keeps network
   code inside `Updates.swift`.
@@ -59,7 +60,7 @@ in the guest.
 - A new command goes in `dispatch`, with its result type in `app/Models.swift`
   and an answer in `SampleEngine` in `app/Preview.swift`, so the sample-data
   builds still work.
-- A new `src/*.rs` file whose text reaches the window goes into `SOURCES`
+- A new file under `src/` whose text reaches the window goes into `SOURCES`
   and `ENGINE` in `src/engine_text_tests.rs`, or its Spanish is not checked.
 - Changing one of the five functions means changing `Bridge.h`, `src/lib.rs`
   and `app/Engine.swift` together. Ask first.

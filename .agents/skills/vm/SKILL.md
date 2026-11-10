@@ -48,8 +48,9 @@ specified, use local `main`.
    home, such as a synthetic file at a path the profile names. Neither works
    with `--into`.
 
-3. Report the summary it prints: the VM, its base, whether the app is
-   running, the commit and how it was signed, and the `tart delete` line for
+3. Report the summary it prints: the VM, its base for a new one, whether the
+   app is running, the commit and how it was signed, and the `tart delete` line
+   for
    older stopped clones, which the person may run. The person presses Scan
    Now. Do not drive the app or scan for them.
 4. If it fails, report the step and the log it names. A run that fails after
@@ -65,16 +66,10 @@ specified, use local `main`.
    `VM:` line of a check you ran (in `window.log` for a `tests/check-all.sh`
    run), never one picked by name or time.
 
-What the script does: it checks that fewer than two VMs are running, then
-builds from a `git archive` export of the commit (of two commits combined
-with `git merge-tree`, which fails on a conflict, or of the checkout's files
-staged in a scratch index for `.`) in `$TMPDIR`, runs the bundle contract
-test, makes a decoy home with `security-tests/harness.sh generate-home`
-(leaving out its fake login keychain and Notes store, which would replace the
-guest's own), checks the slots again, clones the base, checks both copies by
-SHA-256, installs the app in the guest's `/Applications`, checks its
-signature and that the guest has no app state yet, opens it and checks that
-it runs. It signs with the Apple Development identity when this Mac has one;
+The script builds from the commit, not the checkout's files, except for `.`;
+two refs that conflict fail. The decoy home leaves out the generator's fake
+login keychain and Notes store, which would replace the guest's own. The
+build is signed with the Apple Development identity when this Mac has one;
 `LOOSE_KEYS_SIGN_IDENTITY=-` asks for ad hoc, which can make macOS refuse the
 helper after `--into`.
 

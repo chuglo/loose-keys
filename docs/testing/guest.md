@@ -101,8 +101,7 @@ When done, run `sync` in the guest, then `tart stop "$VM"` on this Mac.
 
 Two development builds, defined in `gui/app/Preview.swift`, save a picture of
 each page into `SNAPSHOT_DIR` and quit. The `PREVIEW` build uses sample data
-and no engine; it runs on this Mac only when the person explicitly asks,
-since its window appears on their screen. The `SNAPSHOTS` build uses the real
+and no engine. The `SNAPSHOTS` build uses the real
 engine and needs `sh gui/build-macos.sh` to have run in the guest, which
 needs Rust and Apple's command-line tools there. In the guest, from `~/work`,
 with `TMPDIR` set as in [local checks](local-verification.md) and a new
@@ -176,5 +175,4 @@ If that base is absent, preparing it is a separate, supervised setup step:
 clone a macOS image, use Tart's Recovery window to enable SIP with
 `csrutil enable`, and verify `csrutil status` and `spctl --status` after a
 normal boot. Do not disable either protection or answer unrelated security
-prompts to get the checks running. Creating a new base from Recovery is
-unverified.
+prompts to get the checks running.
