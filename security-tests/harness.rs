@@ -88,7 +88,7 @@ fn dispatch(args: &[String]) -> Result<i32> {
         }
         Some("careful") | Some("naive") => reference::scan(args),
         _ => Err(
-            "expected generate, generate-home, check, validate, platform, selftest or --self-tests"
+            "expected generate, generate-home, check, validate, platform, selftest, helper-check, helper-self-tests or --self-tests"
                 .into(),
         ),
     }

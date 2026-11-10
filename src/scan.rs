@@ -94,8 +94,8 @@ pub const EXCLUDED: &[&str] = &[
     // Data macOS keeps from other programs without Full Disk Access, which
     // Loose Keys never asks for. Listing one is refused on nearly every Mac and
     // was a gap after every scan. No rule reads them. Listed only where logs
-    // of refusals from 2022 to macOS 14.5 show them; a protected folder not
-    // here is still a gap.
+    // of refusals from 2022 to macOS 14.5, or the guest named below, show
+    // them; a protected folder not here is still a gap.
     "Library/Mail",
     "Library/Messages",
     "Library/Safari",

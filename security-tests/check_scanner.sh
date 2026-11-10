@@ -3,7 +3,7 @@
 # Usage: security-tests/check_scanner.sh [work-dir]
 set -eu
 cd "$(dirname "$0")/.."
-BASE=${1:-${TMPDIR:-/tmp}/loose-keys-check}
+BASE=${1:-${TMPDIR:?TMPDIR must name a symlink-free scratch directory}/loose-keys-check}
 mkdir -p "$BASE"
 WORK=$(mktemp -d "$BASE/check.XXXXXX")
 cargo build --locked --release --quiet

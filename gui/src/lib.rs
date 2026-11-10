@@ -551,7 +551,7 @@ fn set_login_startup_with(
         return Err(error);
     }
     if enabled && !monitoring {
-        return Err("To open Loose Keys at login, first turn on Scan Automatically.".into());
+        return Err("Turn on Scan Automatically first.".into());
     }
     let status = set_login(enabled);
     drop(one_change);
@@ -1748,13 +1748,13 @@ fn rules_text() -> String {
     rules::rule_list()
 }
 
-/// The real path, only for plain printable names: anything else (control
-/// characters, bidi overrides, non-UTF-8) is shown escaped and not acted on.
 /// Whether a name is one the app acts on: printable ASCII and nothing else.
 fn plain(name: &str) -> bool {
     name.chars().all(|c| (' '..='~').contains(&c))
 }
 
+/// The real path, only for plain printable names: anything else (control
+/// characters, bidi overrides, non-UTF-8) is shown escaped and not acted on.
 fn full_path(rel: &str, home: Option<&Path>) -> Option<PathBuf> {
     plain(rel).then(|| real_path(rel, home)).flatten()
 }

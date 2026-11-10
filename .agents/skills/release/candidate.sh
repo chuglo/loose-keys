@@ -38,7 +38,7 @@ tar -xf "$OUT/share/repo.tar" -C "$OUT/src"
 cd "$OUT/src"
 export CARGO_TARGET_DIR="$OUT/src/target"
 
-# Releases are signed ad hoc, as 0.1.0 and 0.2.0 were.
+# Releases are signed ad hoc.
 LOOSE_KEYS_SIGN_IDENTITY=- logged build sh gui/build-macos.sh
 logged bundle-contract node --test gui/tests/bundle-contract.test.js
 for file in gui/Cargo.toml gui/macos/Info.plist README.md; do

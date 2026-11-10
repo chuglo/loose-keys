@@ -1,6 +1,6 @@
 //! The background agent: this executable run with `--agent`. It has no
-//! window, Dock icon or web view. launchd starts it at login and restarts it
-//! if it fails (gui/macos/dev.loosekeys.agent.plist).
+//! window or Dock icon. launchd starts it at login and restarts it if it
+//! fails (gui/macos/dev.loosekeys.agent.plist).
 //!
 //! It checks files when they change, works through the rest of the home
 //! folder in short slices until every folder has been seen once, and sends

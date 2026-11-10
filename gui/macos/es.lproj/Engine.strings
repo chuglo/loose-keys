@@ -675,7 +675,7 @@
 "The menu bar setting cannot be saved because Loose Keys could not open its saved data." = "No se puede guardar el ajuste de la barra de menús porque Loose Keys no pudo abrir sus datos guardados.";
 
 /* gui/src/lib.rs:356 */
-"To open Loose Keys at login, first turn on Scan Automatically." = "Para abrir Loose Keys al iniciar sesión, activa primero Analizar automáticamente.";
+"Turn on Scan Automatically first." = "Activa primero Analizar automáticamente.";
 
 /* gui/src/lib.rs:593 */
 "Loose Keys could not open its saved data." = "Loose Keys no pudo abrir sus datos guardados.";

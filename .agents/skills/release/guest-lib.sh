@@ -1,5 +1,5 @@
-# Shared by bundle-check.sh and helper-check.sh. Expects CAND, VM, WORK, S
-# and TART to be set.
+# Shared by the scripts that read a candidate. All expect CAND; those that
+# start a guest also set VM, WORK, S and TART.
 
 fail() {
     printf 'FAILED: %s\n' "$*" >&2
