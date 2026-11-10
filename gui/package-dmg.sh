@@ -7,7 +7,7 @@ APP='target/release/bundle/macos/Loose Keys.app'
 [ -d "$APP" ] || { echo 'Run sh gui/build-macos.sh from the repository root first.' >&2; exit 1; }
 /usr/bin/codesign --verify --deep --strict "$APP"
 VERSION=$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
-printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || exit 1
+printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "The bundle's version is not in the form 1.2.3: $VERSION" >&2; exit 1; }
 OUT="target/release/bundle/macos/Loose-Keys-$VERSION.dmg"
 # hdiutil also refuses an existing destination; do not replace a tested image.
 [ ! -e "$OUT" ] && [ ! -L "$OUT" ] || { echo "Already exists: $OUT" >&2; exit 1; }

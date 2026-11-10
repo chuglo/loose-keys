@@ -31,6 +31,8 @@ const SLICE: Limits = Limits {
     time: Duration::from_secs(5),
 };
 const SLICE_PAUSE: Duration = Duration::from_secs(30);
+/// The wait before a full pass held by Low Power Mode is tried again.
+const LOW_POWER_PAUSE: Duration = Duration::from_secs(600);
 /// The rechecks of one save run with the store locked, which the app waits
 /// for whenever it reads or changes the review list.
 const RECHECKS: Duration = Duration::from_secs(10);
@@ -105,7 +107,6 @@ struct Agent {
     /// How long a path that changed again waits for its next check, before
     /// doubling. `RECHECK_AFTER`, except in tests.
     recheck_after: Duration,
-    /// What one slice of a full pass may spend, and the rest between slices.
     /// `SLICE` and `SLICE_PAUSE`, except in tests.
     slice: Limits,
     slice_pause: Duration,
@@ -117,8 +118,7 @@ struct Agent {
     changes: Limits,
     /// Whether Low Power Mode is on, which postpones the full pass.
     low_power: fn() -> bool,
-    /// Wait before retrying a full pass held by Low Power Mode: ten minutes,
-    /// shortened only by synthetic worker tests.
+    /// `LOW_POWER_PAUSE`, except in tests.
     low_power_pause: Duration,
     /// Open the event stream again from an event, to replay what was
     /// dropped. Ends the agent if it cannot, so launchd starts it again.
@@ -374,6 +374,39 @@ impl Agent {
         true
     }
 
+    /// The completion of a notification handed to macOS. `allowed` is
+    /// whether notifications were allowed when it came back.
+    fn delivered(&self, revision: u64, success: bool, allowed: bool) {
+        let state = if success {
+            self.store.update(|state| {
+                state.delivered(revision);
+                Ok(self.ticket())
+            })
+        } else if !allowed {
+            // Refused because notifications are not allowed, which the
+            // bridge reports to `permission` first. No delivery failed, so
+            // the attempt is given back: turned on again, they find it owed.
+            self.store.update(|state| {
+                state.attempts = state.attempts.saturating_sub(1);
+                Ok(self.ticket())
+            })
+        } else {
+            let ticket = self.ticket();
+            self.store.read().map(|state| (state, ticket))
+        };
+        *self.delivering.lock().unwrap() = None;
+        match state {
+            Ok((state, ticket)) => {
+                self.remember(&state, ticket);
+                if state.attempts < 3 {
+                    let delay = state.retry_at.saturating_sub(crate::now()).max(1);
+                    self.monitor.retry_in(Duration::from_secs(delay));
+                }
+            }
+            Err(e) => eprintln!("loose-keys agent: {e}"),
+        }
+    }
+
     /// One file-change event: hold the path for the worker.
     fn changed(&self, path: PathBuf, flags: u32) {
         if flags & HISTORY_DONE != 0 {
@@ -475,28 +508,12 @@ extern "C" fn allowed(revision: u64) -> bool {
 }
 
 extern "C" fn delivered(revision: u64, success: bool) {
-    let Some(agent) = AGENT.get() else {
-        return;
-    };
-    let state = if success {
-        agent.store.update(|state| {
-            state.delivered(revision);
-            Ok(agent.ticket())
-        })
-    } else {
-        let ticket = agent.ticket();
-        agent.store.read().map(|state| (state, ticket))
-    };
-    *agent.delivering.lock().unwrap() = None;
-    match state {
-        Ok((state, ticket)) => {
-            agent.remember(&state, ticket);
-            if state.attempts < 3 {
-                let delay = state.retry_at.saturating_sub(crate::now()).max(1);
-                agent.monitor.retry_in(Duration::from_secs(delay));
-            }
-        }
-        Err(e) => eprintln!("loose-keys agent: {e}"),
+    if let Some(agent) = AGENT.get() {
+        agent.delivered(
+            revision,
+            success,
+            crate::PERMISSION.load(Ordering::SeqCst) == 3,
+        );
     }
 }
 
@@ -665,16 +682,16 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
         if tick {
             checked.retain(|_, (last, _)| last.elapsed() < CADENCE);
             let ticket = agent.ticket();
-            let state = agent.store.read();
-            let last = state.as_ref().map_or(0, |s| s.agent.baseline_at);
             // What is to be notified can change by the clock alone, as when
             // a set-aside reason ends, with nothing read or written to say
-            // so. What is known is from before; this is as it is now.
-            if let Ok(state) = &state {
-                agent.remember(state, ticket);
-            }
-            if full_pass.is_none() && pass_due(last, crate::now()) {
-                full_pass = Some(None);
+            // so. What is known is from before; this is as it is now. A
+            // state that cannot be read says nothing of when the last pass
+            // was, so it starts none.
+            if let Ok(state) = agent.store.read() {
+                agent.remember(&state, ticket);
+                if full_pass.is_none() && pass_due(state.agent.baseline_at, crate::now()) {
+                    full_pass = Some(None);
+                }
             }
         }
         if restart {
@@ -784,8 +801,11 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
             } else if Instant::now() < next_slice {
                 full_pass = Some(resume);
             } else {
+                // A pass begins with nothing counted against it: one given
+                // up before must not give up this one at its first cancel.
                 if resume.is_none() {
                     unread = review::UnreadPlaces::default();
+                    stalled = 0;
                 }
                 let before = resume.clone();
                 let (key, digest) = agent.fingerprint();
@@ -953,7 +973,7 @@ pub fn run() -> ! {
         changes: CHANGES,
         // SAFETY: reads one process-wide setting; no preconditions.
         low_power: || unsafe { ch_low_power() },
-        low_power_pause: Duration::from_secs(600),
+        low_power_pause: LOW_POWER_PAUSE,
         resume_watch: |since| {
             // SAFETY: takes a number and borrows nothing. The worker calls it,
             // never the stream's own queue, which it waits for.
@@ -994,7 +1014,9 @@ pub fn run() -> ! {
         .unwrap_or_else(|_| fail("could not start the worker"));
     // SAFETY: runs the main run loop; called once, on the main thread.
     unsafe { ch_agent_run() };
-    std::process::exit(0)
+    // It is not meant to return. Exiting with success would leave launchd
+    // to start nothing, while the window showed checks as on.
+    fail("the run loop ended")
 }
 
 #[cfg(test)]
@@ -1056,7 +1078,7 @@ mod tests {
                 rechecks: RECHECKS,
                 changes: CHANGES,
                 low_power: || false,
-                low_power_pause: Duration::from_secs(600),
+                low_power_pause: LOW_POWER_PAUSE,
                 resume_watch: |_| {},
                 refresh: || {},
                 asked: Mutex::new(None),
@@ -1404,6 +1426,38 @@ mod tests {
         f.wait("a full pass after one stamped a year ahead", |s| {
             s.agent.baseline_at < ahead
         });
+        f.stop();
+    }
+
+    /// A state that could not be read at the quarter-hourly check was taken
+    /// for one with no pass ever made, and a full pass was begun at every
+    /// check while the read kept failing.
+    #[test]
+    fn a_state_that_cannot_be_read_at_a_check_begins_no_full_pass() {
+        static PASSES: AtomicUsize = AtomicUsize::new(0);
+        // Asked before each slice of a full pass, and only then.
+        fn counted() -> bool {
+            PASSES.fetch_add(1, Ordering::SeqCst);
+            false
+        }
+        let f = Fixture::tuned(
+            "unreadable-tick",
+            &[],
+            |_| {},
+            |agent| agent.low_power = counted,
+        );
+        f.first_pass();
+        let before = PASSES.load(Ordering::SeqCst);
+        let file = f.agent.state_dir.join("state.json");
+        std::fs::write(&file, "damaged synthetic state").unwrap();
+        assert!(f.app.read().is_err());
+        f.tick();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            PASSES.load(Ordering::SeqCst),
+            before,
+            "a failed read began a full pass"
+        );
         f.stop();
     }
 
@@ -1916,10 +1970,6 @@ mod tests {
         f.stop();
     }
 
-    unsafe extern "C" {
-        fn ch_watch_stop();
-    }
-
     /// The real event stream, on a synthetic folder: opened again from an
     /// event, it replays from the change history what came after that event,
     /// and not what came before. The only test that starts this process's
@@ -1971,12 +2021,6 @@ mod tests {
         assert!(unsafe { ch_watch_resume(place) });
         wait("the second file again", &|| seen("after-the-place"));
         assert!(!seen("before-the-place"), "replayed from before the place");
-        // SAFETY: takes nothing; called from this thread, not the stream's queue.
-        unsafe { ch_watch_stop() };
-        SEEN.lock().unwrap().clear();
-        touch(&dir.join("after-the-stop"));
-        std::thread::sleep(Duration::from_millis(500));
-        assert!(!seen("after-the-stop"), "reported after the stream stopped");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2127,6 +2171,57 @@ mod tests {
             s.items.len() == 1
         });
         assert_eq!(open(&state), ["~/found-by-the-pass.csv"]);
+        f.stop();
+    }
+
+    /// The count of slices that got nowhere outlived the pass it gave up.
+    /// The next pass, its first slice cut by a cancel, was then given up
+    /// too, before it had made one slice of its own.
+    #[test]
+    fn a_pass_after_one_given_up_is_not_given_up_for_a_cancel() {
+        static CUT: AtomicBool = AtomicBool::new(false);
+        static SLICES: AtomicUsize = AtomicUsize::new(0);
+        static CANCEL: OnceLock<std::sync::Arc<AtomicBool>> = OnceLock::new();
+        // Asked just before each slice: counts them, and cuts the one after
+        // `CUT` is set before it has done anything.
+        fn cut() -> bool {
+            SLICES.fetch_add(1, Ordering::SeqCst);
+            if CUT.swap(false, Ordering::SeqCst) {
+                if let Some(cancel) = CANCEL.get() {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            }
+            false
+        }
+        // No time for a folder, so after the known locations every slice
+        // leaves the pass as it found it.
+        let mut f = Fixture::tuned(
+            "given-up-then-cut",
+            &[],
+            |_| {},
+            |agent| {
+                agent.low_power = cut;
+                agent.slice.time = Duration::ZERO;
+                agent.slice_pause = Duration::from_millis(20);
+            },
+        );
+        CANCEL.set(f.agent.monitor.cancel.clone()).unwrap();
+        // One slice that lists the home, and three that get nowhere.
+        f.until("the first pass to be given up", || {
+            SLICES.load(Ordering::SeqCst) >= 4
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            SLICES.load(Ordering::SeqCst),
+            4,
+            "the pass was not given up"
+        );
+        CUT.store(true, Ordering::SeqCst);
+        f.changes_lost();
+        f.until(
+            "the next pass to go on after its first slice was cut",
+            || SLICES.load(Ordering::SeqCst) >= 6,
+        );
         f.stop();
     }
 
@@ -2536,6 +2631,39 @@ mod tests {
             "permission to be asked again after the app's change",
             || ASKED.load(Ordering::SeqCst) == 2,
         );
+        f.stop();
+    }
+
+    /// Notifications turned off in System Settings while the helper ran:
+    /// each send was refused, and each refusal spent one of the three
+    /// attempts, so none was made again once they were turned back on.
+    #[test]
+    fn a_send_refused_for_want_of_permission_spends_no_attempt() {
+        let f = Fixture::start("refused", &["export.csv"], |_| {});
+        let state = f.first_pass();
+        assert!(state.pending(crate::now()));
+        let attempt = || {
+            let (_, revision) = f
+                .agent
+                .store
+                .update(|state| {
+                    state.attempted(crate::now());
+                    Ok(state.revision)
+                })
+                .unwrap();
+            revision
+        };
+        for _ in 0..3 {
+            f.agent.delivered(attempt(), false, false);
+        }
+        assert_eq!(
+            f.app.read().unwrap().attempts,
+            0,
+            "a refusal spent an attempt"
+        );
+        // A delivery that failed with notifications allowed still counts.
+        f.agent.delivered(attempt(), false, true);
+        assert_eq!(f.app.read().unwrap().attempts, 1);
         f.stop();
     }
 

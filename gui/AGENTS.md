@@ -24,10 +24,9 @@ helper. Both link the engine, which links the scanner crate in `src/`.
   code inside `Updates.swift`.
 - `src/notifications.m`: the macOS side: notifications, the helper's and the
   app's login items, sleep and wake, and file events.
-  `build.rs` compiles it with `clang` and archives it with `ar`. The file is
-  built for macOS 10.15 and Cargo hides clang's warnings, so an API newer
-  than macOS 14 needs `@available` here, and the build does not catch a
-  missing one.
+  `build.rs` compiles it with `clang` for the minimum macOS below and
+  archives it with `ar`. An API newer than that minimum without `@available`
+  fails the build.
 - `app/`: the window. `Engine.swift` is its side of `Bridge.h`, `AppModel.swift`
   holds all view state, `Models.swift` decodes the engine's JSON,
   `Failure.swift` has the titles of the alerts for failed actions,

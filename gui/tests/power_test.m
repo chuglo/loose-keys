@@ -29,11 +29,7 @@ int main(void) {
         }
         [center removeObserver:sleepObserver];
         [center removeObserver:wakeObserver];
-        if (@available(macOS 12.0, *)) {
-            assert(ch_low_power() == NSProcessInfo.processInfo.lowPowerModeEnabled);
-        } else {
-            assert(!ch_low_power());
-        }
+        assert(ch_low_power() == NSProcessInfo.processInfo.lowPowerModeEnabled);
         puts("Power bridge passed: local sleep/wake callbacks and read-only power query. No system power changes.");
     }
     return 0;

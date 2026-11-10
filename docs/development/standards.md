@@ -919,11 +919,16 @@ While notifications are not allowed and something waits to be sent, the
 helper asks macOS again at most once a quarter-hour, and at once after the app
 changes the shared state, which it does when notifications are allowed there.
 A notification handed to macOS holds off the next until its completion comes
-back, or for two minutes if it never does. The last check before sending
-(`allowed`) reads the review list on a background queue, not the main one,
-which a save holding the store could otherwise block.
-Verification: `notification_permission_is_asked_again_once_in_a_while_not_at_every_wake`
-and `a_delivery_that_never_hears_back_stops_holding_up_the_next`. Not
+back, or for two minutes if it never does. A send macOS refuses because
+notifications are not allowed updates the permission the helper knows and
+spends none of the three tries, so notifications turned off and on again in
+System Settings still bring it. The last check before sending
+(`allowed`) and the completion (`delivered`) read the review list on a
+background queue, not the main one, which a save holding the store could
+otherwise block.
+Verification: `notification_permission_is_asked_again_once_in_a_while_not_at_every_wake`,
+`a_send_refused_for_want_of_permission_spends_no_attempt` and
+`a_delivery_that_never_hears_back_stops_holding_up_the_next`. Not
 verified: a completion that never comes, or permission given in System
 Settings, with a real helper.
 

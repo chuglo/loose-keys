@@ -83,7 +83,9 @@ static void readPermission(BOOL requestFailed) {
     }];
 }
 
-static void updatePermission(void) { readPermission(NO); }
+// Ask macOS again whether notifications are allowed. The answer comes back
+// through the permission callback.
+void ch_notifications_refresh(void) { readPermission(NO); }
 
 @interface ReviewNotifications : NSObject <UNUserNotificationCenterDelegate>
 @end
@@ -101,7 +103,8 @@ static void updatePermission(void) { readPermission(NO); }
         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completion {
     // Recheck activity if the user switches apps while delivery is in progress.
     dispatch_async(dispatch_get_main_queue(), ^{
-        completion(reviewIsVisible() ? UNNotificationPresentationOptionNone : UNNotificationPresentationOptionAlert);
+        completion(reviewIsVisible() ? UNNotificationPresentationOptionNone
+                                     : UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList);
     });
 }
 @end
@@ -109,7 +112,7 @@ static void updatePermission(void) { readPermission(NO); }
 void ch_notifications_init(ReviewCallback callback, void (*permission)(unsigned char)) {
     reviewCallback = callback;
     permissionCallback = permission;
-    updatePermission();
+    ch_notifications_refresh();
     // UserNotifications requires an app bundle. Command-line builds remain usable.
     if (!NSBundle.mainBundle.bundleIdentifier) return;
     UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
@@ -134,23 +137,34 @@ void ch_notifications_permission(void) {
         }];
 }
 
-// Ask macOS again whether notifications are allowed. The answer comes back
-// through the permission callback.
-void ch_notifications_refresh(void) { updatePermission(); }
+// The agent's delivery callback reads or saves the review list, which waits
+// while the agent's worker saves, so it never runs on the main queue: that
+// would hold up the agent's run loop, and its sleep and wake, behind a save.
+static void reportDelivery(unsigned long long revision, bool success) {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        if (deliveryCallback) deliveryCallback(revision, success);
+    });
+}
 
 void ch_notifications_send(unsigned long long revision) {
     if (!NSBundle.mainBundle.bundleIdentifier) { if (deliveryCallback) deliveryCallback(revision, false); return; }
     UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
     [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
-        if (settings.authorizationStatus != UNAuthorizationStatusAuthorized) { if (deliveryCallback) deliveryCallback(revision, false); return; }
+        if (settings.authorizationStatus != UNAuthorizationStatusAuthorized) {
+            // Turned off since the agent last asked. Said first, so the agent
+            // takes the refusal for that and not for a delivery that failed.
+            if (permissionCallback) permissionCallback(permissionValue(settings.authorizationStatus, NO));
+            if (deliveryCallback) deliveryCallback(revision, false);
+            return;
+        }
         // The agent's check reads the review list, which waits while the
         // agent's worker saves, so it runs off the main queue.
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             if (deliveryAllowed && !deliveryAllowed(revision)) { if (deliveryCallback) deliveryCallback(revision, false); return; }
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (reviewIsVisible()) { if (deliveryCallback) deliveryCallback(revision, false); return; }
+                if (reviewIsVisible()) { reportDelivery(revision, false); return; }
                 [center addNotificationRequest:reviewRequest() withCompletionHandler:^(NSError *error) {
-                    if (deliveryCallback) deliveryCallback(revision, error == nil);
+                    reportDelivery(revision, error == nil);
                 }];
             });
         });
@@ -168,13 +182,13 @@ void ch_background_init(void (*sleep)(bool), void (*delivery)(unsigned long long
         if (sleepCallback) sleepCallback(true);
     }];
     wakeObserver = [center addObserverForName:NSWorkspaceDidWakeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        updatePermission();
+        ch_notifications_refresh();
         if (sleepCallback) sleepCallback(false);
     }];
 }
 
-// 0 unavailable, 1 disabled, 2 enabled, 3 approval required, 4 error/not found.
-static unsigned char serviceStatus(SMAppService *service) API_AVAILABLE(macos(13.0)) {
+// 1 disabled, 2 enabled, 3 approval required, 4 error/not found.
+static unsigned char serviceStatus(SMAppService *service) {
     switch (service.status) {
         case SMAppServiceStatusNotRegistered: return 1;
         case SMAppServiceStatusEnabled: return 2;
@@ -183,7 +197,7 @@ static unsigned char serviceStatus(SMAppService *service) API_AVAILABLE(macos(13
     }
 }
 
-static unsigned char serviceSet(SMAppService *service, bool enabled) API_AVAILABLE(macos(13.0)) {
+static unsigned char serviceSet(SMAppService *service, bool enabled) {
     NSError *error = nil;
     BOOL ok;
     if (enabled) {
@@ -209,25 +223,21 @@ static unsigned char serviceSet(SMAppService *service, bool enabled) API_AVAILAB
 
 // The background agent's launchd job.
 unsigned char ch_login_status(void) {
-    if (@available(macOS 13.0, *)) return serviceStatus([SMAppService agentServiceWithPlistName:agentPlist]);
-    return 0;
+    return serviceStatus([SMAppService agentServiceWithPlistName:agentPlist]);
 }
 
 unsigned char ch_login_set(bool enabled) {
-    if (@available(macOS 13.0, *)) return serviceSet([SMAppService agentServiceWithPlistName:agentPlist], enabled);
-    return 0;
+    return serviceSet([SMAppService agentServiceWithPlistName:agentPlist], enabled);
 }
 
 // The app itself in Login Items, which opens it at login in the menu bar.
 // Same codes as the agent's job.
 unsigned char ch_app_login_status(void) {
-    if (@available(macOS 13.0, *)) return serviceStatus([SMAppService mainAppService]);
-    return 0;
+    return serviceStatus([SMAppService mainAppService]);
 }
 
 unsigned char ch_app_login_set(bool enabled) {
-    if (@available(macOS 13.0, *)) return serviceSet([SMAppService mainAppService], enabled);
-    return 0;
+    return serviceSet([SMAppService mainAppService], enabled);
 }
 
 void ch_fingerprint(const unsigned char *key, const unsigned char *bytes, size_t length, bool shared, unsigned char *out) {
@@ -306,19 +316,6 @@ bool ch_watch_resume(unsigned long long since) {
     return ok;
 }
 
-// Stop reporting file changes. Never call it from the stream's queue.
-void ch_watch_stop(void) {
-    if (!watchQueue) return;
-    dispatch_sync(watchQueue, ^{
-        if (watchStream) {
-            FSEventStreamStop(watchStream);
-            FSEventStreamInvalidate(watchStream);
-            FSEventStreamRelease(watchStream);
-            watchStream = NULL;
-        }
-    });
-}
-
 // Identifies the change history of the volume holding `path`. Event numbers
 // are only meaningful while this stays the same. `out` holds 37 bytes.
 bool ch_watch_volume(const char *path, char *out) {
@@ -333,10 +330,7 @@ bool ch_watch_volume(const char *path, char *out) {
     return ok;
 }
 
-bool ch_low_power(void) {
-    if (@available(macOS 12.0, *)) return NSProcessInfo.processInfo.lowPowerModeEnabled;
-    return false;
-}
+bool ch_low_power(void) { return NSProcessInfo.processInfo.lowPowerModeEnabled; }
 
 // Show the app's review page: bring a running app forward, or start it.
 // macOS starts the app itself for a click on its notification, and hands

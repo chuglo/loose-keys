@@ -7,11 +7,17 @@ fn main() {
     } else {
         "x86_64"
     };
+    // The app's minimum macOS, which .cargo/config.toml sets for every
+    // Cargo build. Cargo hides clang's warnings, so an API newer than it
+    // without an @available check fails the build instead.
+    let minimum = std::env::var("MACOSX_DEPLOYMENT_TARGET")
+        .expect("MACOSX_DEPLOYMENT_TARGET is set in .cargo/config.toml");
     assert!(std::process::Command::new("clang")
         .args([
             "-fobjc-arc",
             "-fblocks",
-            "-mmacosx-version-min=10.15",
+            &format!("-mmacosx-version-min={minimum}"),
+            "-Werror=unguarded-availability",
             "-arch",
             arch,
             "-c",
@@ -53,4 +59,5 @@ fn main() {
     println!("cargo:rustc-link-lib=framework=ServiceManagement");
     println!("cargo:rustc-link-lib=framework=CoreServices");
     println!("cargo:rerun-if-changed=src/notifications.m");
+    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
 }

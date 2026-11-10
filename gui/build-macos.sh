@@ -13,18 +13,42 @@ fi
 # such as an Apple Development one.
 IDENTITY=${LOOSE_KEYS_SIGN_IDENTITY:--}
 # Checked before the old bundle is removed, so a wrong name leaves it in place.
-if [ "$IDENTITY" != - ] && ! /usr/bin/security find-identity -v -p codesigning | grep -q -F -- "$IDENTITY"; then
-    printf '%s\n' "No valid code-signing identity matches LOOSE_KEYS_SIGN_IDENTITY ($IDENTITY)." \
-        'List them with: security find-identity -v -p codesigning' >&2
-    exit 1
+# As codesign reads it: an identity's whole SHA-1 hash, or part of its name,
+# and only one identity may match.
+if [ "$IDENTITY" != - ]; then
+    matches=$(/usr/bin/security find-identity -v -p codesigning | IDENTITY="$IDENTITY" /usr/bin/awk '
+        $1 ~ /^[0-9]+\)$/ && index($0, "\"") {
+            name = substr($0, index($0, "\"") + 1)
+            sub(/"[^"]*$/, "", name)
+            if (toupper($2) == toupper(ENVIRON["IDENTITY"]) || index(name, ENVIRON["IDENTITY"])) n++
+        }
+        END { print n + 0 }')
+    if [ "$matches" != 1 ]; then
+        printf '%s\n' "LOOSE_KEYS_SIGN_IDENTITY ($IDENTITY) matches $matches valid code-signing identities, not one." \
+            'List them with: security find-identity -v -p codesigning' >&2
+        exit 1
+    fi
 fi
 APP='target/release/bundle/macos/Loose Keys.app'
 MINIMUM=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw -o - gui/macos/Info.plist)
 # The engine (the scanner, review store and background agent, as a static
 # library) and the `loose-keys` command, built for the macOS that
 # .cargo/config.toml sets. Keep the output location fixed, even if the caller
-# has CARGO_TARGET_DIR set.
-cargo build --workspace --target-dir target --locked --release
+# has CARGO_TARGET_DIR set. A target triple set in the environment or a Cargo
+# config moves the output under target/<triple>, so the files are taken from
+# where Cargo says this build put them.
+MESSAGES=target/release/build-messages.json
+mkdir -p target/release
+cargo build --workspace --target-dir target --locked --release --message-format=json-render-diagnostics > "$MESSAGES"
+artifact() {
+    grep -o "\"[^\"]*/$1\"" "$MESSAGES" | tail -n 1 | tr -d '"'
+}
+ENGINE=$(artifact libloose_keys_gui.a)
+CLI=$(artifact loose-keys)
+if [ ! -f "$ENGINE" ] || [ ! -f "$CLI" ]; then
+    printf '%s\n' 'Cargo did not report building the engine and the loose-keys command.' >&2
+    exit 1
+fi
 # Start from an empty bundle, so nothing left by an earlier build is signed into it.
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
@@ -36,14 +60,14 @@ mkdir -p "$STRINGS"
 # is the background agent and starts no app.
 swiftc -parse-as-library -O -target "$(uname -m)-apple-macosx$MINIMUM" \
     -import-objc-header gui/app/Bridge.h gui/app/*.swift \
-    target/release/libloose_keys_gui.a \
+    "$ENGINE" \
     -framework AppKit -framework UserNotifications -framework ServiceManagement -framework CoreServices \
     -Xlinker -dead_strip \
     -emit-localized-strings -emit-localized-strings-path "$STRINGS" \
     -o "$APP/Contents/MacOS/loose-keys-gui"
 cp gui/macos/Info.plist "$APP/Contents/Info.plist"
 # The command line: the same scanner, run once from a terminal.
-cp target/release/loose-keys "$APP/Contents/MacOS/loose-keys"
+cp "$CLI" "$APP/Contents/MacOS/loose-keys"
 # The icon at the sizes macOS asks for, with the margin its icon grid expects.
 ICONSET=target/release/AppIcon.iconset
 rm -rf "$ICONSET"
