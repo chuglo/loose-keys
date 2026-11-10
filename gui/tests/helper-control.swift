@@ -24,7 +24,7 @@ guard environment["LOOSE_KEYS_HELPER_CHECK"] == "disposable-guest",
 guard AXIsProcessTrusted() else { stop("BLOCKED: guest driver needs Accessibility", 2) }
 if args.count == 2 && args[1] == "preflight" { print("PASS: Accessibility"); exit(0) }
 guard args.count == 3, let pid = Int32(args[1]),
-      ["enable", "enable-overview", "disable", "restart"].contains(args[2]) else {
+      ["enable", "disable", "restart"].contains(args[2]) else {
     stop("BLOCKED: expected app PID and helper action", 2)
 }
 let deadline = ProcessInfo.processInfo.systemUptime + 20
@@ -127,20 +127,21 @@ func press(_ element: AXUIElement, _ name: String) {
         stop("FAIL: Settings action refused: \(name), AX \(result.rawValue), enabled \(attribute(element, kAXEnabledAttribute) as? Bool ?? false)")
     }
 }
-/// The first page's button and the Settings switch share a name, so each is
-/// also known by its role.
-func control(_ name: String, roles: [String] = [kAXCheckBoxRole, kAXButtonRole]) -> AXUIElement? {
-    let matches = windows().filter { named($0, name) &&
-        attribute($0, kAXEnabledAttribute) as? Bool == true &&
-        roles.contains(attribute($0, kAXRoleAttribute) as? String ?? "") }
+func enabled(_ element: AXUIElement, _ name: String, _ role: String) -> Bool {
+    named(element, name) && attribute(element, kAXEnabledAttribute) as? Bool == true &&
+        attribute(element, kAXRoleAttribute) as? String == role
+}
+/// A control in Settings, the one window with Add Folder or Drive…. The
+/// Overview has a Scan Automatically switch under the same name.
+func control(_ name: String, _ role: String) -> AXUIElement? {
+    let settings = (attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []).map { descendants($0) }
+        .filter { $0.contains { enabled($0, "Add Folder or Drive…", kAXButtonRole) } }
+    guard settings.count == 1 else { return nil }
+    let matches = settings[0].filter { enabled($0, name, role) }
     return matches.count == 1 ? matches[0] : nil
 }
-func consentSwitch() -> AXUIElement? { control("Scan Automatically", roles: [kAXCheckBoxRole]) }
+func consentSwitch() -> AXUIElement? { control("Scan Automatically", kAXCheckBoxRole) }
 running.activate(options: [.activateIgnoringOtherApps])
-if action == "enable-overview" {
-    wait("Overview background consent unavailable") { control("Scan Automatically", roles: [kAXButtonRole]) != nil }
-    press(control("Scan Automatically", roles: [kAXButtonRole])!, "Scan Automatically")
-}
 wait("Settings menu unavailable") {
     if consentSwitch() != nil { return true }
     guard let bar = attribute(app, kAXMenuBarAttribute) else { return false }
@@ -149,14 +150,7 @@ wait("Settings menu unavailable") {
     return false
 }
 wait("background toggle unavailable") { consentSwitch() != nil }
-if action == "enable-overview" {
-    // Observe consent through Settings without enabling it there: the first
-    // page's action must have done the work. The runner checks the real agent.
-    wait("Overview background consent was not saved") {
-        guard let toggle = consentSwitch() else { return false }
-        return attribute(toggle, kAXValueAttribute) as? Int == 1
-    }
-} else if action == "enable" || action == "disable" {
+if action == "enable" || action == "disable" {
     let toggle = consentSwitch()!
     let desired = action == "enable" ? 1 : 0
     guard let current = attribute(toggle, kAXValueAttribute) as? Int else {
@@ -172,9 +166,9 @@ if action == "enable-overview" {
 } else {
     // Settings offers the button only while the helper is not running, and
     // takes it away once the helper runs again.
-    wait("Restart Helper unavailable") { control("Restart Helper", roles: [kAXButtonRole]) != nil }
-    press(control("Restart Helper", roles: [kAXButtonRole])!, "Restart Helper")
-    wait("helper did not restart") { control("Restart Helper", roles: [kAXButtonRole]) == nil }
+    wait("Restart Helper unavailable") { control("Restart Helper", kAXButtonRole) != nil }
+    press(control("Restart Helper", kAXButtonRole)!, "Restart Helper")
+    wait("helper did not restart") { control("Restart Helper", kAXButtonRole) == nil }
 }
 if windows().contains(where: { element in
     (attribute(element, kAXValueAttribute) as? String ?? "").contains("Allow in the Background")

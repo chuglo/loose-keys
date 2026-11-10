@@ -532,7 +532,7 @@ impl Run {
                 .spawn()
                 .map_err(|_| fail("cannot launch test app"))?,
         );
-        self.control("enable-overview")?;
+        self.control("enable")?;
         let state = wait_for("helper baseline", 90, || {
             let state = self.state()?;
             Ok((state["monitoring"] == true
