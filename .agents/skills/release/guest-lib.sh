@@ -106,8 +106,8 @@ unpack_candidate() {
         sh "$S" "$ZIP" > "$WORK/unpack.log" 2>&1 || fail "unpack; see $WORK/unpack.log"
 }
 
-# Flush the guest's disk before stopping it: a copy made just before a stop
-# was lost once.
+# Flush the guest's disk before stopping it, or a copy made just before the
+# stop can be lost.
 stop_guest() {
     guest sync || true
     if ! "$TART" stop "$VM" > /dev/null 2>&1; then

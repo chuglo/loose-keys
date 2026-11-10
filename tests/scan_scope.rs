@@ -126,8 +126,13 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let base = std::env::var_os("TMPDIR").expect("set TMPDIR to a scratch directory");
+        // The test harness names each test's thread after the test.
+        let test = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .replace(':', "-");
         let path = PathBuf::from(base).join(format!(
-            "credential-scope-{}-{}",
+            "credential-scope-{}-{test}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -2236,11 +2241,11 @@ fn an_excluded_folder_is_the_one_the_scan_would_read() {
     let nfd = "Cafe\u{301}";
     f.csv(&f.home().join("Documents/export.csv"));
     f.csv(&f.home().join(nfc).join("export.csv"));
-    if fs::symlink_metadata(f.home().join("documents")).is_err()
-        || fs::symlink_metadata(f.home().join(nfd)).is_err()
-    {
-        return;
-    }
+    assert!(
+        fs::symlink_metadata(f.home().join("documents")).is_ok()
+            && fs::symlink_metadata(f.home().join(nfd)).is_ok(),
+        "{CASE_INSENSITIVE}"
+    );
     let r = f.json(&[
         "--exclude",
         f.home().join("documents").to_str().unwrap(),
@@ -2266,6 +2271,8 @@ fn an_excluded_folder_is_the_one_the_scan_would_read() {
 }
 
 const HOME_REFUSED: &str = "error: the home folder, or a folder above it, cannot be skipped\n";
+const CASE_INSENSITIVE: &str = "this test needs TMPDIR on a volume that ignores case and Unicode \
+    normalisation, as macOS's default volume and the documented scratch folder do";
 
 /// macOS reaches the same folder through `/System/Volumes/Data` as well,
 /// with no link on the way, and `realpath` keeps whichever spelling it is
@@ -2285,9 +2292,11 @@ fn a_folder_named_through_the_data_volume_is_the_one_the_scan_reads() {
         _ => false,
     };
     let home = alias(&f.home());
-    if home == f.home() || !same(&home, &f.home()) {
-        return;
-    }
+    assert!(
+        home != f.home() && same(&home, &f.home()),
+        "this test needs TMPDIR on the data volume, where /System/Volumes/Data reaches it \
+         too, as it does the documented scratch folder under /private/tmp"
+    );
     let r = f.json(&["--exclude", home.join("Documents").to_str().unwrap()]);
     assert_eq!(r["findings"].as_array().unwrap().len(), 0, "{r}");
     assert_eq!(
@@ -2317,9 +2326,10 @@ fn a_folder_named_through_the_data_volume_is_the_one_the_scan_reads() {
 fn a_folder_selected_in_another_spelling_is_scanned_once() {
     let f = Fixture::new();
     f.csv(&f.home().join("Documents/export.csv"));
-    if fs::symlink_metadata(f.home().join("documents")).is_err() {
-        return;
-    }
+    assert!(
+        fs::symlink_metadata(f.home().join("documents")).is_ok(),
+        "{CASE_INSENSITIVE}"
+    );
     let r = f.json(&[
         "--select",
         f.home().join("documents").to_str().unwrap(),

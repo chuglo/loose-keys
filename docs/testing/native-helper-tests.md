@@ -42,8 +42,9 @@ LOOSE_KEYS_HELPER_CHECK=disposable-guest sh security-tests/harness.sh helper-che
 ```
 
 The negative control is the same command with `--omit-create` and a new work
-folder. It must exit 1, with event-create FAIL at its missing assertion, later
-cases NOT RUN and cleanup PASS.
+folder. It must exit 1, with event-create FAIL for the reason
+`deadline: native event and persisted fixture transition`, later cases NOT
+RUN and cleanup PASS.
 
 The Settings driver also declines the three protected-folder requests made
 before automatic scanning starts. The fixture is in `.aws`, so these

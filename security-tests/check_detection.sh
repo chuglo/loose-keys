@@ -26,5 +26,7 @@ LOOSE_KEYS_DETECTION_CLI="$PWD/target/release/loose-keys" \
 cat "$work/engine.log"
 test "$status" -eq 0 || exit "$status"
 # Cargo exits zero when a filter selects no tests. Require the completion
-# marker from inside the test, after every comparison has passed.
+# marker from inside the test, after every comparison has passed. The log
+# stays for a failure.
 grep -qx 'PASS: CLI and engine detection parity' "$work/engine.log"
+rm -rf "$work"

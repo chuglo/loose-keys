@@ -101,7 +101,6 @@ struct Builder {
     secrets: Vec<String>,
     fragments: Vec<String>,
     scope: Vec<String>,
-    skipped: Vec<String>,
 }
 impl Builder {
     fn write(&self, rel: &str, data: impl AsRef<[u8]>) -> Result<PathBuf> {
@@ -170,7 +169,6 @@ pub(crate) fn generate(out: &Path, large_mib: usize, bomb_mib: usize) -> Result<
         secrets: vec![],
         fragments: vec![],
         scope: vec![],
-        skipped: vec![],
     };
     for p in [&b.home, &b.outside, &b.sentinels, &b.hijack] {
         private_dir(p)?;
@@ -269,11 +267,7 @@ pub(crate) fn generate(out: &Path, large_mib: usize, bomb_mib: usize) -> Result<
         .status()
     {
         Ok(status) if status.success() => {}
-        _ => {
-            b.skipped
-                .push("git-real-repo: git unavailable; created bare config only".into());
-            private_dir(&repo.join(".git"))?;
-        }
+        _ => return Err("git init failed, so the repository fixture is missing".into()),
     }
     let fsmon = b.probe("git-fsmonitor")?;
     let helper = b.probe("git-credential-helper")?;
@@ -336,11 +330,7 @@ pub(crate) fn generate(out: &Path, large_mib: usize, bomb_mib: usize) -> Result<
             .status()
         {
             Ok(status) if status.success() => {}
-            _ => {
-                b.skipped
-                    .push("private-keys: ssh-keygen unavailable".into());
-                break;
-            }
+            _ => return Err("ssh-keygen failed, so the private key fixtures are missing".into()),
         }
         let body = fs::read_to_string(&target)
             .map_err(|e| e.to_string())?
@@ -587,25 +577,25 @@ pub(crate) fn generate(out: &Path, large_mib: usize, bomb_mib: usize) -> Result<
     b.fragments.retain(|s| s.len() >= 10);
     b.fragments.sort();
     b.fragments.dedup();
-    let manifest = json!({"schema":"loose-keys-security-fixtures/1","warning":"Contains synthetic secrets. Never pass this file to the scanner.","layout":{"scan_root":b.out.join("scan-root"),"home":b.home,"outside":b.outside,"sentinels":b.sentinels,"bin_hijack":b.hijack},"fixtures":b.fixtures,"forbidden":{"secrets":b.secrets,"fragment_sources":b.fragments,"fragment_window":10,"scope_tokens":b.scope},"forged_line_token":forged,"skipped":b.skipped});
+    let manifest = json!({"schema":"loose-keys-security-fixtures/1","warning":"Contains synthetic secrets. Never pass this file to the scanner.","layout":{"scan_root":b.out.join("scan-root"),"home":b.home,"outside":b.outside,"sentinels":b.sentinels,"bin_hijack":b.hijack},"fixtures":b.fixtures,"forbidden":{"secrets":b.secrets,"fragment_sources":b.fragments,"fragment_window":10,"scope_tokens":b.scope},"forged_line_token":forged});
     save(&b.out.join("manifest.json"), &manifest)?;
     save(
         &b.out.join("snapshot.json"),
         &snapshot(&[b.out.join("scan-root"), b.out.join("outside")])?,
     )?;
     println!(
-        "fixtures: {} forbidden strings: {} skipped: {}",
+        "fixtures: {} forbidden strings: {}",
         manifest["fixtures"].as_array().map_or(0, Vec::len),
         manifest["forbidden"]["secrets"]
             .as_array()
-            .map_or(0, Vec::len),
-        manifest["skipped"].as_array().map_or(0, Vec::len)
+            .map_or(0, Vec::len)
     );
     Ok(manifest)
 }
 
-/// Check the faster hashing command against the previous implementation,
-/// including empty/binary files and names that must never become arguments.
+/// Check snapshot hashes against `shasum`, including empty/binary files and
+/// names that must never become arguments, and that generation fails
+/// without `git` or `ssh-keygen`.
 pub(crate) fn self_tests() -> Result<()> {
     let work = scratch("snapshot-tests")?;
     let result = (|| {
@@ -641,6 +631,32 @@ pub(crate) fn self_tests() -> Result<()> {
         let entry = &actual[link.to_string_lossy().as_ref()];
         if entry["link"] != "missing" || entry.get("sha256").is_some() {
             return Err("snapshot followed a link".into());
+        }
+        // A gate run on fixtures without the repository or the private keys
+        // would pass without testing them, so generation must fail instead.
+        for tool in ["git", "ssh-keygen"] {
+            let bin = work.join(format!("broken-{tool}"));
+            private_dir(&bin)?;
+            let stub = bin.join(tool);
+            write_private(&stub, b"#!/bin/sh\nexit 1\n")?;
+            fs::set_permissions(&stub, fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?;
+            let out = Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
+                .args(["generate", "--out"])
+                .arg(work.join(format!("without-{tool}")))
+                .env(
+                    "PATH",
+                    format!(
+                        "{}:{}",
+                        bin.display(),
+                        std::env::var("PATH").unwrap_or_default()
+                    ),
+                )
+                .output()
+                .map_err(|e| e.to_string())?;
+            if out.status.success() || !contains(&out.stderr, tool.as_bytes()) {
+                return Err(format!("fixtures were generated without {tool}"));
+            }
         }
         Ok(())
     })();

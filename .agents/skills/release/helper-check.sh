@@ -43,13 +43,14 @@ run_suite() {
     stop_guest
 }
 
-# status <work folder> <case>: that case's status in results.json.
+# status <work folder> <case> [field]: that case's status, or the named
+# field, in results.json.
 status() {
     python3 -I -c 'import json, sys
 try:
-    print(json.load(open(sys.argv[1]))["cases"][sys.argv[2]]["status"])
+    print(json.load(open(sys.argv[1]))["cases"][sys.argv[2]][sys.argv[3]])
 except Exception:
-    print("MISSING")' "$1/results.json" "$2"
+    print("MISSING")' "$1/results.json" "$2" "${3:-status}"
 }
 
 run_suite helper
@@ -82,6 +83,11 @@ for stage in event-create event-rotate event-delete restart-replay disable clean
     esac
     [ "$s" = "$want" ] || ok=no
 done
+# The control must fail because no event came for the fixture it left out,
+# not for an unrelated reason such as a failed write.
+reason=$(status "$negative_work" event-create reason)
+printf 'negative control reason           %s\n' "$reason"
+[ "$reason" = 'deadline: native event and persisted fixture transition' ] || ok=no
 
 printf '\nVMs:     %s, %s (stopped)\nLogs:    %s\n' \
     "$(basename "$positive_work")" "$(basename "$negative_work")" "$CAND"

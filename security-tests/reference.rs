@@ -64,6 +64,10 @@ pub(crate) fn scan(args: &[String]) -> Result<i32> {
             args.iter().any(|s| s == "--open-fifos"),
         );
     }
+    // Exit 2 for a reason other than the export, as an unrelated scanner error would.
+    if args.iter().any(|s| s == "--fail-early") {
+        return Err("synthetic failure before any export".into());
+    }
     let mut files = vec![];
     walk(&home, false, 0, &mut files)?;
     let mut findings = vec![];
@@ -178,7 +182,11 @@ pub(crate) fn scan(args: &[String]) -> Result<i32> {
     let mut file = match file {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            eprintln!("refusing to export: destination already exists (possibly a symlink)");
+            // The real scanner's refusal, which the harness requires in symlink mode.
+            eprintln!(
+                "error: not exporting to \"{}\": file already exists",
+                report_path.display()
+            );
             return Ok(3);
         }
         Err(_) => return Err("reference export failed".into()),
@@ -348,7 +356,7 @@ pub(crate) fn selftest(args: &[String]) -> Result<i32> {
         &'a [&'a str],
         &'a [&'a str],
     );
-    let scenarios: [Scenario<'_>; 7] = [
+    let scenarios: [Scenario<'_>; 8] = [
         ("careful-fresh", "careful", &["--validate-report"], &[], &[]),
         (
             "careful-symlink-report",
@@ -362,6 +370,19 @@ pub(crate) fn selftest(args: &[String]) -> Result<i32> {
             ],
             &[],
             &[],
+        ),
+        (
+            "careful-symlink-other-error",
+            "careful",
+            &[
+                "--report-mode",
+                "symlink",
+                "--allowed-exit",
+                "2",
+                "--validate-report",
+            ],
+            &["--fail-early"],
+            &["schema"],
         ),
         (
             "naive-fresh",
@@ -469,7 +490,7 @@ pub(crate) fn selftest(args: &[String]) -> Result<i32> {
         }
         return Ok(1);
     }
-    println!("SELFTEST PASSED: 7 harness scenarios, 8 validator mutations");
+    println!("SELFTEST PASSED: {} harness scenarios", scenarios.len());
     Ok(0)
 }
 fn explain_network_miss(run: &Path) -> Result<()> {

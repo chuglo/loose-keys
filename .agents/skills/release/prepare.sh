@@ -1,8 +1,8 @@
 #!/bin/sh
 # Check the release commit, then build its candidate: the checks for a push
 # to main (tests/check-all.sh) on this worktree's HEAD, then candidate.sh from
-# the same commit. One after the other: the release build's load made a
-# timed check in check-all fail when they ran together. Each writes its own
+# the same commit. One after the other, because the release build's load can
+# make a timed check in check-all fail. Each writes its own
 # log; a failed check stops before the build, and the tree must still be
 # clean afterwards. The candidate then gets the record of the passing
 # check-all run that publish.sh requires.

@@ -41,9 +41,11 @@ export CARGO_TARGET_DIR="$OUT/src/target"
 # Releases are signed ad hoc.
 LOOSE_KEYS_SIGN_IDENTITY=- logged build sh gui/build-macos.sh
 logged bundle-contract node --test gui/tests/bundle-contract.test.js
-for file in gui/Cargo.toml gui/macos/Info.plist README.md; do
-    grep -q -F "$VERSION" "$file" || fail "$file does not name $VERSION"
-done
+# The lines bump.sh writes; the Info.plist copied into the bundle is read below.
+[ "$(sed -n 's/^version = "\(.*\)"$/\1/p' gui/Cargo.toml | head -n 1)" = "$VERSION" ] \
+    || fail "gui/Cargo.toml's version is not $VERSION"
+grep -q -E "^Version $(printf '%s' "$VERSION" | sed 's/\./\\./g')[ ,]" README.md \
+    || fail "README.md's version line does not name $VERSION"
 mkdir "$OUT/version-home"
 CLI_VERSION=$(HOME="$OUT/version-home" "target/release/bundle/macos/$APP/Contents/MacOS/loose-keys" --version) \
     || fail 'the bundled version command failed'
@@ -56,6 +58,13 @@ done
 # The helper check runs this harness in the guest, so the guest needs no Rust.
 logged harness-build sh security-tests/harness.sh executable
 cp "$(tail -n 1 "$OUT/harness-build.log")" "$OUT/share/security-harness"
+
+# check-all.sh gated the worktree's build; these run on the command that
+# ships, each with a synthetic HOME.
+CLI="$PWD/target/release/bundle/macos/$APP/Contents/MacOS/loose-keys"
+logged scanner-gate sh security-tests/check_scanner.sh "$OUT/scanner-gate" "$CLI"
+logged platform sh security-tests/harness.sh platform --binary "$CLI" --work "$OUT/platform"
+rm -rf "$OUT/scanner-gate" "$OUT/platform"
 
 logged disk-image sh gui/package-dmg.sh
 cp "target/release/bundle/macos/$DMG" "$OUT/share/$DMG"

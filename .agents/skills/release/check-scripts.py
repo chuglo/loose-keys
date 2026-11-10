@@ -1,6 +1,7 @@
 """Offline regression checks for release preparation; never starts a VM."""
 import os
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -57,39 +58,50 @@ class ReleaseScripts(unittest.TestCase):
     def test_bump_preserves_readme_version_line_format(self):
         # A UTF-8 locale sorts README.md after gui/, which C does not.
         for locale in ("C", "en_US.UTF-8"):
-            with self.subTest(locale=locale):
-                self.bump_fixture(locale)
+            with self.subTest(locale=locale), \
+                    tempfile.TemporaryDirectory(prefix=f"release-readme-{os.getpid()}-") as folder:
+                result, work = self.bump_fixture(Path(folder), locale, "0.2.1")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((work / "README.md").read_text(), "Version 0.2.1 · MIT licensed\n")
 
-    def bump_fixture(self, locale):
-        with tempfile.TemporaryDirectory(prefix=f"release-readme-{os.getpid()}-") as folder:
-            root = Path(folder)
-            repo = root / "repo"
-            repo.mkdir()
-            def run(*args, cwd=repo):
-                return subprocess.run(args, cwd=cwd, check=True, capture_output=True)
-            run("git", "init")
-            (repo / "gui/macos").mkdir(parents=True)
-            (repo / "src").mkdir()
-            (repo / "gui/src").mkdir()
-            (repo / "src/lib.rs").write_text("")
-            (repo / "gui/src/lib.rs").write_text("")
-            (repo / "Cargo.toml").write_text(
-                '[workspace]\nmembers = ["gui"]\n[package]\nname = "fixture"\nversion = "0.2.0"\nedition = "2021"\n')
-            (repo / "gui/Cargo.toml").write_text(
-                '[package]\nname = "fixture-gui"\nversion = "0.2.0"\nedition = "2021"\n')
-            (repo / "README.md").write_text("Version 0.2.0 · MIT licensed\n")
-            (repo / "gui/macos/Info.plist").write_text("<string>0.2.0</string>\n")
-            run("cargo", "metadata", "--offline", "--format-version", "1")
-            run("git", "add", ".")
-            run("git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                "-c", "commit.gpgsign=false", "commit", "-m", "Synthetic version fixture")
-            work = root / "work"
-            run("git", "worktree", "add", str(work))
-            result = subprocess.run(["sh", str(HERE / "bump.sh"), "0.2.1"],
-                                    cwd=work, capture_output=True, text=True,
-                                    env=dict(os.environ, LC_ALL=locale))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((work / "README.md").read_text(), "Version 0.2.1 · MIT licensed\n")
+    def test_bump_requires_a_higher_version(self):
+        # From 0.2.0; 0.10.0 is higher though it sorts lower as text.
+        for new, higher in (("0.1.9", False), ("0.1.10", False), ("0.0.5", False),
+                            ("0.2.0", False), ("0.10.0", True), ("0.2.1", True)):
+            with self.subTest(new=new), \
+                    tempfile.TemporaryDirectory(prefix=f"release-bump-{os.getpid()}-") as folder:
+                result, work = self.bump_fixture(Path(folder), "C", new)
+                self.assertEqual(result.returncode == 0, higher, result.stderr)
+                if not higher:
+                    self.assertIn('version = "0.2.0"', (work / "Cargo.toml").read_text())
+
+    def bump_fixture(self, root, locale, new):
+        repo = root / "repo"
+        repo.mkdir()
+        def run(*args, cwd=repo):
+            return subprocess.run(args, cwd=cwd, check=True, capture_output=True)
+        run("git", "init")
+        (repo / "gui/macos").mkdir(parents=True)
+        (repo / "src").mkdir()
+        (repo / "gui/src").mkdir()
+        (repo / "src/lib.rs").write_text("")
+        (repo / "gui/src/lib.rs").write_text("")
+        (repo / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["gui"]\n[package]\nname = "fixture"\nversion = "0.2.0"\nedition = "2021"\n')
+        (repo / "gui/Cargo.toml").write_text(
+            '[package]\nname = "fixture-gui"\nversion = "0.2.0"\nedition = "2021"\n')
+        (repo / "README.md").write_text("Version 0.2.0 · MIT licensed\n")
+        (repo / "gui/macos/Info.plist").write_text("<string>0.2.0</string>\n")
+        run("cargo", "metadata", "--offline", "--format-version", "1")
+        run("git", "add", ".")
+        run("git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "-m", "Synthetic version fixture")
+        work = root / "work"
+        run("git", "worktree", "add", str(work))
+        result = subprocess.run(["sh", str(HERE / "bump.sh"), new],
+                                cwd=work, capture_output=True, text=True,
+                                env=dict(os.environ, LC_ALL=locale))
+        return result, work
 
     # publish.sh against stand-ins for git and gh that record each call, in a
     # local repository whose commit is signed with a key made for the test.
@@ -143,12 +155,18 @@ class ReleaseScripts(unittest.TestCase):
         notes.write_text("".join(lines))
         bin_dir = root / "bin"
         bin_dir.mkdir()
+        # Tags are read from the fixture repository; GitHub's are the
+        # "<sha>\t<ref>" lines in $REMOTE_REFS, matched by exact name as
+        # ls-remote matches them.
+        real_git = shutil.which("git")
         (bin_dir / "git").write_text(
             '#!/bin/sh\nprintf "git %s\\n" "$*" >> "$RECORD"\n'
             'case "$1" in\n'
-            f'  config|-c) exec "{shutil.which("git")}" "$@";;\n'
+            f'  config|-c|for-each-ref) exec "{real_git}" "$@";;\n'
             '  merge-base) exit "${FF_STATUS:-0}";;\n'
-            '  rev-parse) case "$*" in *refs/tags/*) exit 1;; esac; echo base;;\n'
+            f'  rev-parse) case "$*" in *refs/tags/*) exec "{real_git}" "$@";; esac; echo base;;\n'
+            '  ls-remote) shift 2; for ref in "$@"; do\n'
+            '    printf "%s" "${REMOTE_REFS:-}" | awk -F "\\t" -v ref="$ref" \'$2 == ref\'; done;;\n'
             'esac\nexit 0\n')
         (bin_dir / "gh").write_text(
             '#!/bin/sh\nprintf "gh %s\\n" "$*" >> "$RECORD"\n'
@@ -189,6 +207,60 @@ class ReleaseScripts(unittest.TestCase):
             self.assertGreater(create, calls.index(order[-1]))
             for later in ("gh release verify v0.3.0", "gh release verify-asset v0.3.0", "gh release download v0.3.0"):
                 self.assertTrue(any(c.startswith(later) for c in calls[create:]), later)
+
+    # A v0.3.0 tag in the fixture repository, as an earlier run might leave.
+    def tag(self, root, repo, *args, signer="configured"):
+        env = dict(os.environ, **self.GIT_ENV)
+        subprocess.run(["git", "-c", f"user.signingkey={root / (signer + '-key')}", "tag", *args,
+                        "v0.3.0", self.COMMIT], cwd=repo, env=env, check=True, capture_output=True)
+        return subprocess.run(["git", "rev-parse", "refs/tags/v0.3.0"], cwd=repo, env=env,
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_publish_resumes_with_the_signed_tag_it_made(self):
+        for on_github in (False, True):
+            with self.subTest(on_github=on_github), \
+                    tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
+                root = Path(folder)
+                cand, notes, repo, record, env = self.publish_fixture(root)
+                tag = self.tag(root, repo, "-s", "-m", "Loose Keys 0.3.0")
+                if on_github:
+                    env["REMOTE_REFS"] = (f"{tag}\trefs/tags/v0.3.0\n"
+                                          f"{self.COMMIT}\trefs/tags/v0.3.0^{{}}\n")
+                result = self.publish(cand, notes, repo, env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = record.read_text()
+                self.assertNotIn("git tag -s", calls)
+                self.assertEqual("git push origin refs/tags/v0.3.0" in calls, not on_github)
+                self.assertIn("gh release create v0.3.0", calls)
+
+    def test_publish_refuses_an_earlier_tag_it_did_not_sign(self):
+        unsigned = "v0.3.0 is not signed by the configured signing key"
+        for kind, args, signer, reason in (
+                ("lightweight", [], "configured", "v0.3.0 is not an annotated tag"),
+                ("unsigned", ["-a", "-m", "Loose Keys 0.3.0"], "configured", unsigned),
+                ("other key", ["-s", "-m", "Loose Keys 0.3.0"], "other", unsigned)):
+            with self.subTest(kind=kind), \
+                    tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
+                root = Path(folder)
+                cand, notes, repo, record, env = self.publish_fixture(root)
+                self.tag(root, repo, *args, signer=signer)
+                result = self.publish(cand, notes, repo, env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(reason, result.stderr)
+                calls = record.read_text()
+                self.assertNotIn("git push", calls)
+                self.assertNotIn("gh release create", calls)
+
+    def test_publish_refuses_a_lightweight_tag_on_github(self):
+        with tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
+            cand, notes, repo, record, env = self.publish_fixture(Path(folder))
+            env["REMOTE_REFS"] = f"{self.COMMIT}\trefs/tags/v0.3.0\n"
+            result = self.publish(cand, notes, repo, env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("v0.3.0 on GitHub is not an annotated tag", result.stderr)
+            calls = record.read_text()
+            self.assertNotIn("git push", calls)
+            self.assertNotIn("gh release create", calls)
 
     def test_publish_stops_before_pushing_when_main_moved(self):
         with tempfile.TemporaryDirectory(prefix=f"release-publish-{os.getpid()}-") as folder:
@@ -320,6 +392,60 @@ class ReleaseScripts(unittest.TestCase):
             calls = record.read_text().splitlines()
             self.assertIn("delete test-owned", calls)
             self.assertFalse(any(c.startswith("run ") for c in calls))
+
+    # helper-check.sh against a tart stand-in whose guest answers each suite
+    # run with the planted results.json and exit status.
+    HELPER_TART = ('#!/bin/sh\nprintf "%s\\n" "$*" >> "$RECORD"\n'
+                   'case "$1" in\n'
+                   '  list) echo "local lk-sip-base 50 33 today stopped";;\n'
+                   '  exec) shift 2; case "$1" in\n'
+                   '    shasum) shasum -a 256 "$CAND/share/$(basename "$4")";;\n'
+                   '    cat) case "$2" in *helper-negative*) cat "$RESULTS/negative.json";;\n'
+                   '      *) cat "$RESULTS/positive.json";; esac;;\n'
+                   '    sh) case "$*" in *helper-check*helper-negative*) exit 1;; esac;;\n'
+                   '  esac;;\n'
+                   'esac\nexit 0\n')
+    STAGES = ["preflight", "enable-baseline", "event-create", "event-rotate", "event-delete",
+              "restart-replay", "disable", "cleanup"]
+
+    def helper_check(self, root, create_reason):
+        cand = root / "candidate"
+        (cand / "share").mkdir(parents=True)
+        (cand / "commit").write_text("a" * 40 + " 0.3.0\n")
+        names = ["commit", "share/repo.tar", "share/security-harness",
+                 "share/Loose-Keys-0.3.0.zip", "share/Loose-Keys-0.3.0.dmg"]
+        for name in names[1:]:
+            (cand / name).write_bytes(name.encode())
+        (cand / "SHA256SUMS").write_text("".join(
+            hashlib.sha256((cand / name).read_bytes()).hexdigest() + "  " + name + "\n"
+            for name in names))
+        results = root / "results"
+        results.mkdir()
+        (results / "positive.json").write_text(json.dumps(
+            {"cases": {stage: {"status": "PASS"} for stage in self.STAGES}}))
+        negative = {stage: {"status": "NOT RUN"} for stage in self.STAGES}
+        for stage in ("preflight", "enable-baseline", "cleanup"):
+            negative[stage] = {"status": "PASS"}
+        negative["event-create"] = {"status": "FAIL", "reason": create_reason}
+        (results / "negative.json").write_text(json.dumps({"cases": negative}))
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "tart").write_text(self.HELPER_TART)
+        (bin_dir / "tart").chmod(0o700)
+        return subprocess.run(["sh", str(HERE / "helper-check.sh"), str(cand)],
+                              env=dict(os.environ, PATH=f"{bin_dir}:/usr/bin:/bin",
+                                       RECORD=str(root / "calls"), CAND=str(cand),
+                                       RESULTS=str(results)),
+                              capture_output=True, text=True)
+
+    def test_helper_negative_control_must_fail_at_the_create_event(self):
+        for reason, passes in (("deadline: native event and persisted fixture transition", True),
+                               ("cannot write synthetic fixture", False)):
+            with self.subTest(reason=reason), \
+                    tempfile.TemporaryDirectory(prefix=f"release-helper-{os.getpid()}-") as folder:
+                result = self.helper_check(Path(folder), reason)
+                self.assertEqual(result.returncode == 0, passes, result.stdout + result.stderr)
+                self.assertIn("Result:  PASS" if passes else "Result:  FAIL", result.stdout)
 
     def test_walkthrough_stops_when_the_decoy_archive_cannot_be_listed(self):
         with tempfile.TemporaryDirectory(prefix=f"release-walkthrough-{os.getpid()}-") as folder:

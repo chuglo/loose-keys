@@ -1,9 +1,9 @@
 //! Synthetic home generation for manual checks, compiled only in the test harness.
 use super::*;
 const ALNUM: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const SEED: u64 = 20261010;
 struct Builder {
     home: PathBuf,
-    seed: u64,
     state: u64,
     targets: Vec<Value>,
     decoys: Vec<Value>,
@@ -140,10 +140,6 @@ impl Builder {
 /// Fills a new synthetic home and returns a one-line summary of it.
 pub(crate) fn generate(args: &[String]) -> Result<String> {
     let out = PathBuf::from(args.get(1).ok_or("synthetic home output required")?);
-    let seed = option(args, "--seed")
-        .unwrap_or("20261010")
-        .parse::<u64>()
-        .map_err(|_| "bad synthetic home seed")?;
     if fs::symlink_metadata(out.join("home")).is_ok() {
         return Err("synthetic home home already exists; choose a new output directory".into());
     }
@@ -153,8 +149,7 @@ pub(crate) fn generate(args: &[String]) -> Result<String> {
     private_dir(&home)?;
     let mut b = Builder {
         home,
-        seed,
-        state: if seed == 0 { 0x9e3779b97f4a7c15 } else { seed },
+        state: SEED,
         targets: vec![],
         decoys: vec![],
         secrets: vec![],
@@ -1164,7 +1159,7 @@ pub(crate) fn generate(args: &[String]) -> Result<String> {
             )?;
         }
     }
-    let manifest = json!({"seed":b.seed,"targets":b.targets,"decoys":b.decoys,"secrets":b.secrets});
+    let manifest = json!({"seed":SEED,"targets":b.targets,"decoys":b.decoys,"secrets":b.secrets});
     save(&out.join("manifest.json"), &manifest)?;
     Ok(format!(
         "{} targets, {} decoys, {} planted values -> {}",

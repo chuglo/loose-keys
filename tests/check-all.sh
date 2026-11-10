@@ -77,6 +77,9 @@ check bundle sh gui/build-macos.sh
 check bundle-contract node --test gui/tests/bundle-contract.test.js
 check model sh gui/tests/check-model.sh "$RUN/model"
 check bridges sh gui/tests/check-bridges.sh "$RUN/bridges"
+check release-scripts python3 -I .agents/skills/release/check-scripts.py
+check docs-refs-test python3 -I .agents/skills/documentation/check_refs_test.py
+check docs-prose-test python3 -I .agents/skills/documentation/check_prose_test.py
 check audit-install cargo install cargo-audit --locked --version 0.22.2 --root "$TMPDIR/cargo-audit"
 check audit "$TMPDIR/cargo-audit/bin/cargo-audit" audit --db "$TMPDIR/advisory-db" --file Cargo.lock
 if [ -n "$WINDOW" ]; then

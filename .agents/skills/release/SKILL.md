@@ -26,6 +26,9 @@ interactive desktop agent or VNC.
    and `check-all.log` into the candidate; `publish.sh` refuses a candidate
    without that record, so a candidate from `candidate.sh` alone cannot be
    published. Record the commit, each exit status, and any failed runs.
+   `candidate.sh` runs the scanner gate and platform check again on the
+   bundle's `loose-keys` command; the detection corpus and the other checks
+   run only on the worktree's build, so list them as not run on the bundle.
 4. Keep the candidate directory: the guest checks use its ZIP, and
    publication uses both tested packages. A new build needs new checks.
 
@@ -97,7 +100,8 @@ notes' checksums; checks with `git verify-commit` that the key in
 immutable releases (if they
 are off, stop and ask the person directing the session, and leave repository
 settings to them); requires that the tested commit fast-forwards main and
-that no `v0.y.z` tag names another commit; pushes main; creates and pushes
+that a `v0.y.z` tag already here or on GitHub is an annotated tag of the
+commit, signed by that key; pushes main; creates and pushes
 the signed tag; publishes both tested packages; checks that the release is
 immutable, that its attestation covers both packages, and that GitHub
 verifies the commit and tag signatures; and downloads both packages to
@@ -116,6 +120,7 @@ regressions and `sh -n` on each shell script. Check that this skill has valid
 `name` and `description` frontmatter and that its referenced files exist.
 The regressions start no VM and reach no remote: `publish.sh` runs against
 stand-ins for `git` and `gh`, with the real `git` only for the signature
-check on a fixture repository, and `prepare.sh` against stand-ins for
-`check-all.sh` and `candidate.sh`. Candidate, guest and publish runs check the
+check on a fixture repository, `prepare.sh` against stand-ins for
+`check-all.sh` and `candidate.sh`, and `helper-check.sh`'s verdict against a
+`tart` stand-in. Candidate, guest and publish runs check the
 real tools.

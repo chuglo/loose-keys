@@ -44,39 +44,11 @@ fn dispatch(args: &[String]) -> Result<i32> {
             Ok(0)
         }
         Some("generate") => {
-            fixtures::generate(
-                &PathBuf::from(required(args, "--out")?),
-                count(args, "--large-file-mib", 1024)?,
-                count(args, "--bomb-mib", 256)?,
-            )?;
+            fixtures::generate(&PathBuf::from(required(args, "--out")?), 1024, 256)?;
             Ok(0)
         }
         Some("helper-check") => helper::run(args),
-        Some("helper-self-tests") => {
-            helper::self_tests()?;
-            Ok(0)
-        }
         Some("check") => check(args),
-        Some("validate") => {
-            let path = args.get(1).ok_or("missing report")?;
-            let raw = fs::read(path).map_err(|_| "cannot read report")?;
-            let manifest = option(args, "--manifest")
-                .map(|p| load(Path::new(p)))
-                .transpose()?;
-            let errors = validator::validate(&raw, manifest.as_ref())?;
-            for error in &errors {
-                println!("INVALID {error}");
-            }
-            println!(
-                "{}",
-                if errors.is_empty() {
-                    "VALID"
-                } else {
-                    "INVALID"
-                }
-            );
-            Ok(i32::from(!errors.is_empty()))
-        }
         Some("platform") => {
             platform::run(args)?;
             Ok(0)
@@ -88,7 +60,7 @@ fn dispatch(args: &[String]) -> Result<i32> {
         }
         Some("careful") | Some("naive") => reference::scan(args),
         _ => Err(
-            "expected generate, generate-home, check, validate, platform, selftest, helper-check, helper-self-tests or --self-tests"
+            "expected generate, generate-home, check, platform, selftest, helper-check or --self-tests"
                 .into(),
         ),
     }
@@ -110,17 +82,6 @@ fn number(args: &[String], name: &str, default: f64) -> Result<f64> {
         .map_err(|_| format!("bad {name}"))?
         .unwrap_or(default);
     if !value.is_finite() || value <= 0. {
-        return Err(format!("bad {name}"));
-    }
-    Ok(value)
-}
-fn count(args: &[String], name: &str, default: usize) -> Result<usize> {
-    let value = option(args, name)
-        .map(str::parse::<usize>)
-        .transpose()
-        .map_err(|_| format!("bad {name}"))?
-        .unwrap_or(default);
-    if value == 0 {
         return Err(format!("bad {name}"));
     }
     Ok(value)
@@ -311,7 +272,6 @@ fn check(args: &[String]) -> Result<i32> {
         .iter()
         .map(|a| {
             a.replace("{home}", &home.to_string_lossy())
-                .replace("{projects}", &home.join("Projects").to_string_lossy())
                 .replace("{report}", &report.to_string_lossy())
         })
         .collect();
@@ -358,7 +318,7 @@ fn check(args: &[String]) -> Result<i32> {
     } else if !allowed.contains(&output.status.unwrap_or(-1)) {
         health.push(format!("unexpected exit {:?}", output.status));
     }
-    if output.rss_mib > number(args, "--max-rss-mib", 1024.)? {
+    if output.rss_mib > 1024. {
         health.push("peak RSS over budget".into());
     }
     record(
@@ -509,7 +469,17 @@ fn check(args: &[String]) -> Result<i32> {
                 Some(&manifest),
             )?
         } else if symlink_mode {
-            vec![]
+            // The scanner's refusal of an existing name, so that an unrelated
+            // error with the same exit status does not pass as a refusal.
+            let refused = String::from_utf8_lossy(&output.stderr).lines().any(|line| {
+                line.starts_with("error: not exporting to \"")
+                    && line.ends_with("\": file already exists")
+            });
+            if refused {
+                vec![]
+            } else {
+                vec!["export not refused as an existing file".into()]
+            }
         } else {
             vec!["no report written".into()]
         };

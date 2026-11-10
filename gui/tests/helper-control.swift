@@ -141,6 +141,47 @@ func control(_ name: String, _ role: String) -> AXUIElement? {
     return matches.count == 1 ? matches[0] : nil
 }
 func consentSwitch() -> AXUIElement? { control("Scan Automatically", kAXCheckBoxRole) }
+/// True only when the whole Settings window was read and has no control of
+/// that name and role, enabled or not. `control` is also nil when AX timed
+/// out, a walk stopped at a limit or no Settings window could be read.
+func absent(_ name: String, _ role: String) -> Bool {
+    var complete = true
+    func read(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        switch AXUIElementCopyAttributeValue(element, key as CFString, &value) {
+        case .success: return value
+        case .noValue, .attributeUnsupported: return nil
+        default: complete = false; return nil
+        }
+    }
+    func walk(_ root: AXUIElement) -> [AXUIElement] {
+        var result: [AXUIElement] = []
+        func visit(_ element: AXUIElement, _ depth: Int) {
+            guard complete else { return }
+            guard depth < 24, result.count < 3000,
+                  ProcessInfo.processInfo.systemUptime < deadline else { complete = false; return }
+            result.append(element)
+            for child in read(element, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
+                visit(child, depth + 1)
+            }
+        }
+        visit(root, 0)
+        return result
+    }
+    func isNamed(_ element: AXUIElement, _ wanted: String) -> Bool {
+        if read(element, kAXTitleAttribute) as? String == wanted
+            || read(element, kAXDescriptionAttribute) as? String == wanted { return true }
+        guard let title = read(element, kAXTitleUIElementAttribute) else { return false }
+        return read(title as! AXUIElement, kAXValueAttribute) as? String == wanted
+    }
+    func has(_ elements: [AXUIElement], _ wanted: String, _ wantedRole: String) -> Bool {
+        elements.contains { isNamed($0, wanted) && read($0, kAXRoleAttribute) as? String == wantedRole }
+    }
+    let settings = (read(app, kAXWindowsAttribute) as? [AXUIElement] ?? []).map(walk)
+        .filter { has($0, "Add Folder or Drive…", kAXButtonRole) }
+    let missing = settings.count == 1 && !has(settings[0], name, role)
+    return complete && missing
+}
 running.activate(options: [.activateIgnoringOtherApps])
 wait("Settings menu unavailable") {
     if consentSwitch() != nil { return true }
@@ -168,7 +209,7 @@ if action == "enable" || action == "disable" {
     // takes it away once the helper runs again.
     wait("Restart Helper unavailable") { control("Restart Helper", kAXButtonRole) != nil }
     press(control("Restart Helper", kAXButtonRole)!, "Restart Helper")
-    wait("helper did not restart") { control("Restart Helper", kAXButtonRole) == nil }
+    wait("helper did not restart") { absent("Restart Helper", kAXButtonRole) }
 }
 if windows().contains(where: { element in
     (attribute(element, kAXValueAttribute) as? String ?? "").contains("Allow in the Background")

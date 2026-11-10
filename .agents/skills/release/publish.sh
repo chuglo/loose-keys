@@ -44,23 +44,36 @@ case "$key" in
         ;;
 esac
 SIGNERS=$(mktemp "${TMPDIR%/}/release-signers.XXXXXX")
+trap 'rm -f "$SIGNERS"' EXIT
 printf '%s\n' "$key" | awk '{ print "* " $1 " " $2 }' > "$SIGNERS"
-if git -c gpg.ssh.allowedSignersFile="$SIGNERS" verify-commit "$COMMIT" > "$SIGNERS.log" 2>&1; then
-    rm -f "$SIGNERS" "$SIGNERS.log"
-else
-    rm -f "$SIGNERS"
-    fail "$COMMIT is not signed by the configured signing key; see $SIGNERS.log"
-fi
+signed() { git -c gpg.ssh.allowedSignersFile="$SIGNERS" "$@" > "$SIGNERS.log" 2>&1; }
+signed verify-commit "$COMMIT" || fail "$COMMIT is not signed by the configured signing key; see $SIGNERS.log"
 
 step 'Repository'
 [ "$(gh api 'repos/{owner}/{repo}/immutable-releases' --jq .enabled)" = true ] \
     || fail 'immutable releases are off; ask the person directing the session'
 git fetch -q origin
 git merge-base --is-ancestor origin/main "$COMMIT" || fail 'the tested commit does not fast-forward main'
-local_tag=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)
-[ -z "$local_tag" ] || [ "$local_tag" = "$COMMIT" ] || fail "$TAG already names another commit"
-remote_tag=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
-[ -z "$remote_tag" ] || [ "$remote_tag" = "$COMMIT" ] || fail "$TAG on GitHub already names another commit"
+# A tag left by an earlier run is used only if it is the one this run would
+# make: annotated, naming the commit itself and signed by the configured key.
+# Once pushed, a release would be published from it before GitHub's check.
+local_tag=$(git rev-parse -q --verify "refs/tags/$TAG" || true)
+if [ -n "$local_tag" ]; then
+    [ "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$COMMIT" ] || fail "$TAG already names another commit"
+    [ "$(git for-each-ref --format='%(objecttype) %(*objectname)' "refs/tags/$TAG")" = "tag $COMMIT" ] \
+        || fail "$TAG is not an annotated tag of $COMMIT; delete it with git tag -d $TAG"
+    signed verify-tag "$TAG" || fail "$TAG is not signed by the configured signing key; see $SIGNERS.log"
+fi
+# A lightweight tag has no peeled ^{} line.
+remote=$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}")
+remote_tag=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$TAG" '$2 == ref { print $1 }')
+remote_commit=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1 }')
+if [ -n "$remote_tag" ]; then
+    [ "$remote_commit" = "$COMMIT" ] || fail "$TAG on GitHub is not an annotated tag of $COMMIT"
+    [ -n "$local_tag" ] || fail "$TAG is on GitHub but not here; fetch it with git fetch origin tag $TAG"
+    [ "$remote_tag" = "$local_tag" ] || fail "$TAG on GitHub is not the signed tag here"
+fi
+rm -f "$SIGNERS.log"
 
 step 'Push'
 if [ "$(git rev-parse origin/main)" = "$COMMIT" ]; then

@@ -141,6 +141,17 @@ approval, the icon and its menu in a light and a dark menu bar, closing the
 window and quitting, reopening from the Dock, a notification click while no
 window is open, and the helper still notifying then.
 
+## Skill scripts
+
+The release and documentation skills' offline regressions, described in
+each skill's `SKILL.md`:
+
+```sh
+python3 -I .agents/skills/release/check-scripts.py
+python3 -I .agents/skills/documentation/check_refs_test.py
+python3 -I .agents/skills/documentation/check_prose_test.py
+```
+
 ## Dependency advisories
 
 Needs the network. The tool is installed outside the repository:

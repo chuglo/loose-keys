@@ -11,7 +11,9 @@ printf '%s\n' "$NEW" | grep -Eq '^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
 [ -f .git ] || { printf 'run this in a git worktree\n' >&2; exit 1; }
 [ -z "$(git status --porcelain)" ] || { printf 'commit or preserve existing changes before the bump\n' >&2; exit 1; }
 OLD=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-[ "$OLD" != "$NEW" ] || { printf 'already %s\n' "$NEW" >&2; exit 1; }
+printf '%s %s\n' "$NEW" "$OLD" | awk -F '[. ]' '{
+    exit !($1 > $4 || ($1 == $4 && ($2 > $5 || ($2 == $5 && $3 > $6))))
+}' || { printf '%s is not above the current version, %s\n' "$NEW" "$OLD" >&2; exit 1; }
 O=$(printf '%s' "$OLD" | sed 's/\./\\./g')
 
 sed -i '' "s/^version = \"$O\"\$/version = \"$NEW\"/" Cargo.toml gui/Cargo.toml

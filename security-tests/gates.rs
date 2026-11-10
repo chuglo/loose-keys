@@ -48,6 +48,19 @@ pub(crate) fn self_tests() -> Result<()> {
             } else if out.status != Some(*expected) {
                 return Err(format!("parity gate exit mismatch in case {index}"));
             }
+            // Its log folder is kept only when the gate fails.
+            let kept = fs::read_dir(&tmp)
+                .map_err(|e| e.to_string())?
+                .filter_map(|entry| entry.ok())
+                .any(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("loose-keys-detection.")
+                });
+            if kept != (*expected != 0) {
+                return Err(format!("parity gate log folder handling in case {index}"));
+            }
         }
     }
     fs::remove_file(&cargo).map_err(|e| e.to_string())?;
@@ -116,7 +129,7 @@ case "$*" in
 esac
 exit 0
 "#;
-    for name in ["cargo", "node", "sh"] {
+    for name in ["cargo", "node", "python3", "sh"] {
         let file = bin.join(name);
         write_private(&file, stub)?;
         fs::set_permissions(file, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
@@ -206,12 +219,19 @@ exit 0
             || count("harness.sh selftest") != usize::from(selftest)
             || count("check-window-guest.sh") != usize::from(windowed)
             // Every other check still runs.
-            || statuses.len() != 12 + usize::from(selftest) + usize::from(windowed)
+            || statuses.len() != 15 + usize::from(selftest) + usize::from(windowed)
             || !statuses.iter().all(|line| line.ends_with("s)"))
             || out.status != Some(if failed { 1 } else { 0 })
             // The guest check starts first and runs alongside the others.
             || (windowed && position("check-window-guest.sh") >= position("fmt --all --check"))
             || count("check_detection.sh") != 1
+            || [
+                "-I .agents/skills/release/check-scripts.py",
+                "-I .agents/skills/documentation/check_refs_test.py",
+                "-I .agents/skills/documentation/check_prose_test.py",
+            ]
+            .iter()
+            .any(|script| count(script) != 1)
             || !calls.contains("check_detection.sh --workspace")
             || calls.contains("test --locked --workspace")
             || !calls.lines().last().unwrap_or("").starts_with("audit --db")
