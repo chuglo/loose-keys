@@ -103,7 +103,6 @@
 
 "Select an item to see what it is and what you can do." = "Selecciona un elemento para ver qué es y qué puedes hacer.";
 
-"Loose Keys no longer finds this in the file. That doesn't mean the credential was revoked, or that no other copy exists." = "Loose Keys ya no lo encuentra en el archivo. Eso no significa que la credencial se haya revocado ni que no exista otra copia.";
 
 /* Inspector, Set Aside section, for a finding set aside for a reason this version of the app does not know. */
 "You set this aside" = "Lo dejaste a un lado";
@@ -156,12 +155,7 @@
 
 "First Seen" = "Detectado por primera vez";
 
-/* Inspector, under Show Details: the label beside the date and time the finding was found to be fixed. */
-"date.fixed" = "Corregido";
-
 "Set Aside…" = "Dejar a un lado…";
-
-"These are fixed, so there's nothing to set aside." = "Ya están corregidos, así que no hay nada que dejar a un lado.";
 
 "What It Is" = "Qué es";
 
@@ -394,15 +388,6 @@
 
 /* Inspector, Set Aside section: the reason an older version of the app recorded for setting the finding aside. */
 "Testing or no longer working (previous choice)" = "Se usa para pruebas o ya no funciona (elección anterior)";
-
-/* A finding's status: the file was checked again and no longer has it. */
-"status.fixed" = "Corregido";
-
-/* A finding's status: the person set it aside. */
-"status.set-aside" = "Dejado a un lado";
-
-/* A finding's status: it still needs a decision. */
-"status.open" = "Pendiente";
 
 /* A finding's risk, beside its coloured mark in the Risk column and the inspector. */
 "High" = "Alto";

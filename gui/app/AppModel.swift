@@ -218,9 +218,8 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var decidingSelection = false
     /// The column headings each list is sorted by, the last one clicked first.
-    /// Status is where the review list starts: open first, then by risk.
-    /// Stored Sign-ins has its own, since it has neither column.
-    @Published var reviewSort = [KeyPathComparator(\ReviewItem.statusRank)]
+    /// Stored Sign-ins has its own, since it has neither Risk nor First Seen.
+    @Published var reviewSort: [KeyPathComparator<ReviewItem>] = []
     @Published var storedSort: [KeyPathComparator<ReviewItem>] = []
     @Published var search = "" {
         didSet { dropHiddenSelection() }
@@ -430,13 +429,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Decisions change which page lists an item, never the findings held or
-    /// exported. Set Aside lists both kinds.
+    /// exported. Set Aside lists both kinds. A fixed finding is on no page.
     var reviewPaneItems: [ReviewItem] {
         (review?.items ?? []).filter { item in
             switch Self.list(pane) {
             case .setAside: return item.status == "set-aside"
             case .stored: return item.isStored && item.status == "open"
-            default: return !item.isStored && item.status != "set-aside"
+            default: return !item.isStored && item.status == "open"
             }
         }
     }
@@ -475,7 +474,8 @@ final class AppModel: ObservableObject {
         guard pane != .stored else {
             return arranged(reviewShown, by: storedSort) { ($0.shownTitle, $0.id) < ($1.shownTitle, $1.id) }
         }
-        return arranged(reviewShown, by: reviewSort) { ($0.order, $0.id) < ($1.order, $1.id) }
+        // And findings start with the highest risk, which needs attention first.
+        return arranged(reviewShown, by: reviewSort) { ($1.riskLevel, $0.id) < ($0.riskLevel, $1.id) }
     }
 
     /// Filtered rows out of the usable list, never a scan or error count.
@@ -493,7 +493,7 @@ final class AppModel: ObservableObject {
         }
         guard total > 0 else { return nil }
         return String(localized: "Showing \(shown) of \(total) items",
-                      comment: "Filtered list: the number of matching rows followed by the total rows on this page, including fixed findings.")
+                      comment: "Filtered list: the number of matching rows followed by the total rows on this page.")
     }
 
     var filterHasNoMatches: Bool {
@@ -582,7 +582,7 @@ final class AppModel: ObservableObject {
     /// `stored` keeps to one kind, for a Set Aside selection of both.
     func decideSelection(reason: String?, stored: Bool? = nil) {
         guard !decidingSelection else { return }
-        let items = currentReviews.filter { $0.status != "fixed" && (stored == nil || $0.isStored == stored) }
+        let items = currentReviews.filter { stored == nil || $0.isStored == stored }
         guard !items.isEmpty else { return }
         decisionTurn += 1
         decidingSelection = true
@@ -670,10 +670,6 @@ final class AppModel: ObservableObject {
         if counts.setAside > 0 {
             parts.append(String(localized: "\(counts.setAside) set aside",
                                 comment: "Part of the Worth Reviewing subtitle, joined to the others by commas: how many findings the person set aside."))
-        }
-        if counts.fixed > 0 {
-            parts.append(String(localized: "\(counts.fixed) fixed",
-                                comment: "Part of the Worth Reviewing subtitle, joined to the others by commas: how many findings are no longer in their files."))
         }
         if review?.full == true {
             parts.append(String(localized: "list full, so some findings are missing",

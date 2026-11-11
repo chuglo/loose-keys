@@ -38,11 +38,10 @@ struct ReviewList: Decodable {
     let permission: String
 }
 
-/// `open`, `setAside` and `fixed` count what is worth reviewing only.
+/// `open` and `setAside` count what is worth reviewing only.
 struct ReviewCounts: Decodable {
     let open: Int
     let setAside: Int
-    let fixed: Int
     /// Stored sign-ins still listed, and those set aside.
     let stored: Int
     let storedSetAside: Int
@@ -69,10 +68,9 @@ struct ReviewItem: Decodable, Identifiable {
     let subject: String?
     let detail: String?
     let firstSeen: String?
-    let resolvedAt: String?
     /// Rises each time the item is new again; the newest is the one a notification is about.
     let revision: Int
-    /// "open", "set-aside" or "fixed".
+    /// "open", "set-aside" or "fixed". The window lists no fixed item.
     let state: String
     let setAside: String?
     /// When it was set aside, as the engine's UTC timestamp.
@@ -362,20 +360,6 @@ extension ReviewItem {
     /// A stored sign-in rather than a finding worth reviewing.
     var isStored: Bool { kind == "inventory" }
 
-    var statusText: String {
-        switch status {
-        case "fixed":
-            return String(localized: "status.fixed", defaultValue: "Fixed",
-                          comment: "A finding's status: the file was checked again and no longer has it.")
-        case "set-aside":
-            return String(localized: "status.set-aside", defaultValue: "Set Aside",
-                          comment: "A finding's status: the person set it aside.")
-        default:
-            return String(localized: "status.open", defaultValue: "Open",
-                          comment: "A finding's status: it still needs a decision.")
-        }
-    }
-
     /// The title as the window shows it, which the Finding heading sorts by.
     var shownTitle: String { EngineText.shown(title) }
 
@@ -411,15 +395,6 @@ extension ReviewItem {
     /// browser's saved logins, as the window shows it.
     var shownAbout: String? { (subject ?? detail).map(EngineText.about) }
 
-    /// The list's first order: open, then set aside, then fixed.
-    var statusRank: Int {
-        switch status {
-        case "set-aside": return 2
-        case "fixed": return 3
-        default: return 0
-        }
-    }
-
     /// What the Risk heading sorts by: a higher number is a higher risk.
     var riskLevel: Int {
         switch severity {
@@ -432,11 +407,6 @@ extension ReviewItem {
     /// What the First Seen heading sorts by. The engine writes every date
     /// the same way, in UTC, so text order is time order.
     var firstSeenOrder: String { firstSeen ?? "" }
-
-    /// Open first, then by risk, so what needs attention is at the top.
-    var order: Int {
-        statusRank * 10 + (2 - riskLevel)
-    }
 }
 
 /// Said where an empty list or answer could read as complete. No count:

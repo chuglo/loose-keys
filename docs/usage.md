@@ -64,8 +64,8 @@ Worth Reviewing has one item for a password or token the app can pick out,
 however many files it is in. Other findings, such as a private key file, are
 not matched across files: the same key in two key files is two items. The saved report
 and the copied summary list each finding, so their count can be higher.
-Worth Reviewing, Stored Sign-ins and Set Aside together hold up to 4096 items
-that aren't fixed, fewer when their saved details near 6 MiB. Stored sign-ins
+Worth Reviewing, Stored Sign-ins and Set Aside together hold up to 4096
+items, fewer when their saved details near 6 MiB. Stored sign-ins
 take at most 512 of those items and 768 KiB. When Worth Reviewing is full,
 the Overview says so; save the report to see the rest, up to the findings
 limit below. When Stored Sign-ins is full, the subtitle under its title says
@@ -103,7 +103,7 @@ four reasons:
 Use Command-click to select several findings, Shift-click to select a range,
 or Command-A while the table has focus to select all visible findings.
 The inspector's **Set Aside…** applies the chosen reason to every selected
-finding that is not fixed. In Set Aside, you can also select several findings
+finding. In Set Aside, you can also select several findings
 and choose **Move to Worth Reviewing**. File actions need a single selection.
 Each choice is saved in turn. If one fails, the ones before it stay saved, the
 list refreshes and shows the error, and the rest are left as they were.
@@ -139,7 +139,7 @@ as `~/.netrc`, it is listed twice. A token in `~/.config/gh/hosts.yml` shows
 GitHub CLI's steps at High, the general token check's risk, though GitHub
 CLI's check rates it Medium. Any item shows the
 highest risk among its findings that still need a decision, or, when none
-does, among those set aside, or else the fixed ones. A file holding several
+does, among those set aside. A file holding several
 credentials of one kind, such as a Kubernetes config with several tokens,
 lists each.
 
@@ -158,7 +158,7 @@ alert. **Move to Stored Sign-ins** undoes it. With items of both kinds
 selected in Set Aside, the inspector offers both moves, and each moves only
 its own kind. If the file becomes readable by others, the sign-in leaves
 Stored Sign-ins and shows up in Worth Reviewing as a new finding. A stored
-sign-in that is no longer found leaves the list; none is shown as fixed. An
+sign-in that is no longer found leaves the list. An
 older version of the app drops stored sign-ins and your choices about them
 when it saves its list; the next scan lists the sign-ins again, without those
 choices.
@@ -189,19 +189,17 @@ can silence the scanner: there is no ignore file or inline comment, by design.
 
 A scan in the app, and each automatic full pass as it ends, look at each
 pending item's own file again. When the file is gone or no longer matches, the
-item is marked fixed, even if the scan could not read everything else, but not
-by a scan you stop with **Stop Scan**. These rechecks stop after 10 seconds;
-an item not reached stays open until a later scan. In a folder you stopped
+item is fixed and leaves its list, even if the scan could not read everything
+else, but not by a scan you stop with **Stop Scan**. These rechecks stop after
+10 seconds; an item not reached stays open until a later scan. In a folder you stopped
 checking, an item is looked at again only when a scan still checks its file
 for it, so other items there stay open, even after you remove the credential,
 until you choose **Include Again** and scan. A file on a drive, network share
 or disk image that is not connected is not gone: its item stays open until the
 volume is back and the file can be looked at. The app cannot tell one volume
 from another mounted at the same place, so a second drive mounted under the
-first one's name reads as the file being gone. Fixed does not mean other
-copies are gone or that the credential was revoked. A fixed item stays in
-Worth Reviewing, greyed, with **Fixed** beside its name, until the list needs
-room for a new finding.
+first one's name reads as the file being gone. An item leaving the list does
+not mean other copies are gone or that the credential was revoked.
 
 The app keeps pending review in owner-only local storage at
 `~/Library/Application Support/dev.loosekeys.desktop/state.json`. It stores
@@ -276,8 +274,8 @@ Automatic scanning is done by a separate helper with no window or Dock icon.
 Giving consent registers it with macOS as a launchd job, which starts it at
 login and restarts it if it stops unexpectedly. It checks a file when it
 changes, works through the whole home folder in short slices at low priority,
-repeats that pass weekly, and marks an item fixed when its file no longer
-matches. Closing the window quits the app, unless it is in the menu bar, and
+repeats that pass weekly, and drops an item from its list when its file no
+longer matches. Closing the window quits the app, unless it is in the menu bar, and
 quitting the app does not stop the helper. **Pause Scanning** in Settings
 stops its checks and alerts; turning **Scan Automatically** off, on the
 Overview or in Settings, also removes the launchd job. Settings shows when

@@ -20,14 +20,12 @@ struct Inspector: View {
                         if model.currentReviews.contains(where: \.isStored) {
                             Button("Move to Stored Sign-ins") { model.decideSelection(reason: nil, stored: true) }
                         }
-                    } else if model.currentReviews.contains(where: { $0.status != "fixed" }) {
+                    } else {
                         Menu("Set Aside…") {
                             ForEach(model.setAsideReasons) { reason in
                                 Button(reason.label) { model.decideSelection(reason: reason.id) }
                             }
                         }
-                    } else {
-                        Text("These are fixed, so there's nothing to set aside.")
                     }
                 }
                 .disabled(model.decidingSelection)
@@ -52,25 +50,15 @@ private struct ReviewInspector: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(item.shownTitle).font(.headline)
-                    // Stored Sign-ins has no Risk column, and lists only what is open.
+                    // Stored Sign-ins has no Risk column.
                     if !item.isStored {
-                        HStack(spacing: 10) {
-                            RiskLabel(severity: item.severity)
-                            if item.status != "set-aside" {
-                                Text(item.statusText).foregroundStyle(.secondary)
-                            }
-                        }
-                        .font(.subheadline)
+                        RiskLabel(severity: item.severity).font(.subheadline)
                     }
                     // What it concerns, or failing that a count the rule gives, as
                     // for a browser's saved logins.
                     if let about = item.shownAbout {
                         Text(about).font(.subheadline).foregroundStyle(.secondary)
                     }
-                }
-                if item.status == "fixed" {
-                    Text("Loose Keys no longer finds this in the file. That doesn't mean the credential was revoked, or that no other copy exists.")
-                        .foregroundStyle(.secondary)
                 }
                 // At the top, so it is in view without scrolling past what to do.
                 if item.status == "open" {
@@ -151,7 +139,7 @@ private struct ReviewInspector: View {
             }
 
             if item.status != "set-aside", !item.isStored {
-                if item.status != "fixed", let folder = item.folder {
+                if let folder = item.folder {
                     Section {
                         if folderSkipped(folder) {
                             // A folder's name is whatever its maker chose, so it is shown as plain text.
@@ -195,11 +183,6 @@ private struct ReviewInspector: View {
                     }
                     LabeledContent("Rule", value: item.rule)
                     if let seen = item.firstSeen { LabeledContent("First Seen", value: localTime(seen)) }
-                    if let fixed = item.resolvedAt {
-                        LabeledContent(String(localized: "date.fixed", defaultValue: "Fixed",
-                                              comment: "Inspector, under Show Details: the label beside the date and time the finding was found to be fixed."),
-                                       value: localTime(fixed))
-                    }
                 }
             }
         }

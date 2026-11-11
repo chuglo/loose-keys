@@ -308,14 +308,15 @@ func kindsList(_ entries: [(state: String, stored: Bool)], full: Bool = false, s
     let bench = Bench()
     bench.model.pane = .review
     let read = await bench.ask("pending_review") { await $0.refreshReview() }
-    await bench.answer(read, .success(reviewStates(["open", "open", "fixed"])))
+    await bench.answer(read, .success(reviewStates(["open", "open", "open", "fixed"])))
+    check(bench.model.reviewRows.map(\.id) == [1, 2, 3], "a fixed item is not listed")
     bench.model.selectedReviews = [1, 2, 3]
     check(bench.model.currentReview == nil && bench.model.currentReviews.count == 3,
           "multiple selection never inspects an arbitrary item")
     bench.model.search = "fixture-2"
     check(bench.model.selectedReviews == [2], "filtering retains only visible selections")
     bench.model.search = ""
-    bench.model.selectedReviews = [1, 2, 3]
+    bench.model.selectedReviews = [1, 2]
     let first = await bench.ask("decide_review") { $0.decideSelection(reason: "testing") }
     check(first.call.args["id"] as? Int == 1 && first.call.args["revision"] as? Int == 1,
           "batch sends the first displayed id and revision")
@@ -328,16 +329,16 @@ func kindsList(_ entries: [(state: String, stored: Bool)], full: Bool = false, s
     check(second.args["id"] as? Int == 2 && second.args["revision"] as? Int == 1
           && second.args["reason"] as? String == "testing", "batch keeps the drawn targets and reason")
     bench.answer(second, .success("null"))
-    bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["set-aside", "set-aside", "fixed"])))
+    bench.answer(await bench.next("pending_review", after: 1), .success(reviewStates(["set-aside", "set-aside", "open", "fixed"])))
     await eventually("batch refresh finishes") { !bench.model.decidingSelection }
     check(bench.model.selectedReviews == [3] && bench.engine.held("decide_review").count == 2,
-          "fixed items are skipped and a later visible selection survives")
+          "only the drawn items are decided and a later visible selection survives")
 
     bench.model.pane = .setAside
     bench.model.selectedReviews = [1, 2]
     let failed = await bench.ask("decide_review") { $0.decideSelection(reason: nil) }
     await bench.answer(failed, .failure(EngineError(message: "The finding changed.")))
-    bench.answer(await bench.next("pending_review", after: 2), .success(reviewStates(["set-aside", "set-aside", "fixed"], revision: 2)))
+    bench.answer(await bench.next("pending_review", after: 2), .success(reviewStates(["set-aside", "set-aside", "open", "fixed"], revision: 2)))
     await eventually("failed batch refresh finishes") { !bench.model.decidingSelection }
     check(bench.model.failure != nil && bench.engine.held("decide_review").count == 3,
           "a refusal is shown after refreshing and stops the remaining decisions")
@@ -1389,8 +1390,8 @@ func engineTextTableChoice() {
     model.pane = .review
     model.search = "fixture"
     check(model.filterSummary == nil, "filter count: no empty-results claim before the list arrives")
-    model.review = try? decodeEngine(ReviewList.self, from: Data(reviewStates(["open", "fixed", "set-aside"]).utf8))
-    check(model.filterSummary == "Showing 2 of 2 items", "filter count: review includes fixed rows, not set-aside rows")
+    model.review = try? decodeEngine(ReviewList.self, from: Data(reviewStates(["open", "open", "fixed", "set-aside"]).utf8))
+    check(model.filterSummary == "Showing 2 of 2 items", "filter count: review leaves out fixed and set-aside rows")
     model.search = "fixture-2"
     check(model.filterSummary == "Showing 1 of 2 items", "filter count: partial match distinguishes shown and total rows")
     check(!model.filterHasNoMatches, "filter message: partial matches keep the table")
@@ -1402,7 +1403,7 @@ func engineTextTableChoice() {
     check(!model.filterHasNoMatches, "filter message: no-match guidance cannot hide a read failure")
     model.reviewUnread = nil
     model.pane = .setAside
-    model.search = "fixture-3"
+    model.search = "fixture-4"
     check(model.filterSummary == "Showing 1 of 1 item", "filter count: Set Aside has its own total and singular form")
     model.search = "not present"
     check(model.filterHasNoMatches, "filter message: Set Aside offers no-match guidance")
@@ -1465,7 +1466,7 @@ func initialWindowFitsScreen() {
 /// copy (including a fixed or set-aside copy) is the reason it matches.
 @MainActor func groupedPathFiltering() async {
     let model = AppModel(engine: HeldEngine())
-    for state in ["open", "set-aside", "fixed"] {
+    for state in ["open", "set-aside"] {
         let item: [String: Any] = [
             "id": 41, "revision": 7, "rule": "fixture-rule", "path": "~/.config/example/hosts.yml",
             "title": "Synthetic grouped finding", "explanation": "Review fixture",

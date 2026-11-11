@@ -80,22 +80,6 @@
 			<string>%lld items selected</string>
 		</dict>
 	</dict>
-	<key>%lld fixed</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@fixed@</string>
-		<key>fixed</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>one</key>
-			<string>%lld fixed</string>
-			<key>other</key>
-			<string>%lld fixed</string>
-		</dict>
-	</dict>
 	<key>%lld items</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>

@@ -90,18 +90,8 @@ struct ReviewTable: View {
         } else {
             Table(model.reviewRows, selection: $model.selectedReviews, sortOrder: $model.reviewSort) {
                 TableColumn("Finding", value: \.shownTitle) { (item: ReviewItem) in
-                    // Most rows are open, and Set Aside lists only set-aside
-                    // ones, so only a fixed row says what it is.
                     VStack(alignment: .leading, spacing: 2) {
-                        if item.status == "fixed" {
-                            HStack(spacing: 8) {
-                                Text(item.shownTitle).lineLimit(1)
-                                Text(item.statusText).fixedSize()
-                            }
-                            .foregroundStyle(.secondary)
-                        } else {
-                            Text(item.shownTitle).lineLimit(1)
-                        }
+                        Text(item.shownTitle).lineLimit(1)
                         if let hint = item.copyHint {
                             Text(hint).font(.caption).foregroundStyle(.secondary)
                         }

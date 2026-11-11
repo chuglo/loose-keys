@@ -1644,7 +1644,7 @@ is replaced (macOS behaviour).
   looked up in turn, two levels deep, because the engine nests its own words,
   as in "Could not save: export directory: permission-denied.". An item saved
   before a rewording keeps the old English, shown untranslated, until a scan
-  finds it again; a fixed item that is not found again keeps it. The Filter
+  finds it again. The Filter
   ignores case and accents and matches both the shown and the English text.
 - Latin American macOS words some names and buttons differently
   (Configuración del Sistema, Elementos de inicio, basurero, Agregar, OK).
@@ -1777,7 +1777,7 @@ is replaced (macOS behaviour).
   the representative path; the row's id, revision, sort key and file-action
   target do not change. Copy hints count all listed places, not only active
   ones. Filtered counts compare visible rows with this page's usable list,
-  including fixed rows, never the scan's finding count. No Matches and Clear
+  never the scan's finding count. No page lists a fixed item. No Matches and Clear
   Filter do not replace read/save errors or a genuinely empty source list.
 - The inspector starts hidden. A changed selection opens it, clearing that
   selection closes it, and the toolbar can explicitly show an empty
@@ -1841,7 +1841,7 @@ is replaced (macOS behaviour).
   commands sequentially, stop on the first failure and refresh even then.
   Earlier successful saves are not rolled back. Repeated batch presses are
   disabled until that refresh ends. The model check covers captured targets,
-  filtering, fixed rows, repeated presses and failure; the window check sets
+  filtering, unlisted fixed items, repeated presses and failure; the window check sets
   multiple table rows through accessibility, checks the inspector and returns
   several sample findings with its button.
   Unverified: modifier-key selection with a pointer and batch decisions

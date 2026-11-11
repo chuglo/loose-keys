@@ -319,7 +319,7 @@ do {
     try data.write(to: URL(fileURLWithPath: args[2]).appendingPathComponent("report.json"), options: .withoutOverwriting)
     print("PASS: app exported owner-only report with specific fixture rules and paths; no planted values, prefixes or suffixes")
     // Remove only the fixture this driver created, then rescan through the UI.
-    // A set-aside item must still be rechecked and marked fixed.
+    // A set-aside item must still be rechecked, and leaves the lists once fixed.
     try files.removeItem(at: home.appendingPathComponent(".aws/credentials"))
     try press(menuItem("Scan Now"), "Scan Now after fixture removal")
     // Every scan opens Overview. Return to the list before asserting its rows.
@@ -335,37 +335,38 @@ do {
         try checkLeaks()
         return menuItem("Save Report…").map { attribute($0, kAXEnabledAttribute) as? Bool == true } ?? false
     }
-    guard let reviewRow = windowElements().first(where: {
-        attribute($0, kAXRoleAttribute) as? String == kAXRowRole &&
-            descendants($0).flatMap { texts($0) }.contains("Worth Reviewing")
-    }), AXUIElementSetAttributeValue(reviewRow, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success else {
-        try fail("cannot return to Worth Reviewing after rescan")
+    func open(_ page: String) throws {
+        guard let row = windowElements().first(where: {
+            attribute($0, kAXRoleAttribute) as? String == kAXRowRole &&
+                descendants($0).flatMap { texts($0) }.contains(page)
+        }), AXUIElementSetAttributeValue(row, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success else {
+            try fail("cannot open \(page) after rescan")
+        }
     }
+    // The AWS item was the only one set aside, so its page is empty once it is fixed.
+    try open("Set Aside")
+    try wait("removed AWS fixture gone from Set Aside") {
+        try alive()
+        try checkLeaks()
+        return windowElements().flatMap { texts($0) }.contains("No Items Set Aside")
+    }
+    try open("Worth Reviewing")
     var rescanEvidence = "no rows observed"
     do {
-        try wait("removed AWS fixture marked fixed") {
+        try wait("removed AWS fixture gone from Worth Reviewing") {
             try alive()
             try checkLeaks()
             let rows = windowElements().filter { attribute($0, kAXRoleAttribute) as? String == kAXRowRole }
-            let awsFixed = rows.contains {
-                let exposed = descendants($0).flatMap { texts($0) }
-                return exposed.contains("AWS access keys stored in a file") && exposed.contains("Fixed")
-            }
-            let keyStillOpen = rows.contains {
-                let exposed = descendants($0).flatMap { texts($0) }
-                return exposed.contains("Private key with no passphrase") && !exposed.contains("Fixed")
-            }
-            let visible = windowElements().flatMap { texts($0) }
+            let keyStillOpen = rows.contains { descendants($0).flatMap { texts($0) }.contains("Private key with no passphrase") }
             let awsPresent = rows.contains { descendants($0).flatMap { texts($0) }.contains("AWS access keys stored in a file") }
-            let inspectorFixed = visible.contains("These are fixed, so there's nothing to set aside.")
-            rescanEvidence = "AWS row=\(awsPresent), row fixed=\(awsFixed), key open=\(keyStillOpen), inspector fixed=\(inspectorFixed)"
-            return awsFixed && keyStillOpen
+            rescanEvidence = "AWS row=\(awsPresent), key open=\(keyStillOpen)"
+            return !awsPresent && keyStillOpen
         }
     } catch {
         let message = (error as? CheckError)?.message ?? "rescan failed"
         try fail(message + " (" + rescanEvidence + ")")
     }
-    print("PASS: rescan marks the removed set-aside fixture fixed and leaves the private key unresolved")
+    print("PASS: rescan drops the removed set-aside fixture and leaves the private key unresolved")
 } catch {
     let message = (error as? CheckError)?.message ?? "test setup or file operation failed"
     fputs("FAIL: \(message)\n", stderr)

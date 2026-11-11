@@ -235,7 +235,7 @@ final class SampleEngine: Engine {
         case "start_scan":
             // The sample scan could not read everything: its status is "partial".
             var answer = Self.results
-            if Self.nothingFound { answer = answer.replacingOccurrences(of: #""review":8"#, with: #""review":0"#) }
+            if Self.nothingFound { answer = answer.replacingOccurrences(of: #""review":9"#, with: #""review":0"#) }
             if Self.documentsBlocked { answer = answer.replacingOccurrences(of: #""blocked":[]"#, with: #""blocked":["Documents"]"#) }
             return Data(answer.utf8)
         case "item_path":
@@ -346,18 +346,20 @@ final class SampleEngine: Engine {
         \(tokenInTwoFiles),
         \(item(5, "Passwords saved in a browser", "~/Library/Application Support/Google/Chrome/Default/Login Data", "medium", "open", detail: "214 saved logins")),
         \(item(6, "Possible npm token stored in a config file", "~/.npmrc", "medium", "open")),
-        \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "fixed", subject: "Tailscale API key", actionable: false)),
+        \(item(8, "Service token in an AI agent's records", "~/.claude/projects/caf\\\\u{e9}/session.jsonl", "high", "open", subject: "Tailscale API key", actionable: false)),
+        \(item(10, "Possible npm token stored in a config file", "~/Projects/retired/.npmrc", "medium", "fixed")),
         \(storedItems)
-        ],"counts":{"open":\(7 - asideCount),"set_aside":\(asideCount),"fixed":1,"stored":\(storedIds.count - storedKept.count),"stored_set_aside":\(storedKept.count),"stored_gone":0},
+        ],"counts":{"open":\(8 - asideCount),"set_aside":\(asideCount),"fixed":1,"stored":\(storedIds.count - storedKept.count),"stored_set_aside":\(storedKept.count),"stored_gone":0},
          "skipped":\(skippedList),"error":\(error),"full":\(listFull),"stored_full":false,"stored_checked":\(storedChecked),"route":false,"permission":"\(permission)"}
         """
     }
 
-    /// A scan counts each finding. For the list above that is 8: the token in
-    /// two files is two, and the item set aside is still found.
+    /// A scan counts each finding. For the list above that is 9: the token in
+    /// two files is two, the item set aside is still found, and the fixed one
+    /// is not.
     private static let results = """
     {"status":"partial","generated_at":"2026-10-10T21:40:00Z",
-     "review":8,"stored":5,"not_checked":123,
+     "review":9,"stored":5,"not_checked":123,
      "gaps":[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"]}],
      "blocked":[]}
     """
@@ -825,7 +827,7 @@ enum Checks {
         await open(.overview)
         expect(await eventually {
             let text = written()
-            return text.contains("6 Loose Keys Worth Reviewing") && text.contains("From earlier scans.")
+            return text.contains("7 Loose Keys Worth Reviewing") && text.contains("From earlier scans.")
                 && button("Review Items") != nil && linkButton("Show Places Not Checked") == nil
         }, "before a scan, the Overview answers from saved findings")
         // Before any scan this window has no report to save, so a list that
@@ -1392,15 +1394,13 @@ enum Checks {
             } else {
                 expect(false, "the sample list has a finding whose name the app does not act on")
             }
-            // There is no Status column: only a row that is not open says
-            // what it is, beside the finding's name.
-            if let fixed = model.reviewRows.firstIndex(where: { $0.status == "fixed" }),
-               let open = model.reviewRows.firstIndex(where: { $0.status == "open" }),
-               max(fixed, open) < rows(list).count {
-                expect(written(in: rows(list)[fixed]).contains("Fixed") && !written(in: rows(list)[open]).contains("Open"),
-                       "a fixed finding says Fixed beside its name, and an open one says nothing more")
+            // A fixed finding leaves the list, as a stored sign-in no longer found does.
+            if let fixed = model.review?.items.first(where: { $0.status == "fixed" }) {
+                expect(rows(list).count == model.reviewRows.count
+                       && !rows(list).contains { written(in: $0).contains { $0.contains(fixed.path) } },
+                       "a fixed finding has no row in Worth Reviewing")
             } else {
-                expect(false, "the sample list has a fixed finding and an open one")
+                expect(false, "the sample list has a fixed finding")
             }
             #endif
         } else {
