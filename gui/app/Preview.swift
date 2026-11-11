@@ -1236,6 +1236,21 @@ enum Checks {
             await settle()
         }
         expect(kept, "changing pages quickly leaves the inspector shown on the lists")
+        // Faster still, as with the arrow keys in the sidebar. An inspector
+        // closed by the page change while still opening made AppKit throw,
+        // and the toolbar and inspector stopped responding.
+        for _ in 0..<60 {
+            model.pane = .overview
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            model.pane = .stored
+            try? await Task.sleep(nanoseconds: 80_000_000)
+        }
+        await settle()
+        await settle()
+        model.inspectorShown = true
+        await settle()
+        let thrown = ((try? String(contentsOfFile: log, encoding: .utf8)) ?? "").contains("Unable to install constraint")
+        expect(!thrown, "changing between the Overview and a list faster than the inspector opens makes AppKit throw nothing")
 
         let toolbar = everything().first { role($0) == kAXToolbarRole }
         // A menu in the toolbar is a menu button to assistive software on

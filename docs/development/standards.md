@@ -1783,6 +1783,13 @@ is replaced (macOS behaviour).
   selection closes it, and the toolbar can explicitly show an empty
   inspector. An unchanged selection does not undo a manual hide. Selection
   changes use the same delayed-close guard as toolbar presses.
+  The `.inspector` modifier is on the lists' view, not on every page, so a
+  change to or from the Overview adds or removes the inspector rather than
+  animating it closed and open. When it was on every page, an inspector
+  closed by a page change while still opening made AppKit throw "Unable to
+  install constraint on view", and the toolbar and inspector stopped
+  responding (macOS 26). The window check changes between the Overview and a
+  list faster than the inspector opens and fails if AppKit logged that.
   The initial content size is capped against the main screen's visible
   frame with room for the title bar and toolbar; restored window sizes are
   not changed. Screens smaller than the 760 by 480 content minimum plus

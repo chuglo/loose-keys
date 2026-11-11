@@ -15,10 +15,6 @@ struct MainView: View {
                 .navigationTitle(title)
                 .navigationSubtitle(model.notice ?? subtitle)
                 .toolbar { toolbar }
-                .inspector(isPresented: inspectorShown) {
-                    Inspector()
-                        .inspectorColumnWidth(min: 270, ideal: 320, max: 460)
-                }
                 .background(UpdateAlertPresenter(value: updateAlert, makeAlert: makeUpdateAlert,
                                                  respond: answerUpdateAlert))
                 // The first page's one step is its own Scan Now, so the toolbar
@@ -128,7 +124,17 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch model.pane ?? .overview {
         case .overview: OverviewView()
-        case .review, .setAside, .stored: ReviewTable()
+        case .review, .setAside, .stored:
+            // On the lists alone, so going to or from the Overview adds or
+            // removes the inspector instead of animating it closed and open.
+            // Closed by a page change while it was still opening, AppKit threw
+            // "Unable to install constraint on view" and the toolbar and
+            // inspector stopped responding (macOS 26, in the window check).
+            ReviewTable()
+                .inspector(isPresented: inspectorShown) {
+                    Inspector()
+                        .inspectorColumnWidth(min: 270, ideal: 320, max: 460)
+                }
         }
     }
 
