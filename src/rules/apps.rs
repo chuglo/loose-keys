@@ -155,7 +155,7 @@ pub const VPN_PROFILE_KEY: Rule = Rule {
     next_step: Some("Ask whoever runs the VPN to revoke this profile's certificate and issue a new one, and keep the new profile out of Downloads."),
     advice: Advice {
         steps: &[
-            "If this is a work VPN, tell IT the profile was stored unprotected and ask for it to be reissued.",
+            "If this is a work VPN, tell IT the profile was stored unprotected and ask them to revoke its certificate and issue a new one.",
             "Import the new profile into the VPN app, then delete the .ovpn file and empty the Trash. The app keeps what it needs.",
             "Ask for the VPN to require a second factor, so a copied profile isn't enough on its own.",
         ],

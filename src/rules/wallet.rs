@@ -273,6 +273,7 @@ pub const HARDWARE_WALLET_APP: Rule = Rule {
     next_step: Some("Never type your recovery phrase into this app. If you restore a wallet, enter the words on the device."),
     advice: Advice {
         steps: &[
+            "Never type your recovery phrase into this app. If you restore a wallet, enter the words on the device.",
             "Install and update the app only from the maker's official site.",
             "If you no longer use this app, delete it and this data. Your funds don't depend on them.",
         ],

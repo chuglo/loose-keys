@@ -1307,6 +1307,12 @@ enum Checks {
             // The control for the Set Aside check below: the heading is visible here.
             expect((written() + everything().flatMap(names)).contains { $0.contains("What to Do") },
                    "an open finding's inspector shows What to Do")
+            if let finding = model.reviewRows[1].steps.first, let next = model.reviewRows[1].nextStep {
+                expect(written().contains(EngineText.shown(finding)),
+                       "a finding with steps shows them under What to Do")
+                expect(!written().contains(EngineText.shown(next)),
+                       "a finding with steps doesn't repeat its next step above them")
+            }
             let why = EngineText.shown(model.reviewRows[1].explanation)
             expect(!written().contains(why), "why a finding is here starts folded, below what to do")
             await press(button("Show Explanation"), "unfolding why the finding is here")

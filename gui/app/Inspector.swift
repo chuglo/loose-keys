@@ -124,10 +124,13 @@ private struct ReviewInspector: View {
                 storedAdvice
             } else if item.status != "set-aside" {
                 Section {
-                    Text(item.nextStep.map(EngineText.shown)
-                         ?? String(localized: "Find out why this file is here before you change it.",
-                                   comment: "Inspector, under What to Do, for a finding whose rule gives no next step."))
-                    StepList(steps: item.steps)
+                    if item.steps.isEmpty {
+                        Text(item.nextStep.map(EngineText.shown)
+                             ?? String(localized: "Find out why this file is here before you change it.",
+                                       comment: "Inspector, under What to Do, for a finding whose rule gives no next step."))
+                    } else {
+                        StepList(steps: item.steps)
+                    }
                     if let link = item.link {
                         Button("Open the Page to Revoke It") { model.openLink(link) }
                     }
@@ -205,8 +208,11 @@ private struct ReviewInspector: View {
         }
         if item.status != "set-aside", item.nextStep != nil || !item.steps.isEmpty || item.link != nil {
             Section("What You Can Do") {
-                if let next = item.nextStep { Text(EngineText.shown(next)) }
-                StepList(steps: item.steps)
+                if item.steps.isEmpty {
+                    if let next = item.nextStep { Text(EngineText.shown(next)) }
+                } else {
+                    StepList(steps: item.steps)
+                }
                 if let link = item.link {
                     Button("Open the Page to Manage It") { model.openLink(link) }
                 }
