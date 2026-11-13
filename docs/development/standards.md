@@ -1325,6 +1325,17 @@ exception, for device-management checks that ask for it. The usage text in
   `the_parts_of_a_format_fit_how_it_is_counted` checks that the parts can be
   matched one after the other. Not verified: tokens vendors issue today
   beyond the published formats, and how often ordinary text matches one.
+- A file a rule for stored sign-ins names, by itself or by its folder, is
+  listed by that rule alone: the service-token rule and the rule for agent
+  records add nothing for it (`scan::known::sign_in_file`, in
+  `Scan::add_from` and in `recheck`, so an item an earlier version listed
+  there is marked fixed). Each had listed the token in it again at high risk,
+  and the AWS CLI's session cache gave a new item and an alert at every
+  sign-in. Remaining risk: a token someone put in such a file that the app
+  owning the file did not write is covered only by the stored sign-in's
+  finding, and a sign-in file reached through a link is still listed twice
+  (unverified).
+  Test: `a_token_in_a_tool_s_own_sign_in_file_is_listed_once`.
 
 ### Docker registry token coverage
 

@@ -5302,3 +5302,69 @@ fn a_record_too_deep_to_be_read_is_not_unreached_when_the_check_is_stopped() {
     assert_eq!(r.not_checked.len(), 1);
     assert_eq!(left, Unreached::default());
 }
+
+/// A file a tool keeps its own sign-in in is listed once, as that stored
+/// sign-in. The token rules know the token in it too, and each listed it
+/// again, at high risk: the AWS CLI's cache gave a new item, and an alert,
+/// at every sign-in.
+#[test]
+fn a_token_in_a_tool_s_own_sign_in_file_is_listed_once() {
+    let f = Fixture::new("sign-in-file-once");
+    let aws = format!("{}{}", concat!("AS", "IA"), "ABCDEFGHIJKLMNOP");
+    let github = format!(
+        "{}{}",
+        concat!("gh", "u_"),
+        "0123456789abcdefghijABCDEFGHIJ012345"
+    );
+    let write = |rel: &str, body: String| {
+        let path = f.0.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, body).unwrap();
+    };
+    write(
+        ".aws/cli/cache/role.json",
+        format!(
+            r#"{{"Credentials": {{"AccessKeyId": "{aws}", "SecretAccessKey": "synthetic-only-value-1234"}}}}"#
+        ),
+    );
+    // In a tree of records as well, which the rule for records reads.
+    write(
+        ".claude/.credentials.json",
+        format!(r#"{{"claudeAiOauth": {{"accessToken": "{github}"}}}}"#),
+    );
+    // The same token in a file no tool keeps a sign-in in is still found.
+    write("notes/token.txt", format!("token: {github}\n"));
+    let scan = Scan::run(&f.0, std::slice::from_ref(&f.0));
+    let mut found: Vec<(&str, &str)> = scan
+        .findings
+        .iter()
+        .map(|f| (f.path.as_str(), f.rule))
+        .collect();
+    found.sort_unstable();
+    assert_eq!(
+        found,
+        [
+            ("~/.aws/cli/cache/role.json", "dev.aws.session-cache"),
+            ("~/.claude/.credentials.json", "dev.ai.stored-login"),
+            ("~/notes/token.txt", "secret.service-token"),
+        ]
+    );
+    // An item an earlier version listed for the token there is no longer found.
+    for (rule, file) in [
+        ("secret.service-token", ".aws/cli/cache/role.json"),
+        ("secret.agent-record", ".claude/.credentials.json"),
+    ] {
+        assert_eq!(
+            recheck(rule, &f.0.join(file), &f.0, None),
+            Some(vec![]),
+            "{file}"
+        );
+    }
+    let kept = recheck(
+        "secret.service-token",
+        &f.0.join("notes/token.txt"),
+        &f.0,
+        None,
+    );
+    assert_eq!(kept.map(|still| still.len()), Some(1));
+}

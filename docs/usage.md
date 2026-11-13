@@ -135,7 +135,10 @@ for npm, RubyGems and Bundler, so those findings may need review again.
 A token that a sign-in file's own check and the general token check both find
 in that file, as in `~/.npmrc`, is one item, which shows the file's own
 check's steps unless only that copy has been set aside. In some files, such
-as `~/.netrc`, it is listed twice. A token in `~/.config/gh/hosts.yml` shows
+as `~/.netrc`, it is listed twice. A file an app keeps its own sign-in in,
+such as the AWS CLI's session cache or `~/.config/github-copilot/apps.json`,
+is listed once, in Stored Sign-ins: the general token check and the check of
+agent records pass it over. A token in `~/.config/gh/hosts.yml` shows
 GitHub CLI's steps at High, the general token check's risk, though GitHub
 CLI's check rates it Medium. Any item shows the
 highest risk among its findings that still need a decision, or, when none

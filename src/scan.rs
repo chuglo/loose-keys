@@ -749,6 +749,13 @@ impl Scan {
         // or in a file with no lines, are two findings. Any other hit is
         // known by where its value sits as well: two values of one kind on a
         // line are two findings, and a file reached twice gives each once.
+        // A file a tool keeps its own sign-in in is listed by that rule
+        // alone: the token in it is the sign-in.
+        let own =
+            |rel: &Path| crate::rules::finds_tokens_anywhere(rule.id) && known::sign_in_file(rel);
+        if p.strip_prefix(&self.home).is_ok_and(own) {
+            return true;
+        }
         let key = (
             rule.id,
             p.to_path_buf(),

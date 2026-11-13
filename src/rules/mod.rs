@@ -415,6 +415,12 @@ pub fn token_names() -> impl Iterator<Item = &'static str> {
 /// agents' records also looks for.
 pub const SERVICE_TOKEN_ID: &str = token::SERVICE_TOKEN.id;
 
+/// Whether `rule` is one of the two that find a token in a known format in
+/// any file: in files at large, or in an agent's records.
+pub fn finds_tokens_anywhere(rule: &str) -> bool {
+    rule == token::SERVICE_TOKEN.id || rule == token::AGENT_RECORD.id
+}
+
 /// The steps a token finding's advice gives, whichever provider issued it.
 pub fn token_steps() -> &'static [&'static str] {
     token::STEPS

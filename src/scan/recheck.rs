@@ -90,6 +90,12 @@ fn recheck_by(
     identities: Option<Want>,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
+    // A scan no longer lists a token in a file a tool keeps its own sign-in
+    // in, so one an earlier version listed there is not found again.
+    let own = |rel: &Path| super::known::sign_in_file(rel);
+    if crate::rules::finds_tokens_anywhere(rule) && path.strip_prefix(home).is_ok_and(own) {
+        return Some(Vec::new());
+    }
     let mut still = Vec::new();
     // What a scan lists as `identities`' kind, as `Scan::add_from` decides
     // it. A stored sign-in: a test credential, or what its rule stores while

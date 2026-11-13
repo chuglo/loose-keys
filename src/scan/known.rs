@@ -17,14 +17,31 @@ use std::sync::atomic::Ordering;
 /// read. By the place's own name: a known location that is a link is read
 /// where the link leads, which this does not follow.
 pub fn read_when_skipped(rule: &str, rel: &Path) -> bool {
+    let mut rules = RULES.iter().filter(|r| r.id == rule);
+    rules.any(|r| names(r.targets, rel))
+}
+
+/// Whether `rel`, a path below the home folder, is a file a tool keeps its
+/// own sign-in in: one a rule for stored sign-ins names, by itself or by its
+/// folder. A token in it is that sign-in, which its own rule lists, so the
+/// rules for a token in any file pass it over. Not a rule that also looks in
+/// every file, as the one for a key with a passphrase does: the folder it
+/// names holds other files too. By the place's own name, as
+/// `read_when_skipped` goes.
+pub(super) fn sign_in_file(rel: &Path) -> bool {
+    let mut stored = RULES
+        .iter()
+        .filter(|r| r.kind == "inventory" && !r.targets.contains(&Target::Discovery));
+    stored.any(|r| names(r.targets, rel))
+}
+
+/// Whether one of `targets` is `rel` itself, the folder it is directly in,
+/// or the place whose presence is the finding.
+fn names(targets: &[Target], rel: &Path) -> bool {
     let at = |up: usize, place: &str| rel.ancestors().nth(up) == Some(Path::new(place));
     let named = |name: &str| rel.file_name() == Some(name.as_ref());
     let stores = rel.parent().and_then(Path::file_name);
-    let mut targets = RULES
-        .iter()
-        .filter(|r| r.id == rule)
-        .flat_map(|r| r.targets);
-    targets.any(|target| match *target {
+    targets.iter().any(|target| match *target {
         Target::File(f) | Target::Present(f, _) => at(0, f),
         Target::Dir(d) | Target::Tree(d) => at(1, d),
         Target::Each(d, f) => named(f) && at(2, d),
