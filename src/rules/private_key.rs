@@ -181,24 +181,51 @@ fn key_block_protection(text: &str, first: &str) -> KeyState {
     if first != "-----BEGIN OPENSSH PRIVATE KEY-----" {
         return KeyState::Unprotected; // PEM/PKCS#8 without encryption markers
     }
-    // openssh-key-v1: magic "openssh-key-v1\0", then a length-prefixed cipher name.
+    // openssh-key-v1: magic "openssh-key-v1\0", then length-prefixed fields:
+    // the cipher's name, the key derivation's name and options, the number
+    // of keys, and the first public key, which opens with its type.
     let b64: String = text
         .lines()
         .skip(1)
         .take_while(|l| !l.starts_with("-----"))
         .flat_map(str::chars)
-        .take(64)
+        .take(160)
         .collect();
     let blob = base64_decode(&b64);
-    if blob.len() < 19 || &blob[..15] != b"openssh-key-v1\0" {
+    let Some(fields) = blob.strip_prefix(b"openssh-key-v1\0") else {
         return KeyState::Unknown;
+    };
+    let mut at = 0;
+    match field(fields, &mut at) {
+        Some(b"none") => {}
+        Some(_) => return KeyState::Protected,
+        None => return KeyState::Unknown,
     }
-    let n = u32::from_be_bytes([blob[15], blob[16], blob[17], blob[18]]) as usize;
-    match blob.get(19..19 + n) {
-        Some(b"none") => KeyState::Unprotected,
-        Some(_) => KeyState::Protected,
-        None => KeyState::Unknown,
+    // The key derivation's name and options, the number of keys, and the
+    // length of the public key, before its type.
+    let key_type = (|| {
+        field(fields, &mut at)?;
+        field(fields, &mut at)?;
+        at = at.checked_add(8)?;
+        field(fields, &mut at)
+    })();
+    // A key made on a FIDO security key ("ssh-keygen -t ed25519-sk"): the
+    // file has a handle, and signing needs the hardware it was made on.
+    if key_type.is_some_and(|kind| kind.starts_with(b"sk-")) {
+        return KeyState::Protected;
     }
+    KeyState::Unprotected
+}
+
+/// The length-prefixed field at `at`, which is moved past it. None where
+/// the bytes read so far end before the field does.
+fn field<'a>(bytes: &'a [u8], at: &mut usize) -> Option<&'a [u8]> {
+    let start = at.checked_add(4)?;
+    let length = u32::from_be_bytes(bytes.get(*at..start)?.try_into().ok()?);
+    let end = start.checked_add(usize::try_from(length).ok()?)?;
+    let value = bytes.get(start..end)?;
+    *at = end;
+    Some(value)
 }
 
 /// The line that opens a private key, and which line it is, when nothing
@@ -291,6 +318,34 @@ mod tests {
         );
         for bundle in [format!("{plain}{encrypted}"), format!("{encrypted}{plain}")] {
             assert_eq!(key_protection(bundle.as_bytes()), KeyState::Unprotected);
+        }
+    }
+
+    /// `ssh-keygen -t ed25519-sk` writes a file with no cipher, yet the key
+    /// in it is only a handle: signing needs the security key it was made
+    /// on. It is listed, not flagged as a key anyone with the file can use.
+    #[test]
+    fn a_key_held_on_a_security_key_is_not_an_unprotected_key() {
+        let file = |blob: &str| {
+            let lines: Vec<&str> = blob
+                .as_bytes()
+                .chunks(70)
+                .map(|l| std::str::from_utf8(l).unwrap())
+                .collect();
+            format!(
+                concat!(
+                    "-----BEGIN OPENSSH ",
+                    "PRIVATE KEY-----\n{}\n-----END OPENSSH ",
+                    "PRIVATE KEY-----\n"
+                ),
+                lines.join("\n")
+            )
+        };
+        for blob in [
+            "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAASgAAABpzay1zc2gtZWQyNTUxOUBvcGVuc3NoLmNvbQAAAA==",
+            "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAfwAAACJzay1lY2RzYS1zaGEyLW5pc3RwMjU2QG9wZW5zc2guY29tAAAA",
+        ] {
+            assert_eq!(key_protection(file(blob).as_bytes()), KeyState::Protected);
         }
     }
 

@@ -5,6 +5,8 @@
    "values":["synthetic-only-value"], "positive":{"parts":["-----BEGIN RSA ","PRIVATE KEY-----\nsynthetic-only-value\n"]}, "negative":"ssh-ed25519 AAAA fixture public key\n"},
   {"name":"ssh-protected", "rule":"key.ssh.private", "kind":"inventory", "severity":"low", "target":"discovery", "path":"Downloads/key.data",
    "values":["synthetic-only-value"], "positive":{"parts":["-----BEGIN ENCRYPTED ","PRIVATE KEY-----\nsynthetic-only-value\n"]}, "negative":"ssh-ed25519 AAAA fixture public key\n"},
+  {"name":"ssh-security-key", "rule":"key.ssh.private", "kind":"inventory", "severity":"low", "target":"dir:.ssh", "path":".ssh/id_ed25519_sk",
+   "values":[], "positive":{"parts":["-----BEGIN OPENSSH ","PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAASgAAABpzay1zc2gtZWQyNTUxOUBvcGVuc3NoLmNvbQAAAA==\n-----END OPENSSH ","PRIVATE KEY-----\n"]}, "negative":"sk-ssh-ed25519@openssh.com AAAA fixture public key\n"},
   {"name":"ssh-mixed-bundle", "rule":"key.ssh.private", "kind":"review", "severity":"high", "target":"discovery", "path":"Downloads/bundle.pem",
    "values":[], "positive":{"parts":["-----BEGIN RSA ","PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nsynthetic\n-----END RSA ","PRIVATE KEY-----\n-----BEGIN RSA ","PRIVATE KEY-----\nsynthetic\n-----END RSA ","PRIVATE KEY-----\n"]}, "negative":"ssh-ed25519 AAAA fixture public key\n"},
   {"name":"bitwarden", "rule":"export.password-bitwarden-json", "kind":"review", "severity":"high", "target":"discovery", "path":"Downloads/export.json",

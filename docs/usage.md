@@ -381,8 +381,10 @@ helper refused.
   its first 4 KiB and after nothing but blank lines, certificates or
   openssl's attributes, and a PuTTY `.ppk` key only by its first line; one
   pasted under other text in a note, or written into code, is not. A key with
-  a passphrase, and a PGP private-key block, whose armor doesn't show whether
-  it has one, are listed, not flagged;
+  a passphrase, an OpenSSH key held on a security key (`ed25519-sk`,
+  `ecdsa-sk`), whose file is no use without the hardware, and a PGP
+  private-key block, whose armor doesn't show whether it has a passphrase,
+  are listed, not flagged;
 - unencrypted Bitwarden JSON exports of a personal vault or an organization
   that hold login passwords, and 1Password export files (`.1pux`, and the
   `.1pif` of 1Password 7 and earlier, by its first item);
