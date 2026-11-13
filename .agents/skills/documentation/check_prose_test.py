@@ -39,6 +39,26 @@ See [the guide](robust.md).
                  "the rule and the first step to take today.\n",
     "docs/design-notes.md": "# Notes\n\nPlain text.\n",
     "docs/clean.md": "# Clean\n\nPlain words here.\n",
+    "docs/usage.md": f"""\
+# Usage
+
+Short one. This sentence keeps going and going because it wants to list a
+great many separate things, which a person could do, one after another, until
+the reader has long since forgotten how it began, e.g. right here at the end.
+Loose Keys skips the Trash, but `a, b, c, d.` stays, and it also skips caches,
+and it reports gaps; you decide, then you act.
+It works with Chrome, Brave, Edge, Arc, Safari, Firefox, Opera.
+- A link-only item follows.
+- [The detection guide](detection.md)
+
+| Cell | Long row |
+|---|---|
+| a | this table row goes on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on, yes, yes, yes, yes |
+""",
+    "docs/testing/x.md": "# X\n\nHere is a different sentence which rambles on while it names "
+                         "an enormous number of unrelated tasks that somebody might attempt, "
+                         "first this, then that, until nobody can recall its opening words, "
+                         "so, yes, again, and again.\n",
 }
 
 EXPECTED = [
@@ -49,6 +69,9 @@ EXPECTED = [
     ("docs/a.md", 9, "history"),
     ("docs/b.md", 3, "repeat"),
     ("docs/design-notes.md", 1, "plan"),
+    ("docs/usage.md", 3, "long-sentence"),
+    ("docs/usage.md", 3, "stacked-clauses"),
+    ("docs/usage.md", 6, "stacked-clauses"),
 ]
 
 

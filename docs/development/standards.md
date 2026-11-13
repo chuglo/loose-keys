@@ -355,7 +355,7 @@ The threats are a local user racing a root run with links, and hostile files
   that is reached is a `scan-limit` gap, so a cut-short scan is never shown
   as complete. The matcher caps are under
   [The shared scanner crate](#the-shared-scanner-crate), and the numbers a
-  person relies on in [usage](../usage.md#supported-checks).
+  person relies on in [detection](../detection.md#limits).
 - A presence check outside `fsutil` uses `std::fs::symlink_metadata`.
   `Path::exists`, `is_file`, `is_dir` and `fs::metadata` follow links. Treat
   the answer as a hint: whatever is read next still goes through `fsutil`.
@@ -478,7 +478,8 @@ The threats are a local user racing a root run with links, and hostile files
   it. `fsutil` checks the flag before the open and on the handle.
 - Discovery does not enter the folders in `EXCLUDED` and does not open the
   settings files in `ASKS` (`src/scan.rs`), for the reason
-  [usage](../usage.md) gives; from the helper the prompt would come with
+  [detection](../detection.md#where-the-scanner-looks) gives; from the
+  helper the prompt would come with
   nobody at the window. The report lists the folders as excluded. Tests:
   `other_apps_data_and_media_stores_are_not_entered`, which also checks that
   a change there reads nothing, and
@@ -612,7 +613,7 @@ The threats are a local user racing a root run with links, and hostile files
   `~/` path below the home, 32 at most), then keeps them in `state.json`
   beside the person's decisions, with the same standing as a Kept decision;
   the helper reads them there and so applies the list the app last saved
-  ([usage](../usage.md#expected-findings-set-by-mdm)). The CLI
+  ([managed Macs](../managed.md#expected-findings-set-by-mdm)). The CLI
   reads none of it. A file planted at a listed path is still listed, under
   Set Aside with its rule and details, counted and exported. Tests:
   `an_expected_place_is_set_aside_and_does_not_alert`,
@@ -1260,7 +1261,7 @@ exception, for device-management checks that ask for it. The usage text in
   `*.ovpn`, `*.tfstate`) are also named by a rule that accepts any head, which
   reads the file and reports `too-large`. Only `*.conf` is tested:
   `a_conf_file_over_1_mib_is_a_gap_only_with_an_interface_head` in
-  `tests/scan_scope.rs`. A change updates the reads limit in `docs/usage.md`.
+  `tests/scan_scope.rs`. A change updates the reads limit in `docs/detection.md`.
 - Text configs read through `utf8_text` drop a leading byte order mark, and
   the value positions they give stay ones in the file. Maven and FileZilla
   XML that stops inside a tag, comment or declaration is an `unreadable` gap
@@ -1730,7 +1731,8 @@ is replaced (macOS behaviour).
 - Window text is as short as it can be. Apple's writing guidance says to
   check that each word needs to be there [18]: a note that repeats its
   heading is cut, not reworded. A test that pins long text is suspect.
-  Limits, ordering, timing and caveats are in [usage](../usage.md).
+  Limits, ordering, timing and caveats are in [usage](../usage.md) and
+  [detection](../detection.md).
   The same guidance gives the rest: verbs on buttons and links, no "we",
   which leaves unclear who is meant, a setting described by what it does
   when on, a button that opens a setting rather than only
@@ -1768,7 +1770,7 @@ is replaced (macOS behaviour).
   Folder controls, skipped
   folders, check timing and Pause are in Settings. The
   Overview does not show what a scan covers. That is in
-  [usage](../usage.md), in `loose-keys --list-rules` and in every saved
+  [detection](../detection.md), in `loose-keys --list-rules` and in every saved
   report, which keeps the scan's exclusions and detection limits.
 - What the last manual scan and the helper's last full pass could not read
   is in one popover, opened only by Show Places Not Checked under the

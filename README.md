@@ -34,8 +34,81 @@ click **Open Anyway** beside the message about Loose Keys. Confirm when asked:
 
 ![Privacy & Security: “Loose Keys” was blocked to protect your Mac, with an Open Anyway button](docs/images/open-anyway.png)
 
-Choose **Scan Now** for a first check. Afterwards, turn on **Scan
-Automatically** on the Overview to keep checking after you close the window.
+Choose **Scan Now** for a first check. Then turn on **Scan Automatically**, on
+the Overview, so Loose Keys keeps checking after you close the window.
+
+## Guides
+
+- [Using the app](docs/usage.md): the window's controls and what to do with a finding.
+- [Detection and limits](docs/detection.md): what the scanner finds, what it doesn't report and where it looks.
+- [Deploying to managed Macs](docs/managed.md): for IT administrators: how to run the command as root, what the counts files hold, and how to list expected findings.
+
+## Use the command line
+
+The app includes a `loose-keys` command for one-time scans in a terminal or
+script. To put it on your `PATH`, link it into `/usr/local/bin`. Then run a scan:
+
+```sh
+sudo mkdir -p /usr/local/bin
+sudo ln -s "/Applications/Loose Keys.app/Contents/MacOS/loose-keys" /usr/local/bin/
+loose-keys scan
+```
+
+The command uses the same scanner as the app, but it doesn't read the app's
+saved state. Findings you set aside in the app still appear in the command's results.
+
+```sh
+loose-keys scan --limits                  # also print what the scan can't detect
+loose-keys scan --select /Volumes/Backup  # include another folder or drive
+loose-keys scan --exclude ~/Archive       # skip a folder (up to 32)
+loose-keys scan --fail-on-open high       # exit with 3 if anything high is open
+loose-keys scan --export report.json      # full JSON report
+loose-keys scan --feedback counts.json    # counts only, no paths
+loose-keys --list-rules                   # every rule and where it looks
+```
+
+[Detection and limits](docs/detection.md#choosing-folders-on-the-command-line)
+explains what `--select` and `--exclude` accept.
+
+Run `loose-keys --help` for the other options. The exit codes are:
+
+- 0: the scan is complete.
+- 1: the scan is partial, because something couldn't be checked.
+- 2: an error.
+- 3: you gave `--fail-on-open LEVEL` (`high`, `medium` or `low`), and something
+  worth reviewing is at that risk level or above.
+
+Exit codes don't depend on what the scan found, unless you give
+`--fail-on-open`. If more than one applies, 2 wins over 3, and 3 wins over 1.
+
+`--fail-on-open` counts only what's worth reviewing. A stored sign-in counts
+once its file's permissions let other users read it. A test-mode key never
+counts.
+
+The summary goes to standard output. So do JSON written to `-` and the output of
+`--help`, `--version` and `--list-rules`. Errors go to standard error. If you
+mistype the command, the usage text goes there too, and the exit code is 2.
+
+The summary says what a finding concerns, such as the AWS profile or registry
+host. The JSON report leaves that out and names only the kind of token. Its
+fields are in the [JSON report schema](schema/report-1.schema.json).
+
+The command writes the export file only when the scan ends, and always as a new
+file. If the file already exists or can't be created, the command writes
+nothing and prints no summary. The exit code is 2.
+
+A full report contains file paths. A counts file leaves out paths, but it still
+shows which kinds of credentials you have. Check either file before you share
+it. The app's **Save Counts Only…** writes the same counts file. To see what a
+counts file holds, or to run the command as root from a device-management tool,
+see [Deploying to managed Macs](docs/managed.md).
+
+When you scan from a terminal, macOS may ask whether your terminal app can open
+protected folders such as Desktop, Documents and Downloads. The scan waits for
+your answer (unverified). If macOS refuses a place, the scan lists it as "Access
+denied by macOS". The scan then counts as partial and exits with 1. To include
+those places, allow the terminal app in **System Settings › Privacy &
+Security**, under **Files & Folders** (unverified). Then scan again.
 
 ## Build the app
 
@@ -47,95 +120,31 @@ open "target/release/bundle/macos/Loose Keys.app"
 ```
 
 The build signs the app ad hoc unless `LOOSE_KEYS_SIGN_IDENTITY` names a
-code-signing identity. An ad-hoc identity changes with every build, which can
-stop the background helper working after a rebuild (unverified); an Apple
-Development identity stays the same. If you'll rebuild, sign with one from
-the first install. `security find-identity -v -p codesigning` lists yours:
+code-signing identity. An ad-hoc identity changes with every build, and that can
+stop the background helper from working after a rebuild (unverified). An Apple
+Development identity stays the same. If you plan to rebuild, sign with one from
+the first install. To see yours, run `security find-identity -v -p codesigning`.
+Then build with it:
 
 ```sh
 LOOSE_KEYS_SIGN_IDENTITY="Apple Development" sh gui/build-macos.sh
 ```
 
-Move the app to Applications if you want to keep it. To make a disk image with
-a drag-to-Applications shortcut, run `sh gui/package-dmg.sh`. It writes
-`target/release/bundle/macos/Loose-Keys-<version>.dmg` and won't overwrite an
+To keep the app, move it to Applications. To make a disk image with a
+drag-to-Applications shortcut, run `sh gui/package-dmg.sh`. It writes
+`target/release/bundle/macos/Loose-Keys-<version>.dmg`. It won't overwrite an
 existing image.
-
-## Use the command line
-
-The app includes a `loose-keys` command for one-time scans in a terminal or
-script. To make it available on your `PATH`, link it and run a scan:
-
-```sh
-sudo mkdir -p /usr/local/bin
-sudo ln -s "/Applications/Loose Keys.app/Contents/MacOS/loose-keys" /usr/local/bin/
-loose-keys scan
-```
-
-The command uses the same scanner as the app, but doesn't use the app's saved
-state. Findings you set aside in the app will still appear in command-line
-results.
-
-```sh
-loose-keys scan --limits                  # also print what the scan can't detect
-loose-keys scan --select /Volumes/Backup  # include another folder or drive
-loose-keys scan --export report.json      # full JSON report
-loose-keys scan --feedback counts.json    # counts only, no paths
-loose-keys --list-rules                   # every rule and where it looks
-```
-
-Run `loose-keys --help` for the remaining options and exit codes. The
-summary, JSON written to `-`, `--help`, `--version` and `--list-rules` go to
-standard output; errors, and the usage text after a mistake in the command,
-go to standard error with exit code 2.
-
-The export file is written only when the scan ends, as a new file. If it
-already exists or can't be created, nothing is written, no summary is
-printed, and the exit code is 2.
-
-A full report contains file paths. A counts file leaves out paths, but still
-shows which kinds of credentials you have. Check either file before sharing it.
-
-A counts file's `schema` is `loose-keys/feedback/1`, or
-`loose-keys/device-counts/1` with `--device-id`, which adds `device_id` and
-`generated_at`. It also gives `tool_version`, `platform`, `architecture`, the
-scan's `status` and `context`, `requested_roots` (how many folders the scan
-covered, the home folder included), `excluded_by_user` (how many
-folders were skipped, not which) and `not_checked_by_reason`. For each risk
-level, `review` counts the findings worth reviewing (`open` and
-`open_by_rule`), the ones `--fail-on-open` checks.
-`findings_by_rule` and `findings_by_severity` count every finding, stored
-sign-ins included, and `findings_by_token_type` counts service tokens by type.
-The app's **Save Counts Only…** writes the same file, and counts findings set
-aside there as open.
-
-The command checks the home folder that `HOME` names. When a device-management
-tool runs it as root, set `HOME` to the user's home folder. With root's `HOME`,
-it checks root's home instead and can still report the scan as complete.
-Run as root, the scan's `context` is `system` instead of `user`, and
-`--export` and `--feedback` write only into a folder owned by root that
-others can't write to or change, by its mode or its access list, with no
-link or `..` in its path. `/tmp` doesn't qualify.
-
-From a terminal, macOS may ask in the terminal app's name before the scan
-enters protected folders such as Desktop, Documents and Downloads, and the
-scan waits for your answer (unverified). Places macOS refuses are listed as
-"Access denied by macOS" and make the scan partial, with exit code 1. To
-include them, allow the terminal app in **System Settings › Privacy &
-Security**, under **Files & Folders** (unverified), then scan again.
 
 ## Development
 
 This repository is one Cargo workspace. The scanner is a library in `src/`,
-with the `loose-keys` command on top. The app's engine is in `gui/` and links
-into a Swift window.
+and the `loose-keys` command sits on top of it. The app's engine, in `gui/`,
+links into a Swift window.
 
-Before making changes, read [AGENTS.md](AGENTS.md) and the
+Before you make changes, read [AGENTS.md](AGENTS.md) and the
 [development standards](docs/development/standards.md). All checks run
-locally; see [local checks](docs/testing/local-verification.md) for the list.
+locally. [Local checks](docs/testing/local-verification.md) lists them.
 
-- [Usage and detection limits](docs/usage.md)
 - [All documentation](docs/README.md)
-- [JSON report schema](schema/report-1.schema.json)
 - [Reporting a security problem](SECURITY.md)
 - [License](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES)

@@ -1774,14 +1774,14 @@ fn gap_text(reason: &str, root: bool) -> (&str, &str) {
             "Couldn't Be Read",
             "If an app such as a browser is using any of these, quit the app, then scan again.",
         ),
-        // The heading says it; the limits are in the usage guide.
+        // The heading says it; the limits are in docs/detection.md.
         "too-large" => ("Too Large to Check", ""),
         "cloud-only-file" => (
             "Stored Only in the Cloud",
             "Download these to this Mac, then scan again.",
         ),
         // The heading and the list's opening line say it; the limits are in
-        // the usage guide.
+        // docs/detection.md.
         "scan-limit" => ("Only Partly Checked", ""),
         "symlink" if root => (
             "Link Not Followed",
@@ -5075,7 +5075,7 @@ mod tests {
         assert_eq!(gap_text("scan-limit", false), ("Only Partly Checked", ""));
     }
 
-    // Read limits differ by kind of file, and are in the usage guide.
+    // Read limits differ by kind of file, and are in docs/detection.md.
     #[test]
     fn size_limit_is_named_without_a_note() {
         assert_eq!(gap_text("too-large", false), ("Too Large to Check", ""));

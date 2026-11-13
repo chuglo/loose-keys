@@ -114,8 +114,12 @@ A fact belongs on one page:
 - `README.md`: installing, building and the command line, for a person
   using the app.
 - `SECURITY.md`: how to report a security problem.
-- `docs/usage.md`: the app's controls, and the numbers, limits, timing and
-  caveats the window leaves out.
+- `docs/usage.md`: the app's controls, and the numbers, timing and caveats
+  the window leaves out.
+- `docs/detection.md`: what the scanner checks and does not report, where it
+  looks, and its limits.
+- `docs/managed.md`: running the command from a management tool, counts
+  files and expected findings.
 - `AGENTS.md` files: short rules for agents. A nested one does not repeat
   the root.
 - `docs/development/standards.md`: the reasons, examples and sources behind
@@ -126,6 +130,41 @@ A fact belongs on one page:
   sends readers there for.
 - `docs/README.md`: a row for every page under `docs/`, each of which opens
   with a link back to it.
+
+### How user docs read
+
+`README.md`, `docs/README.md`, `docs/usage.md`, `docs/detection.md` and
+`docs/managed.md` are for people using Loose Keys. They are written the way
+the window is, not in the clipped style of AGENTS.md and the code's comments.
+The rules above say what to cut; these say how what stays should sound.
+
+- Write to the reader as "you", in full sentences with a subject and a verb.
+  Name Loose Keys as the one acting when it helps: "Loose Keys skips the
+  Trash", not "The Trash is skipped".
+- One idea per sentence, usually under 25 words. Split at "and", "which" and
+  semicolons rather than stacking clauses.
+- Lead with the answer, then the exception.
+- Ask a question the way a person would ask it.
+- Use contractions and everyday words. A field, flag or reason code appears
+  only in backticks, and only where the reader types or reads it.
+- Table cells and list items that finish a lead-in may be fragments. Other
+  text may not.
+- Read each sentence aloud before keeping it. If you wouldn't say it to
+  someone, rewrite it.
+
+| Instead of | Write |
+|---|---|
+| Is a kind of credential checked, and why wasn't something found? | Use this page to find out whether Loose Keys checks a kind of credential, or why it didn't find something. |
+| Setting an item aside never stops it being found or counted in scan results, saved reports or copied summaries, which list it like any other finding, without your reason. | Setting an item aside doesn't hide it. Scans still find it, and saved reports and copied summaries still count it. They just leave out your reason. |
+| Only a count is read from the database file, and nothing is decrypted. | Loose Keys only counts the saved passwords in a browser's database. It doesn't decrypt or read them. |
+| These rechecks stop after 10 seconds; an item not reached stays open until a later scan. | Rechecks stop after 10 seconds. If one doesn't reach an item in time, the item stays open until a later scan. |
+| Run as root, the scan's `context` is `system` instead of `user`. | When you run it as root, the report's `context` field says `system` instead of `user`. |
+
+`check_prose.py` flags long and clause-stacked sentences on these pages, but
+no script hears a sentence. Before a commit that changes one of these pages,
+give a reviewer only this section and the changed text, not the code or the
+change's history, and have them mark every sentence a person wouldn't say.
+Fix those in the same commit.
 
 ## 5. Report
 
@@ -159,9 +198,9 @@ Only after the person picks the findings to fix:
 
 1. Work in a worktree, as AGENTS.md says. Make the agreed changes and no
    others.
-2. Run both scripts on the edited pages and reread the changed text. A
-   change only to the files AGENTS.md calls prose-only needs no build or
-   test. A change to code, such as the usage text in `src/main.rs` or a
+2. Run both scripts on the edited pages and reread the changed text. For a
+   user page, do the review in "How user docs read". A change only to the
+   files AGENTS.md calls prose-only needs no build or test. A change to code, such as the usage text in `src/main.rs` or a
    script's comment, follows the AGENTS.md matrix.
 3. Show the diff. Commit on the branch in the form `git log main` shows,
    keeping the configured commit signing. Push or merge only when asked.

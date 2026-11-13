@@ -19,6 +19,18 @@ to read, not a verdict. Kinds:
   repeat   a passage of at least REPEAT words that another page, or the same
            page, already says; compared against every page, reported once
   plan     a page whose name marks it as a spec, plan or design note
+  long-sentence    a sentence of more than LONG_SENTENCE words
+  stacked-clauses  a sentence with at least STACKED_MARKS commas and
+                   semicolons, unless it is a plain list
+
+The last two read only the user pages, USER_PAGES. A paragraph or list item is
+joined across its wrapped lines before it is split into sentences, at ". ",
+"? " and "! " except after an abbreviation such as "e.g.". Headings, table
+rows, fenced blocks and lines that hold only a link are skipped. A code span
+counts as one word and its commas and dots are ignored. A sentence is a plain
+list, and not flagged, when more than half of the parts between its commas and
+semicolons are LIST_PART words or fewer, as in "Chrome, Brave, Edge, Arc".
+Both report the line where the sentence starts.
 """
 
 import os
@@ -30,6 +42,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mdpages  # noqa: E402
 
 REPEAT = 10
+LONG_SENTENCE = 35
+STACKED_MARKS = 4
+LIST_PART = 3
+USER_PAGES = {"README.md", "docs/README.md", "docs/usage.md", "docs/detection.md",
+              "docs/managed.md"}
+ABBREVIATIONS = {"e.g.", "i.e.", "etc.", "vs.", "cf.", "approx.", "no."}
 
 FILLER = re.compile(r"\b(?:" + "|".join([
     r"robust(?:ly|ness)?", r"seamless(?:ly)?", r"leverag(?:e|es|ed|ing)",
@@ -65,6 +83,81 @@ def prose(root, rel):
     for pattern in (COMMENT, mdpages.CODE_SPAN, LINK_TARGET):
         text = mdpages.blank(pattern, text)
     return text
+
+
+def sentence_text(root, rel):
+    """A page's text for sentences: like prose(), but each code span is kept
+    as the one word "C"."""
+    text, _ = mdpages.blank_fences(mdpages.read(root, rel))
+    for pattern in (COMMENT, LINK_TARGET):
+        text = mdpages.blank(pattern, text)
+    text = mdpages.blank(QUOTED, text)
+    return mdpages.CODE_SPAN.sub(lambda m: "C" + re.sub(r"[^\n]", " ", m.group(0))[1:],
+                                 text)
+
+
+def blocks(text):
+    """Paragraphs and list items as (joined text, [(offset, line number)])."""
+    out, cur = [], None
+    for number, line in enumerate(text.split("\n"), 1):
+        body = line.strip()
+        item = re.match(r"(?:[-*+]|\d+[.)])\s+", body)
+        skip = (not body or body.startswith(("#", "|")) or re.fullmatch(
+            r"(?:(?:[-*+]|\d+[.)])\s+)?\[[^\]]*\]", body))
+        if skip or item:
+            if cur:
+                out.append(cur)
+            cur = None
+            if skip:
+                continue
+        body = re.sub(r"^(?:>\s*)?(?:(?:[-*+]|\d+[.)])\s+)?", "", body)
+        if cur is None:
+            cur = ("", [])
+        joined, starts = cur
+        if joined:
+            joined += " "
+        starts.append((len(joined), number))
+        cur = (joined + body, starts)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def sentences(joined):
+    """(offset, sentence) pairs of a joined block."""
+    found, start = [], 0
+    for m in re.finditer(r"[.?!][\"')\]]*\s+", joined):
+        words = joined[start:m.start() + 1].split()
+        if words and words[-1].lower() in ABBREVIATIONS:
+            continue
+        found.append((start, joined[start:m.start() + 1]))
+        start = m.end()
+    if joined[start:].strip():
+        found.append((start, joined[start:]))
+    return found
+
+
+def plain_list(sentence):
+    parts = [p.split() for p in re.split(r"[,;]", sentence)]
+    short = sum(1 for p in parts if len(p) <= LIST_PART)
+    return short * 2 > len(parts)
+
+
+def sentence_findings(rel, text):
+    found = []
+    for joined, starts in blocks(text):
+        for offset, sentence in sentences(joined):
+            lead = len(sentence) - len(sentence.lstrip())
+            line = [n for o, n in starts if o <= offset + lead][-1]
+            words = sum(1 for w in sentence.split() if re.search(r"[A-Za-z0-9]", w))
+            marks = sum(sentence.count(c) for c in ",;")
+            if words > LONG_SENTENCE:
+                found.append((rel, line, "long-sentence",
+                              f"{words} words, split it"))
+            if marks >= STACKED_MARKS and not plain_list(sentence):
+                found.append((rel, line, "stacked-clauses",
+                              f"{marks} commas and semicolons, split it"))
+    return found
 
 
 def line_findings(rel, text):
@@ -150,6 +243,8 @@ def check(root, files, names):
         found += plan_finding(name)
         found += line_findings(name, texts[name])
         found += words.repeats(name, scope)
+        if name in USER_PAGES:
+            found += sentence_findings(name, sentence_text(root, name))
     return found
 
 

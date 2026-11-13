@@ -203,6 +203,9 @@ run from the repository or worktree root as their instructions specify.
   open from the `vm` skill, put each later build into it with `--into
   <VM>`, which keeps the app's state and the decoys, without asking. Open a
   new VM only when they ask for one or none they opened is running.
+- **User docs use the window's voice,** not this file's clipped style:
+  `README.md` and the user guides under `docs/` follow "How user docs read"
+  in the `documentation` skill.
 - **Judge by exit status and report what you checked.** A command passed if
   it exited 0, not if the end of its output looks right. In reports and
   commits write "Checked:" for what you ran and "Not verified:" for what you
@@ -221,9 +224,10 @@ run from the repository or worktree root as their instructions specify.
 - **Review boundary changes.** When changing inputs, outputs, file access,
   limits, processes, dependencies or privileges, document the mitigation and
   its verification in the development or testing guide, with remaining risks
-  and unverified behavior. `README.md` and `docs/usage.md` carry a limit only
-  when it changes what a person does or relies on. Do not remove a limitation
-  without evidence.
+  and unverified behavior. `README.md`, `docs/usage.md`,
+  `docs/detection.md` and `docs/managed.md` carry a limit only when it
+  changes what a person does or relies on. Do not remove a limitation without
+  evidence.
 - **Commits:** on a branch, commit as the work goes. `main` takes each
   branch as one squash-merged commit, made only when the person directing
   the session asks for the merge, and the checks for a push to `main` run
@@ -294,7 +298,7 @@ run from the repository or worktree root as their instructions specify.
 - Keep it short: a heading, and a line only when the person needs it to
   act. If the text gives the person nothing to act on, cut it, and when
   rewording, consider removing first. Numbers, limits, timing and caveats go
-  in `docs/usage.md`, not the window. No reassurance lines ("Nothing leaves
+  in `docs/usage.md` or `docs/detection.md`, not the window. No reassurance lines ("Nothing leaves
   this Mac"), no button that repeats a command the window already has, no
   "we", no idioms (the Spanish is keyed on the exact English), and no "home
   folder" in new text, because the places to check will become

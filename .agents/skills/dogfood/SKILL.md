@@ -50,8 +50,9 @@ manifest does not list. For a home that is not a messy developer's it first
 removes the decoys. If the scan does not finish, look for a macOS request
 with `drive prompts` and answer it as a person would.
 
-Before calling a difference a bug, read the rule or window code behind it and
-`docs/usage.md`: it may be a documented limit or a choice.
+Before calling a difference a bug, read the rule or window code behind it,
+`docs/usage.md` and `docs/detection.md`: it may be a documented limit or a
+choice.
 
 ## 4. Triage and daily use
 
