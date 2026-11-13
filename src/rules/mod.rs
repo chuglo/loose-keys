@@ -949,7 +949,9 @@ fn verbatim_literal(s: &str) -> bool {
         && !s.contains("${")
         && !s.chars().any(char::is_whitespace)
         && !s.starts_with(['<', '*'])
-        && !["env:", "file:", "keychain:"]
+        // "op://" is a 1Password reference, which "op run" fills in, and
+        // "ENC[" opens a value sops encrypted.
+        && !["env:", "file:", "keychain:", "op://", "ENC["]
             .iter()
             .any(|prefix| s.starts_with(prefix))
 }

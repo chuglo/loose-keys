@@ -494,7 +494,16 @@ credential file extension (`.json`, `.pem`, `.key`, `.p8`, `.p12`, `.pfx`,
 `.crt`, `.der`, `.jks`, `.keystore`, `.gpg`, `.asc`). In the files listed for
 variables, a value that names another variable named like a secret, such as
 `OPENAI_API_KEY`, is not reported either, and a password in a URL is held to
-the same length and placeholder limits. A note password that is a single
+the same length and placeholder limits. Nor is a value there that repeats
+its variable's name or a word of it (`POSTGRES_PASSWORD=postgres`), one that
+ends in `...`, a URL's password that is `password` or the URL's user name
+again, or a variable with the prefix a framework gives values it builds into
+the app it ships (`NEXT_PUBLIC_`, `VITE_`, `EXPO_PUBLIC_`, `REACT_APP_`,
+`NUXT_PUBLIC_`, `PUBLIC_`, `GATSBY_`): a secret under such a name is found
+only in a known issuer format, or as a private key or a URL's password. In
+every file, a 1Password reference
+(`op://…`) and a value sops encrypted (`ENC[…]`) stand in for a secret and
+are not reported. A note password that is a single
 lowercase word is not reported either. JSON MCP server configs and settings
 files are read 6 levels deep.
 

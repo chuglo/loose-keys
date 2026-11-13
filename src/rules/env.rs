@@ -116,6 +116,35 @@ pub const ENV_SECRET: Rule = Rule {
         ),
         // A password in capitals is not another variable's name.
         (b"DB_PASSWORD=HUNTER2_HUNTER2\n", true),
+        // A value that only repeats its variable's name, or a URL's
+        // password that repeats its user name or is the word itself, is
+        // what a sample file or a local container has.
+        (
+            b"POSTGRES_PASSWORD=postgres\nDB_PASSWORD=password\nJWT_SECRET=jwt-secret\nDATABASE_URL=postgres://user:password@localhost:5432/app\nCACHE_URL=redis://postgres:postgres@localhost/0\n",
+            false,
+        ),
+        (b"POSTGRES_PASSWORD=postgres-synthetic\n", true),
+        // A value that trails off is a sample's.
+        (b"STRIPE_SECRET_KEY=sk_live_...\n", false),
+        // What a web or mobile framework builds into the app it ships is
+        // public, whatever its name says.
+        (
+            b"NEXT_PUBLIC_FIREBASE_API_KEY=synthetic-only-value\nVITE_API_KEY=synthetic-only-value\nEXPO_PUBLIC_API_KEY=synthetic-only-value\nREACT_APP_API_TOKEN=synthetic-only-value\nNUXT_PUBLIC_API_KEY=synthetic-only-value\nPUBLIC_API_KEY=synthetic-only-value\nGATSBY_API_KEY=synthetic-only-value\n",
+            false,
+        ),
+        // A reference a secret manager fills in, a value sops encrypted, and
+        // the name of a secret kept in AWS Secrets Manager.
+        (
+            b"STRIPE_SECRET_KEY=\"op://Engineering/stripe/secret-key\"\nDB_PASSWORD=ENC[AES256_GCM,data:c3ludGhldGlj,iv:c3ludGhldGlj,tag:c3ludGhldGlj,type:str]\ndb_password_secret_arn = \"arn:aws:secretsmanager:us-east-1:123456789012:secret:db\"\n",
+            false,
+        ),
+        // Keys that open everything, under names that end in "KEY" alone.
+        (b"SUPABASE_SERVICE_ROLE_KEY=synthetic-only-value\n", true),
+        (b"RAILS_MASTER_KEY=synthetic-only-value\n", true),
+        (
+            b"DATABASE_URL=postgres://postgres:synthetic-only-value@db.example.invalid/app\n",
+            true,
+        ),
     ],
 };
 
@@ -362,8 +391,26 @@ fn secret<'a>(name: &'a str, value: &'a str) -> Option<(&'a str, &'a str)> {
         && value.len() >= 8
         && plausible(value)
         && !path_value(value)
-        && !variable_name(value))
+        && !variable_name(value)
+        && !repeats_name(name, value)
+        // A value that trails off, as "sk_live_..." does, is a sample's.
+        && !value.ends_with("..."))
     .then_some((name, value))
+}
+
+/// A value that only repeats its variable's name or one word of it, as
+/// "POSTGRES_PASSWORD=postgres", "DB_PASSWORD=password" and
+/// "JWT_SECRET=jwt-secret" do: what a sample file or a local container is
+/// given, not a secret anyone chose. Case and "_", "-" and "." are ignored.
+fn repeats_name(name: &str, value: &str) -> bool {
+    let plain = |s: &str| -> String {
+        s.chars()
+            .filter(|c| !matches!(c, '_' | '-' | '.'))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let value = plain(value);
+    value == plain(name) || name.split(['_', '.']).any(|word| plain(word) == value)
 }
 
 /// A value that names another variable a secret is in, as "OPENAI_API_KEY"
@@ -399,6 +446,10 @@ fn secret_name(name: &str) -> bool {
         "SIGNINGKEY",
         "ENCRYPTION_KEY",
         "ENCRYPTIONKEY",
+        // Supabase's key that passes every access rule, and Rails' key to
+        // its encrypted credentials.
+        "SERVICE_ROLE_KEY",
+        "MASTER_KEY",
     ]
     .iter()
     .any(|word| upper.ends_with(word) || upper.contains(&format!("{word}_")))
@@ -407,13 +458,32 @@ fn secret_name(name: &str) -> bool {
         || upper == "APP_KEY"
         || ["PASS", "PWD"].iter().any(|word| last_word(name, word)))
         && !public_key_name(&upper)
+        && !shipped_name(&upper)
         // Settings about secrets, not secrets, and where a service is.
         && ![
             "_LENGTH", "_FILE", "_PATH", "_URL", "_URI", "_ENDPOINT", "_NAME", "_ID", "_TTL",
-            "_EXPIRY", "_VAR",
+            "_EXPIRY", "_VAR", "_ARN",
         ]
         .iter()
         .any(|suffix| upper.ends_with(suffix))
+}
+
+/// A name, in capitals, with the prefix a web or mobile framework gives the
+/// variables it builds into the app it ships: Next.js, Vite, Expo, Create
+/// React App, Nuxt, SvelteKit and Astro, and Gatsby. Every visitor gets such
+/// a value, so it is no secret kept on this Mac.
+fn shipped_name(upper: &str) -> bool {
+    [
+        "NEXT_PUBLIC_",
+        "VITE_",
+        "EXPO_PUBLIC_",
+        "REACT_APP_",
+        "NUXT_PUBLIC_",
+        "PUBLIC_",
+        "GATSBY_",
+    ]
+    .iter()
+    .any(|prefix| upper.starts_with(prefix))
 }
 
 /// Whether `word`, in capitals, is the last word of `name`: after "_" or
@@ -438,6 +508,9 @@ fn url_password(value: &str) -> Option<&str> {
     let authority = rest.split(['/', '?', '#']).next()?;
     let (userinfo, host) = authority.rsplit_once('@')?;
     let (user, password) = userinfo.split_once(':')?;
+    // The word itself, or the user name again, is what a sample URL or a
+    // local container has: "user:password@" and "postgres:postgres@".
+    let sample = password.eq_ignore_ascii_case("password") || password.eq_ignore_ascii_case(user);
     let password = if password.eq_ignore_ascii_case("x-oauth-basic") {
         user
     } else {
@@ -448,8 +521,9 @@ fn url_password(value: &str) -> Option<&str> {
         && !password.starts_with('$')
         && !password.contains(['<', '>', '{', '}'])
         && password.len() >= 8
-        && plausible(password))
-    .then_some(password)
+        && plausible(password)
+        && !sample)
+        .then_some(password)
 }
 
 /// A private key in PEM form, from its header on, where what follows the
