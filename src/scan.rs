@@ -77,6 +77,13 @@ pub const EXCLUDED: &[&str] = &[
     ".npm/_cacache",
     ".cargo/registry",
     ".rustup/toolchains",
+    // Downloaded packages and installed language versions, which ship their
+    // own test keys: each was a finding at high risk, and a new version an
+    // alert. They are also large enough to use up the entries of a scan.
+    "go/pkg/mod",
+    ".pyenv/versions",
+    ".rbenv/versions",
+    "Library/pnpm/store",
     "vendor",
     "Library/Application Support/dev.loosekeys.desktop",
     // Stores macOS keeps for its own apps. No rule reads them, and entering

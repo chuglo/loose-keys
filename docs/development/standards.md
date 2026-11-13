@@ -485,6 +485,17 @@ The threats are a local user racing a root run with links, and hostile files
   `exclusions_and_detection_boundaries_are_visible` in `tests/scan_scope.rs`.
   Not verified: that the prompts are gone in a guest with SIP on, and that
   `Music/Music` is guarded as the TV library is.
+- `go/pkg/mod`, `.pyenv/versions`, `.rbenv/versions` and `Library/pnpm/store`
+  are in `EXCLUDED` as `.cargo/registry` and `node_modules` are: downloaded
+  packages and installed language versions ship test keys. Each such key was
+  a high-risk finding and each new package version an alert, and a home with
+  many installed Ruby versions used up a scan's entries before `~/Library`
+  was read. Remaining risk: a key of the person's own kept in one of
+  these folders is not found; the report lists the folders as excluded. An
+  item an earlier version listed there stays listed while its file still
+  matches. Other version managers and package stores, such as
+  `.nvm/versions`, `.m2/repository` and `.gradle/caches`, are still read.
+  Test: `exclusions_and_detection_boundaries_are_visible`.
 - The blocks of `EXCLUDED` from `Library/Mail` on are app data macOS refuses to
   a program
   without Full Disk Access, which Loose Keys never asks for: Mail, Messages,

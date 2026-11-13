@@ -511,9 +511,11 @@ Discovery includes hidden folders and nested backups. It skips directories
 ending in `.git`, `node_modules`, `target`, `.venv`, `venv`, `__pycache__`,
 `.cache`, `Library/Caches`, `vendor`, the app's own
 `Library/Application Support/dev.loosekeys.desktop`, or package download caches
-(`.bun/install/cache`, `.npm/_cacache`, `.cargo/registry`,
-`.rustup/toolchains`). It also stays out of the folders where macOS keeps the
-data of its own apps (`Library/Calendars`,
+and installed language versions (`.bun/install/cache`, `.npm/_cacache`,
+`.cargo/registry`, `.rustup/toolchains`, `go/pkg/mod`, `.pyenv/versions`,
+`.rbenv/versions`, `Library/pnpm/store`), which ship test keys of their own:
+a key of yours kept in one of those isn't found. It also stays out of the
+folders where macOS keeps the data of its own apps (`Library/Calendars`,
 `Library/Application Support/AddressBook`, `Library/Reminders`,
 `Library/Photos`, `Photos Library.photoslibrary`), other apps' data
 (`Library/Group Containers`, `Library/Containers`) and the TV and Music apps'
