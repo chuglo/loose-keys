@@ -56,7 +56,9 @@ fn matches_body(rule: &Rule, body: &Body) -> bool {
         Matcher::Whole { candidate, test } => {
             candidate(head) && test(&bytes).is_ok_and(|hits| !hits.is_empty())
         }
-        Matcher::Stream(test) => test(&bytes, 1).is_ok_and(|hits| !hits.is_empty()),
+        Matcher::Stream(test) => {
+            test(&bytes, 1, &mut super::StreamState::default()).is_ok_and(|hits| !hits.is_empty())
+        }
         Matcher::Present => unreachable!(),
     }
 }

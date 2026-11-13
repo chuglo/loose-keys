@@ -181,6 +181,7 @@ fn recheck_by(
                 let mut file = file.take(len);
                 let mut buffer = vec![0u8; READ_PIECE];
                 let mut carry = Vec::new();
+                let mut state = crate::rules::StreamState::default();
                 // Each value once, as the scan lists it.
                 let mut seen = std::collections::HashSet::new();
                 loop {
@@ -191,13 +192,14 @@ fn recheck_by(
                     carry.extend_from_slice(buffer.get(..read)?);
                     if let Some(piece) = take_piece(&mut carry, read == 0) {
                         let wanted = |hit: &Hit| kept(rule, hit, shared);
-                        for hit in test(&piece, 1).ok()?.into_iter().filter(wanted) {
+                        for hit in test(&piece, 1, &mut state).ok()?.into_iter().filter(wanted) {
                             if seen.insert(value_key(&hit, &piece)) {
                                 still.push(valued(hit, &piece));
                             }
                         }
                     }
                     if read == 0 {
+                        state.finish().ok()?;
                         break;
                     }
                 }

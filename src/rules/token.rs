@@ -4,6 +4,14 @@
 
 use super::*;
 
+mod images;
+mod search;
+
+#[cfg(test)]
+use search::starts_word;
+pub use search::StreamState;
+use search::{find, record_hits};
+
 pub const SERVICE_TOKEN: Rule = Rule {
     id: "secret.service-token",
     category: "developer-cloud",
@@ -121,40 +129,6 @@ pub const AGENT_RECORD: Rule = Rule {
     ],
     ..SERVICE_TOKEN
 };
-
-/// Every token in one piece of a record, with where it sits so the scanner
-/// can report each distinct one once. The rule's own steps apply (delete the
-/// record), with the issuer's page for revoking.
-fn record_hits(piece: &[u8], first_line: usize) -> Hits {
-    let text = !piece.contains(&0);
-    let (mut line, mut counted) = (first_line, 0);
-    let (found, limited) = find(piece);
-    let hits = found
-        .into_iter()
-        .map(|(at, p)| {
-            line += piece[counted..at].iter().filter(|b| **b == b'\n').count();
-            counted = at;
-            let length = token_at(&piece[at..]).map_or(0, |(_, n)| n);
-            Hit {
-                line: text.then_some(line),
-                subject: label(p.name),
-                token_type: Some(p.name),
-                link: p.advice.link,
-                span: Some(at..at + length),
-                low: p.test,
-                ..Hit::default()
-            }
-        })
-        .collect();
-    if limited {
-        Err(Incomplete {
-            reason: "scan-limit",
-            hits,
-        })
-    } else {
-        Ok(hits)
-    }
-}
 
 /// Hits reported per file, so a long shell history cannot flood the report:
 /// this many, and after them only tokens not seen before, until this many
@@ -727,57 +701,6 @@ fn parts_at(parts: &[Part], body: &[u8]) -> Option<usize> {
     Some(at)
 }
 
-/// Whether a token may start at `i`: not inside a longer word. In a JSON
-/// string a line break or tab is written as a backslash and a letter, and a
-/// terminal colour code ends in "m" ("[32m"), so neither letter makes a word
-/// of what follows it.
-fn starts_word(bytes: &[u8], i: usize) -> bool {
-    if i == 0 || !word(bytes[i - 1]) {
-        return true;
-    }
-    let before = &bytes[..i - 1];
-    let digits = |b: &&u8| b.is_ascii_digit() || **b == b';';
-    match bytes[i - 1] {
-        b'n' | b'r' | b't' => before.last() == Some(&b'\\'),
-        b'm' => {
-            let code = before.iter().rev().take(8).take_while(digits).count();
-            code > 0 && before.len() > code && before[before.len() - code - 1] == b'['
-        }
-        _ => false,
-    }
-}
-
-/// (byte offset, provider) of each token, in file order. The first MAX_HITS
-/// are all kept. After that only a value not seen before is, up to MAX_HITS
-/// different values, so one token repeated often cannot hide another.
-fn find(bytes: &[u8]) -> (Vec<(usize, &'static Provider)>, bool) {
-    let mut out = Vec::new();
-    let mut values = std::collections::HashSet::new();
-    let mut counted = [(0, 0); PROVIDERS.len()];
-    let mut i = 0;
-    while i < bytes.len() {
-        if may_start(bytes, i) && starts_word(bytes, i) {
-            if let Some((p, len)) = token_counted(bytes, i, &mut counted) {
-                let value = &bytes[i..i + len];
-                let new = !values.contains(value);
-                if new && values.len() == MAX_HITS {
-                    return (out, true);
-                }
-                if new {
-                    values.insert(value);
-                }
-                if new || out.len() < MAX_HITS {
-                    out.push((i, p));
-                }
-                i += len;
-                continue;
-            }
-        }
-        i += 1;
-    }
-    (out, false)
-}
-
 pub fn has_token(bytes: &[u8]) -> bool {
     !find(bytes).0.is_empty()
 }
@@ -1343,7 +1266,10 @@ mod tests {
         };
         // In a file read whole, and in one piece of an agent's record.
         assert_eq!(stripe(&token_hits(text.as_bytes()).unwrap()), 1);
-        assert_eq!(stripe(&record_hits(text.as_bytes(), 1).unwrap()), 1);
+        assert_eq!(
+            stripe(&record_hits(text.as_bytes(), 1, &mut StreamState::default()).unwrap()),
+            1
+        );
         // Different tokens are bounded too: MAX_HITS of them, whatever
         // number of repeats came first.
         let different = |from: usize, count: usize| -> String {
@@ -1383,7 +1309,9 @@ mod tests {
         for escape in ["\\n", "\\r", "\\t"] {
             let line = format!("{{\"stdout\":\"Token:{escape}{token}{escape}\"}}\n");
             assert_eq!(
-                record_hits(line.as_bytes(), 1).unwrap().len(),
+                record_hits(line.as_bytes(), 1, &mut StreamState::default())
+                    .unwrap()
+                    .len(),
                 1,
                 "{escape}"
             );
@@ -1392,7 +1320,9 @@ mod tests {
         for colour in ["\u{1b}[32m", "\\u001b[1;32m", "\\x1b[0m"] {
             let line = format!("{{\"stdout\":\"Token: {colour}{token}\\u001b[0m\"}}\n");
             assert_eq!(
-                record_hits(line.as_bytes(), 1).unwrap().len(),
+                record_hits(line.as_bytes(), 1, &mut StreamState::default())
+                    .unwrap()
+                    .len(),
                 1,
                 "{colour}"
             );

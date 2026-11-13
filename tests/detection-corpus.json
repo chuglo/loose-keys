@@ -230,6 +230,11 @@
    "values":["synthetic-only-value"], "positive":"{\"amp.mcpServers\":{\"fixture\":{\"command\":\"fixture-never-run\",\"env\":{\"FIXTURE_API_KEY\":\"synthetic-only-value\"}}}}", "negative":"{\"amp.mcpServers\":{\"fixture\":{\"command\":\"fixture-never-run\",\"env\":{\"FIXTURE_API_KEY\":\"${FIXTURE_API_KEY}\"}}}}"},
   {"name":"fish-history", "rule":"secret.env-assignment", "kind":"review", "severity":"medium", "target":"file:.local/share/fish/fish_history", "path":".local/share/fish/fish_history", "line":1,
    "values":["synthetic-only-value"], "positive":"- cmd: set -gx DATABASE_PASSWORD synthetic-only-value\n  when: 1700000000\n", "negative":"- cmd: set -gx DATABASE_PASSWORD $OTHER\n  when: 1700000000\n"},
+  {"name":"agent-encoded-png", "rule":"secret.agent-record", "kind":"review", "severity":"high", "target":"tree:.claude", "path":".claude/projects/fixture/image.jsonl", "line":2, "token_type":"Alibaba Cloud access key",
+   "values":[{"parts":["LTAI","0123456789abcdefghij"]},{"parts":["LTAI","0123456789abcdefG"]}],
+   "positive":{"parts":["{\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAE2xvS3MA/","LTAI","0123456789abcdefG","//0NvY8AAAAAtJREFUeJxjYAACAAAFAAF6Xqs/AAAAAElFTkSuQmCC\"}\n{\"text\":\"","LTAI","0123456789abcdefghij","\"}\n"]},
+   "negative":{"parts":["{\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAE2xvS3MA/","LTAI","0123456789abcdefG","//0NvY8AAAAAtJREFUeJxjYAACAAAFAAF6Xqs/AAAAAElFTkSuQmCC\"}\n"]},
+   "extra":[{"rule":"secret.service-token","path":"~/.claude/projects/fixture/image.jsonl","kind":"review","severity":"high","line":2,"token_type":"Alibaba Cloud access key"}]},
   {"name":"agent-record", "rule":"secret.agent-record", "kind":"review", "severity":"high", "target":"tree:.claude", "path":".claude/projects/fixture/session.jsonl", "line":301, "token_type":"GitHub personal access token",
    "values":[{"parts":["gh","p_","0123456789abcdefghijABCDEFGHIJ012345"]}], "positive":{"padding_lines":300,"parts":["{\"output\":\"gh","p_","0123456789abcdefghijABCDEFGHIJ012345","\"}\n"]}, "negative":{"padding_lines":300,"parts":["{\"output\":\"$GITHUB_TOKEN\"}\n"]}}
 ]

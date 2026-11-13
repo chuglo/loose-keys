@@ -1326,6 +1326,32 @@ exception, for device-management checks that ask for it. The usage text in
   `the_parts_of_a_format_fit_how_it_is_counted` checks that the parts can be
   matched one after the other. Not verified: tokens vendors issue today
   beyond the published formats, and how often ordinary text matches one.
+- Token search passes over uninterrupted standard-base64 runs whose first
+  24 characters decode to a PNG, JPEG, GIF or WebP header. It checks the
+  header, alphabet, length and padding, not the image's pixels or complete
+  format. A field named `data` or labelled as an image grants no exclusion.
+  Only the encoded run is passed over; surrounding text keeps its original
+  byte offsets and line numbers. This applies to both token rules, including
+  image data URLs and copies outside a message's image block.
+  `StreamState` retains at most 24 header characters and a run's base64
+  state across record pieces; scans and rechecks each start it anew per file.
+  A malformed run with its delimiter in the same piece is searched as
+  text. If a later piece or EOF reveals invalid length or padding after
+  earlier pieces were passed over, the record has an `unreadable` gap and its
+  recheck is unknown. A run may start after a non-word byte, after `=` or
+  after a JSON escape such as `\n`. Its count stops after its padding, so no
+  byte is counted for two runs
+  (`image_runs_after_padding_are_not_counted_again_from_every_start`,
+  `an_image_after_an_assignment_or_a_json_escape_is_still_an_image`).
+  Tests: `encoded_images_are_not_tokens_in_scans_or_rechecks`,
+  `encoded_images_across_record_pieces_keep_neighboring_keys_and_lines`,
+  `malformed_images_after_a_record_cut_are_gaps_and_cannot_resolve_findings`
+  and the token search tests in `src/rules/token/search_tests.rs`.
+  Remaining limits: the header does not prove the complete image is valid;
+  a credential joined directly to a recognized image's base64 run is passed
+  over with it. Escaped, line-wrapped and other image encodings are not
+  recognized and can still produce false positives. Image contents and
+  credentials that would require decoding remain outside these checks.
 - A file a rule for stored sign-ins names, by itself or by its folder, is
   listed by that rule alone: the service-token rule and the rule for agent
   records add nothing for it (`scan::known::sign_in_file`, in

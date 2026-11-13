@@ -5,3 +5,7 @@ pub mod fsutil;
 pub mod report;
 pub mod rules;
 pub mod scan;
+
+#[cfg(test)]
+#[path = "../tests/support/encoded_image.rs"]
+mod encoded_image_fixture;

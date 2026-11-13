@@ -6,6 +6,8 @@ use crate::rules::browser::CHROMIUM;
 use std::fs;
 use std::sync::{Arc, Mutex};
 
+mod encoded_images;
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new(name: &str) -> Self {

@@ -130,6 +130,10 @@ Some folders inside them hold programs or caches: `extensions`, `plugins`,
 `packages`, `bin`, `Cache`, `Code Cache` and `GPUCache`. Loose Keys doesn't
 read these in full. It checks their files like any other file.
 
+When Loose Keys recognizes base64 PNG, JPEG, GIF or WebP data, it doesn't
+look for tokens inside it. It still checks the text around it, here and in
+every other file it checks for tokens.
+
 ### Browsers and wallets
 
 | What | Where it looks | Listed in | Not found when |
@@ -309,6 +313,8 @@ text summary each show the reason in their own words.
    and a selected folder that's missing or reached through a link. It also
    covers a browser database, or gcloud's `credentials.db`, with pending
    changes. For a selected folder reached through a link, select its real path.
+   An AI agent record gets this gap too when image data in it turns out to
+   be damaged after Loose Keys has skipped part of it.
 2. A `symlink` gap means the link leads outside the home folder, or the
    command ran as root. As root, Loose Keys follows no link, and the summary
    label is "Not followed: link (no link is followed as root)". Run the scan as

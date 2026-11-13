@@ -154,6 +154,7 @@ impl Scan {
         let mut file = file.take(len);
         let mut seen = HashSet::new();
         let (mut carry, mut line) = (Vec::new(), 1);
+        let mut state = crate::rules::StreamState::default();
         let mut buffer = vec![0u8; READ_PIECE];
         let (mut dropped, mut full) = (false, false);
         let begun = Instant::now();
@@ -179,7 +180,7 @@ impl Scan {
             }
             carry.extend_from_slice(&buffer[..read]);
             if let Some(piece) = take_piece(&mut carry, read == 0) {
-                let hits = self.matcher_hits(p, test(&piece, line));
+                let hits = self.matcher_hits(p, test(&piece, line, &mut state));
                 for hit in hits {
                     // Only a hash of the bytes is kept, and only for this file.
                     let value = value_key(&hit, &piece);
@@ -200,6 +201,9 @@ impl Scan {
                 line += piece.iter().filter(|b| **b == b'\n').count();
             }
             if read == 0 {
+                if let Err(reason) = state.finish() {
+                    self.gap(p, reason);
+                }
                 // With a hit dropped, the file is not done with.
                 return !dropped;
             }

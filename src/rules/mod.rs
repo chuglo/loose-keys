@@ -20,6 +20,8 @@ mod sqlite;
 mod token;
 mod wallet;
 
+pub use token::StreamState;
+
 #[cfg(test)]
 #[path = "../../tests/support/detection_registry.rs"]
 mod detection_registry;
@@ -259,8 +261,8 @@ pub enum Matcher {
         test: fn(&[u8]) -> Hits,
     },
     /// Tested on consecutive pieces of a file of any size, split at line
-    /// ends. Gets each piece and the line number it starts at.
-    Stream(fn(&[u8], usize) -> Hits),
+    /// ends. Gets each piece, its first line number and per-file state.
+    Stream(fn(&[u8], usize, &mut StreamState) -> Hits),
     /// Nothing is read: the target being there is the match.
     Present,
 }
@@ -1358,7 +1360,9 @@ mod rule_samples {
                     Matcher::Whole { candidate, test } => {
                         candidate(bytes) && test(bytes).is_ok_and(|hits| !hits.is_empty())
                     }
-                    Matcher::Stream(m) => m(bytes, 1).is_ok_and(|hits| !hits.is_empty()),
+                    Matcher::Stream(m) => {
+                        m(bytes, 1, &mut StreamState::default()).is_ok_and(|hits| !hits.is_empty())
+                    }
                     Matcher::Present => true,
                 };
                 assert_eq!(
