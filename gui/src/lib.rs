@@ -4344,12 +4344,12 @@ mod tests {
         ch_set_event_handler(Some(seen));
         let results = ask(&app, "start_scan", "{}");
         ch_set_event_handler(None);
+        let seen = std::mem::take(&mut *SEEN.lock().unwrap());
         drop(alone);
         let review = ask(&app, "pending_review", "{}");
         let item = &review["ok"]["items"][0];
         assert_eq!(results["ok"]["review"], 1);
         assert_eq!(item["path"], "~/Documents/export.csv");
-        let seen = std::mem::take(&mut *SEEN.lock().unwrap());
         assert_eq!(seen[0], ("monitor-status".to_string(), "null".to_string()));
         let progress: Vec<&String> = seen[1..seen.len() - 2]
             .iter()
