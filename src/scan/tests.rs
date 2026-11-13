@@ -3139,6 +3139,8 @@ fn other_apps_data_and_media_stores_are_not_entered() {
     files(&f.0.join("Library/Preferences"), 0);
     let tv = f.0.join("Library/Preferences/com.apple.TV.plist");
     fs::write(&tv, "url,username,password\n").unwrap();
+    let music = f.0.join("Library/Preferences/com.apple.Music.plist");
+    fs::write(&music, "url,username,password\n").unwrap();
     let telegram = "Library/Containers/org.telegram.desktop/Data/Library/Application Support/Telegram Desktop/tdata";
     files(&f.0.join(telegram), 0);
     fs::write(f.0.join(telegram).join("key_datas"), "synthetic-only-value").unwrap();
@@ -3155,6 +3157,7 @@ fn other_apps_data_and_media_stores_are_not_entered() {
         );
     }
     assert!(changed(tv).findings.is_empty());
+    assert!(changed(music).findings.is_empty());
 }
 
 /// macOS refuses these to a program without Full Disk Access, which Loose

@@ -517,9 +517,10 @@ data of its own apps (`Library/Calendars`,
 `Library/Application Support/AddressBook`, `Library/Reminders`,
 `Library/Photos`, `Photos Library.photoslibrary`), other apps' data
 (`Library/Group Containers`, `Library/Containers`) and the TV and Music apps'
-libraries (`Movies/TV`, `Music/Music`), and does not open the Contacts or TV
-settings files (`Library/Preferences/com.apple.AddressBook.plist`,
-`Library/Preferences/com.apple.TV.plist`): no rule reads them, and for each
+libraries (`Movies/TV`, `Music/Music`), and does not open the Contacts, TV or
+Music settings files (`Library/Preferences/com.apple.AddressBook.plist`,
+`Library/Preferences/com.apple.TV.plist`,
+`Library/Preferences/com.apple.Music.plist`): no rule reads them, and for each
 one macOS would ask you for your calendar, contacts, reminders, photos,
 media library or other apps' data in the scanner's name. It also skips the
 app data macOS refuses without Full Disk Access, which would otherwise be

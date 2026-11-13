@@ -494,7 +494,7 @@ The threats are a local user racing a root run with links, and hostile files
   folders out, and the limitations say so. Known locations are still read
   wherever they are, a refused one is still a gap, and so is a protected
   folder the list leaves out. Messages' and Home's settings files, refused
-  the same way, are passed by as `ASKS` passes the Contacts and TV ones. A
+  the same way, are passed by as `ASKS` passes the Contacts, TV and Music ones. A
   folder or file is listed only when logs of refusals from 2022 to macOS 14.5
   or a macOS 26 guest with SIP on show it, no rule names a location in it and it is
   not where the person keeps or edits their own files, so

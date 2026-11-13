@@ -150,12 +150,15 @@ pub const EXCLUDED: &[&str] = &[
 ];
 
 /// Settings files macOS guards as it does their app's data: opening the
-/// Contacts app's asks for the contacts, the TV app's for the media library,
-/// and Messages' and Home's are refused, as they were in a macOS 26 guest
-/// with System Integrity Protection on. Discovery passes them.
+/// Contacts app's asks for the contacts, the TV and Music apps' for the media
+/// library, and Messages' and Home's are refused, as they were in a macOS 26
+/// guest with System Integrity Protection on. A scan waits at the Music
+/// app's until the person answers, past its time limit. Discovery passes
+/// them.
 const ASKS: &[&str] = &[
     "Library/Preferences/com.apple.AddressBook.plist",
     "Library/Preferences/com.apple.TV.plist",
+    "Library/Preferences/com.apple.Music.plist",
     "Library/Preferences/com.apple.MobileSMS.plist",
     "Library/Preferences/com.apple.madrid.plist",
     "Library/Preferences/com.apple.homed.plist",
