@@ -3545,8 +3545,17 @@ mod tests {
             ),
             format!("{}{}", concat!("pypi-", "AgEIcHlwaS5vcmc"), run(60, alnum)),
             format!("{}{}", concat!("gh", "p_"), run(36, &alnum[1..])),
+            format!("{}{}", concat!("AK", "IA"), run(16, "ABCDEFGHIJKLMNOP")),
         ];
         let files = [
+            (
+                ".aws/credentials",
+                format!(
+                    "[default]\naws_access_key_id = {}\naws_secret_access_key = {}\n",
+                    tokens[4],
+                    run(40, alnum)
+                ),
+            ),
             (
                 ".npmrc",
                 format!("//registry.npmjs.org/:_authToken={}\n", tokens[0]),
@@ -3575,7 +3584,7 @@ mod tests {
         let listed = ask(&app, "pending_review", "{}");
         std::fs::remove_dir_all(home).unwrap();
         // Each file has two findings, one from each rule.
-        assert_eq!(scanned["ok"]["review"], 8);
+        assert_eq!(scanned["ok"]["review"], 10);
         let items = listed["ok"]["items"].as_array().unwrap();
         let mut places: Vec<Vec<String>> = items
             .iter()

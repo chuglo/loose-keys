@@ -55,15 +55,26 @@ pub const TEMPORARY_KEYS: Wording = Wording {
 
 /// AWS files are parsed leniently, so invalid UTF-8 never hides other keys.
 fn aws_hits(bytes: &[u8]) -> Hits {
-    capped_hits(aws_profiles_with_keys(&String::from_utf8_lossy(bytes)), 100)
+    let text = String::from_utf8_lossy(bytes);
+    // Positions in `text` are positions in the file only if nothing was replaced.
+    let exact = matches!(text, std::borrow::Cow::Borrowed(_));
+    let hits = aws_profiles_with_keys(&text).into_iter().map(|mut hit| {
+        if !exact {
+            hit.span = None;
+        }
+        hit
+    });
+    capped_hits(hits, 100)
 }
 
 /// Profile headers whose section contains aws_secret_access_key, with the
-/// temporary keys' wording where the section has a session token too.
+/// temporary keys' wording where the section has a session token too. A
+/// hit's position is its section's access key ID, which is what the
+/// service-token rule finds in the same file: the two are one credential.
 pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
-    // Each section: its header's line, its profile, and whether it has a
-    // secret access key and a session token.
-    let mut sections: Vec<(usize, &str, bool, bool)> = Vec::new();
+    // Each section: its header's line, its profile, whether it has a secret
+    // access key and a session token, and its access key ID.
+    let mut sections: Vec<(usize, &str, bool, bool, Option<&str>)> = Vec::new();
     // A byte order mark is not part of the first line.
     for (i, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let l = raw.trim();
@@ -71,11 +82,12 @@ pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
             let name = &l[1..l.len() - 1];
             // ~/.aws/config writes "[profile name]" for all but the default.
             let profile = name.strip_prefix("profile ").map_or(name, str::trim);
-            sections.push((i + 1, profile, false, false));
+            sections.push((i + 1, profile, false, false, None));
         } else if let (Some(section), Some((k, v))) = (sections.last_mut(), l.split_once('=')) {
             // botocore reads the file raw: "$" and "!" are part of a value.
-            if scalar_literal_by(v, raw_literal).is_some() {
+            if let Some(value) = scalar_literal_by(v, raw_literal) {
                 match k.trim().to_ascii_lowercase().as_str() {
+                    "aws_access_key_id" => section.4 = Some(value),
                     "aws_secret_access_key" => section.2 = true,
                     // The older name, which botocore also reads (unverified).
                     "aws_session_token" | "aws_security_token" => section.3 = true,
@@ -86,10 +98,16 @@ pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
     }
     sections
         .into_iter()
-        .filter(|(_, _, secret, _)| *secret)
-        .map(|(line, profile, _, session)| Hit {
-            wording: session.then_some(&TEMPORARY_KEYS),
-            ..Hit::line(line).about(&format!("profile {profile}"))
+        .filter(|(_, _, secret, _, _)| *secret)
+        .map(|(line, profile, _, session, id)| {
+            let hit = Hit {
+                wording: session.then_some(&TEMPORARY_KEYS),
+                ..Hit::line(line).about(&format!("profile {profile}"))
+            };
+            match id {
+                Some(id) => hit.at(text, id),
+                None => hit,
+            }
         })
         .collect()
 }
@@ -107,6 +125,18 @@ mod tests {
             vec![Some(1), Some(8)]
         );
         assert_eq!(hits[0].subject.as_deref(), Some("profile default"));
+    }
+
+    /// The service-token rule finds the access key ID in the same file, so
+    /// the profile's hit is at that ID and the two can be one item. A
+    /// profile with no ID has no position.
+    #[test]
+    fn a_profile_is_found_at_its_access_key_id() {
+        let ini = "\u{feff}[default]\naws_access_key_id = fixture-id\naws_secret_access_key = synthetic-only\n[bare]\naws_secret_access_key = synthetic-only\n";
+        let hits = aws_profiles_with_keys(ini);
+        let at = hits[0].span.clone().unwrap();
+        assert_eq!(&ini[at], "fixture-id");
+        assert_eq!(hits[1].span, None);
     }
 
     /// ~/.aws/config names a profile "[profile name]", the credentials file "[name]".
