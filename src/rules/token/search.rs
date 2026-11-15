@@ -43,6 +43,7 @@ pub(super) fn record_hits(piece: &[u8], first_line: usize, state: &mut StreamSta
             Hit {
                 line: text.then_some(line),
                 subject: label(p.name),
+                wording: p.key_id.then_some(&aws::RECORD_KEY_ID),
                 token_type: Some(p.name),
                 link: p.advice.link,
                 span: Some(at..at + length),
@@ -111,6 +112,12 @@ fn find_with_images(
         }
         if may_start(bytes, i) && starts_word(bytes, i) {
             if let Some((p, len)) = token_counted(bytes, i, &mut counted) {
+                // Passed over before the budgets below, so signed links
+                // cannot use them up.
+                if p.key_id && bytes.get(i + len..).is_some_and(scope::follows) {
+                    i += len;
+                    continue;
+                }
                 let value = &bytes[i..i + len];
                 let new = !values.contains(value);
                 if new && values.len() == MAX_HITS {

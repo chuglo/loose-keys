@@ -1224,8 +1224,14 @@ exception, for device-management checks that ask for it. The usage text in
   and a unit test fails a rule that lacks a matching or a non-matching sample.
   Report text is fixed scanner text, never built from file contents. A hit
   can carry a `Wording` in place of its rule's text, as temporary AWS keys
-  do, under the same id, kind and severity; list it in `wordings()` so the
-  Spanish check sees it.
+  and AWS access key IDs do, under the same id, kind and severity; list it
+  in `wordings()` so the Spanish check sees it. An access key ID has one
+  wording for a file and one for an agent's record, which says to delete the
+  record rather than edit it. Their steps name the IAM controls as
+  [AWS's access key guide](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-keys-admin-managed.html)
+  and [session revocation guide](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)
+  label them. Not verified: that every temporary key ID belongs to a role
+  whose sessions can be revoked that way.
 - Each registered implementation also needs a case in
   `tests/detection-corpus.json`, or the coverage test fails. `Case` in
   `tests/support/detection.rs` documents the fields. Write the expected
@@ -1324,8 +1330,28 @@ exception, for device-management checks that ask for it. The usage text in
   middle part is reported. `formats_are_strict` has a body of the
   right length with one part wrong for each such format, and
   `the_parts_of_a_format_fit_how_it_is_counted` checks that the parts can be
-  matched one after the other. Not verified: tokens vendors issue today
-  beyond the published formats, and how often ordinary text matches one.
+  matched one after the other.
+  The one exception to matching with no context is an AWS access key ID
+  directly followed by a credential scope (`src/rules/token/scope.rs`):
+  `/<yyyymmdd>/<region>/<service>/aws4_request`, or the same without the
+  region, which is the SigV4a form in the
+  [IAM signing guide](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html).
+  Its slashes may be escaped with up to four backslashes or percent-encoded
+  up to three times. Signed download links and `Authorization` headers carry
+  the signer's key ID this way, and agents log them. That ID is not
+  reported. Only the 128 bytes after the ID are read. A scope that is
+  incomplete or cut short by the end of a head or record piece is reported
+  as before, and so is the same ID written anywhere without a scope. A
+  passed-over ID takes none of the per-file token budget
+  (`signed_links_do_not_use_up_the_token_limit`). What this misses is a key
+  ID, never a secret: this rule never matched a secret access key beside a
+  scoped ID, and the variable-file and AWS rules still find one by its name
+  (`a_secret_key_beside_a_signed_link_is_still_found_by_its_name`). Someone
+  who can write in the home folder can add a scope after a key ID, as they
+  could already split or lowercase it, and no usable credential is left
+  unreported that way. Not verified: tokens vendors issue today
+  beyond the published formats, how often ordinary text matches one, and
+  scope layouts AWS services and SDKs write beyond the IAM guide.
 - Token search passes over uninterrupted standard-base64 runs whose first
   24 characters decode to a PNG, JPEG, GIF or WebP header. It checks the
   header, alphabet, length and padding, not the image's pixels or complete

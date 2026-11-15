@@ -405,7 +405,7 @@ pub fn known_link(url: &str) -> bool {
 
 /// The text findings can give in place of their rule's.
 pub fn wordings() -> impl Iterator<Item = &'static Wording> {
-    [&aws::TEMPORARY_KEYS].into_iter()
+    [&aws::TEMPORARY_KEYS, &aws::KEY_ID, &aws::RECORD_KEY_ID].into_iter()
 }
 
 /// The token providers' names, which token findings give as their subject.

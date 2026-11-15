@@ -168,6 +168,9 @@ Loose Keys doesn't check browser cookies and sessions, the app data macOS
 protects (see [Where the scanner looks](#where-the-scanner-looks)), the
 Keychain, images or password-manager vaults. It doesn't open archives.
 
+Loose Keys doesn't report an AWS access key ID that's part of a request
+signature, such as in a signed download link. The ID alone isn't a secret.
+
 For known files, Loose Keys reads simple fields at the listed paths. It doesn't
 understand full YAML or INI syntax. It doesn't follow a config kept somewhere
 else, or resolve a reference or an environment placeholder. Loose Keys reads

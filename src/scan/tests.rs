@@ -194,6 +194,63 @@ fn matcher_limits_retain_hits_and_make_rechecks_unknown() {
     }
 }
 
+/// An AWS access key ID does nothing without its secret access key, so its
+/// token finding says so, under the same rule, kind and severity: in a
+/// file's words for a file, and in a record's words for an agent's record.
+#[test]
+fn aws_key_ids_have_their_own_wording() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new("aws-key-id-wording");
+    let github = ["gh", "p_", "0123456789abcdefghijABCDEFGHIJ012345"].concat();
+    let (key, temporary) = (
+        ["AKIA", "QRSTUVWXYZ234567"].concat(),
+        ["ASIA", "QRSTUVWXYZ234567"].concat(),
+    );
+    let env = f.0.join(".env");
+    fs::write(&env, format!("A={github}\nB={key}\n")).unwrap();
+    fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
+    let records = f.0.join(".claude/projects/fixture");
+    fs::create_dir_all(&records).unwrap();
+    let record = records.join("session.jsonl");
+    fs::write(&record, format!("{{\"output\":\"{temporary}\"}}\n")).unwrap();
+    fs::set_permissions(&record, fs::Permissions::from_mode(0o600)).unwrap();
+    let scan = Scan::run(&f.0, std::slice::from_ref(&f.0));
+    let found = |rule: &str, token: &str| {
+        scan.findings
+            .iter()
+            .find(|hit| hit.rule == rule && hit.token_type == Some(token))
+            .unwrap_or_else(|| panic!("no {token} finding for {rule}"))
+    };
+    let other = found("secret.service-token", "GitHub personal access token");
+    let (file, record) = (
+        crate::rules::wordings().nth(1).unwrap(),
+        crate::rules::wordings().nth(2).unwrap(),
+    );
+    assert!(file.explanation.starts_with("This file has"));
+    assert!(record.explanation.contains("session record"));
+    for (id, wording) in [
+        (found("secret.service-token", "AWS access key"), file),
+        (
+            found("secret.agent-record", "AWS temporary access key"),
+            record,
+        ),
+    ] {
+        assert_eq!(id.explanation, wording.explanation);
+        assert_eq!(id.reason.as_deref(), wording.reason);
+        assert_eq!(id.next_step, wording.next_step);
+        assert_eq!(id.steps, wording.advice.steps);
+        assert_eq!(id.link, wording.advice.link);
+        let rule = RULES.iter().find(|r| r.id == id.rule).unwrap();
+        assert_eq!(
+            (id.kind, id.severity, id.title),
+            (rule.kind, rule.severity, rule.title)
+        );
+        assert_eq!((id.kind, id.severity), (other.kind, other.severity));
+    }
+    assert_eq!(other.steps, crate::rules::token_steps());
+    assert_ne!(other.explanation, file.explanation);
+}
+
 /// Keys with a session token expire on their own, and IAM can't deactivate
 /// them: their finding says so, under the same rule, kind and severity.
 #[test]

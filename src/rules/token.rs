@@ -5,6 +5,7 @@
 use super::*;
 
 mod images;
+mod scope;
 mod search;
 
 #[cfg(test)]
@@ -78,6 +79,9 @@ pub const SERVICE_TOKEN: Rule = Rule {
         (concat!("key: sk-ant", "-api03-0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ0123456789abcdefghijABCDEFGHIJ\n").as_bytes(), true),
         // AWS's documentation sample and an obvious placeholder.
         (concat!("aws_access_key_id = AKIA", "IOSFODNN7EXAMPLE\n").as_bytes(), false),
+        (concat!("aws_access_key_id = AKIA", "QRSTUVWXYZ234567\n").as_bytes(), true),
+        // A key ID in a signed link's credential scope is not a secret.
+        (concat!("url = https://bucket.s3.amazonaws.com/f.zip?X-Amz-Credential=AKIA", "QRSTUVWXYZ234567%2F20251203%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=0123456789abcdef\n").as_bytes(), false),
         (concat!("token = gh", "p_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n").as_bytes(), false),
         // A prefix inside a longer word is not a token.
         (concat!("class=\"task-gh", "p_0123456789abcdefghijABCDEFGHIJ012345\"\n").as_bytes(), false),
@@ -93,7 +97,7 @@ pub const AGENT_RECORD: Rule = Rule {
     advice: Advice {
         steps: &[
             "Revoke or replace the token where it was issued. Do this first: it keeps working until then.",
-            "If you no longer need the session record, delete this file. Use the tool's own delete option if it has one, and check for other copies and backups.",
+            DELETE_RECORD,
             "Keep credentials in the Keychain or a password manager and load them when needed. Don't paste them into prompts or commands, and make sure commands and debug logs don't print them.",
             "If the tool has a setting for it, shorten how long it keeps session records.",
         ],
@@ -126,9 +130,13 @@ pub const AGENT_RECORD: Rule = Rule {
         // What a tool printed, with its line break as a record keeps it.
         (concat!("{\"type\":\"tool_result\",\"stdout\":\"Logged in. Token:\\nhf", "_abcdefghijABCDEFGHIJabcdefghijABCD\\n\"}\n").as_bytes(), true),
         (b"{\"type\":\"tool_use\",\"command\":\"curl -H \\\"Authorization: Bearer $GITHUB_TOKEN\\\" https://api.example.invalid\"}\n", false),
+        (concat!("{\"type\":\"tool_use\",\"command\":\"export AWS_ACCESS_KEY_ID=ASIA", "QRSTUVWXYZ234567\"}\n").as_bytes(), true),
+        (concat!("{\"type\":\"tool_result\",\"content\":\"Location: https://bucket.s3.amazonaws.com/f.zip?X-Amz-Credential=ASIA", "QRSTUVWXYZ234567%2F20251203%2Fus-east-1%2Fs3%2Faws4_request\\u0026X-Amz-Security-Token=synthetic\"}\n").as_bytes(), false),
     ],
     ..SERVICE_TOKEN
 };
+
+pub const DELETE_RECORD: &str = "If you no longer need the session record, delete this file. Use the tool's own delete option if it has one, and check for other copies and backups.";
 
 /// Hits reported per file, so a long shell history cannot flood the report:
 /// this many, and after them only tokens not seen before, until this many
@@ -161,6 +169,10 @@ struct Provider {
     must: &'static str,
     /// A format the issuer declares to be for testing: listed, at low risk.
     test: bool,
+    /// An AWS access key ID, which is not reported where a signed request's
+    /// credential scope follows it (`scope`), and is reported in the words of
+    /// `aws::KEY_ID` in a file and `aws::RECORD_KEY_ID` in an agent's record.
+    key_id: bool,
     advice: Advice,
 }
 
@@ -274,6 +286,7 @@ const fn p(
         parts: &[],
         must: "",
         test: false,
+        key_id: false,
         advice: advice(link),
     }
 }
@@ -310,6 +323,11 @@ const fn containing(mut provider: Provider, must: &'static str) -> Provider {
 
 const fn test_mode(mut provider: Provider) -> Provider {
     provider.test = true;
+    provider
+}
+
+const fn access_key_id(mut provider: Provider) -> Provider {
+    provider.key_id = true;
     provider
 }
 
@@ -360,8 +378,8 @@ const DISCORD: &[Part] = &[Run(digit, 18, 19), Text("/"), Run(word, 68, 68)];
 /// Checked in order, so longer prefixes come before the ones they contain.
 #[rustfmt::skip]
 const PROVIDERS: &[Provider] = &[
-    p("AWS access key", "AKIA", upper_base32, 16, 16, AWS),
-    p("AWS temporary access key", "ASIA", upper_base32, 16, 16, AWS),
+    access_key_id(p("AWS access key", "AKIA", upper_base32, 16, 16, AWS)),
+    access_key_id(p("AWS temporary access key", "ASIA", upper_base32, 16, 16, AWS)),
     p("GitHub personal access token", "ghp_", alnum, 36, 255, GITHUB),
     p("GitHub OAuth token", "gho_", alnum, 36, 255, GITHUB),
     p("GitHub app token", "ghu_", alnum, 36, 255, GITHUB),
@@ -725,7 +743,8 @@ fn token_hits(bytes: &[u8]) -> Hits {
         let hit = Hit {
             line: text.then_some(line),
             subject: label(p.name),
-            advice: Some(&p.advice),
+            advice: (!p.key_id).then_some(&p.advice),
+            wording: p.key_id.then_some(&aws::KEY_ID),
             token_type: Some(p.name),
             span: Some(at..at + length),
             low: p.test,
