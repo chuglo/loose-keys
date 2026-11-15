@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "loose-keys"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "jsonschema",
  "libc",
@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "loose-keys-gui"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "libc",
  "loose-keys",
