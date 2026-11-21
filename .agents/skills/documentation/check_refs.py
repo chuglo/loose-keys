@@ -10,15 +10,19 @@ With no files it reads every tracked or new Markdown file. It prints one
 
   link    a relative link whose file is missing
   anchor  a #fragment with no matching heading in its page
-  path    a repository path in code that matches no file, from the root or
-          from the page's folder, and that no file outside Markdown names
+  path    a repository path in code that matches no file and that no file
+          outside Markdown names; on a nested AGENTS.md, a path starting
+          with ../ or with a folder beside the page is read from the page's
+          folder, any other from the root
   flag    an option given to loose-keys or a repository script that its
-          source never mentions
+          source never mentions, or an option alone in inline code that
+          files outside Markdown once had and no longer do
   name    a code name or hyphenated name in inline code that files outside
           Markdown once had and no longer do
 
-A name the code never had, such as a standard library item, a lint or an
-Apple constant, is not reported: read those yourself.
+A name or lone option the code never had, such as a standard library item, a
+lint, an Apple constant or another tool's option, is not reported: read those
+yourself. One whose removal is not yet committed says so.
 """
 
 import fnmatch
@@ -41,6 +45,7 @@ CAMEL = re.compile(r"[A-Za-z][a-z0-9]+[A-Z]")
 KEBAB = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)+")
 SCRIPT_EXT = (".sh", ".py", ".js")
 FLAG = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]*)")
+LONE_FLAG = re.compile(r"(--[a-z][a-z0-9-]*)(?:[ =]\S+)?")
 
 
 class Repo:
@@ -106,6 +111,20 @@ class Repo:
         last = self.last_change("--", rel)
         return f" (last in {last})" if last else ""
 
+    def removed(self, name, word):
+        """Where a name the code no longer has went, for a finding's detail,
+        or "" when the code never had it."""
+        # Attached, so a name starting with -- is not read as an option.
+        last = self.last_change(f"-S{name}", "--", ".", ":(exclude)*.md")
+        if not last:
+            return ""
+        # While HEAD still has it, the newest match is the commit that added it.
+        grep = ["git", "-C", self.root, "grep", "-q", "-F", *(["-w"] if word else []),
+                "-e", name, "HEAD", "--", ".", ":(exclude)*.md"]
+        if subprocess.run(grep).returncode == 0:
+            return " (removed, not committed)"
+        return f" since {last}"
+
 
 def slug(heading):
     text = re.sub(r"`([^`]*)`", r"\1", heading)
@@ -132,6 +151,8 @@ class Page:
     def __init__(self, repo, rel):
         self.repo, self.rel = repo, rel
         self.dir = os.path.dirname(rel)
+        # Only an AGENTS.md writes paths from its own folder.
+        self.local = self.dir if os.path.basename(rel) == "AGENTS.md" else ""
         self.prose, self.fenced = mdpages.blank_fences(repo.read(rel))
         self.lines = mdpages.Lines(self.prose)
         self.spans = [(self.lines.at(m.start(2)), m.group(2))
@@ -176,22 +197,28 @@ class Page:
         for line, text in self.code():
             for match in PATHLIKE.finditer(text):
                 token = match.group(1).rstrip(".,:;")
-                first = token.split("/")[0]
-                if first not in self.repo.top_dirs or re.search(r"[<>{}$]", token):
-                    continue
-                if not self.path_holds(token):
+                rel = self.resolve(token.rstrip("/"))
+                if rel is not None and not self.path_holds(token, rel):
                     self.report(line, "path", f"{token}: no such file or folder"
-                                + self.repo.gone(token.rstrip("/")))
+                                + self.repo.gone(rel))
 
-    def path_holds(self, token):
-        bare = token.rstrip("/")
-        local = os.path.join(self.dir, bare) if self.dir else bare
+    def resolve(self, bare):
+        """The repository path a path in code means, or None when it is not
+        one to check."""
+        first = bare.split("/")[0]
+        if self.local and (first == ".."
+                           or os.path.join(self.local, first) in self.repo.known):
+            rel = os.path.normpath(os.path.join(self.local, bare))
+            return None if rel == ".." or rel.startswith("../") else rel
+        return bare if first in self.repo.top_dirs else None
+
+    def path_holds(self, token, rel):
         if "*" in token:
-            return self.repo.glob(bare) or self.repo.glob(local)
+            return self.repo.glob(rel)
         # A path git ignores is made at run time; one the code names, such
         # as a folder the scanner skips, is not a file of this repository.
-        return (self.repo.exists(bare) or self.repo.exists(local)
-                or self.repo.ignored(bare) or bare in self.repo.source())
+        return (self.repo.exists(rel) or self.repo.ignored(rel)
+                or rel in self.repo.source())
 
     def check_flags(self):
         for line, text in self.code():
@@ -225,20 +252,26 @@ class Page:
         for line, text in self.spans:
             text = " ".join(text.split())
             ident = IDENT.fullmatch(text)
+            lone = LONE_FLAG.fullmatch(text)
+            kind, word = "name", False
             if ident and ("::" in text or "_" in text or text.endswith("()")
                           or CAMEL.match(ident.group(1))):
-                name = ident.group(1)
+                name, word = ident.group(1), True
                 if self.repo.has_word(name):
                     continue
-            elif KEBAB.fullmatch(text):
+            elif KEBAB.fullmatch(text) or lone:
+                # A lone option's command is unknown, so like a name it holds
+                # when any file outside Markdown has it.
                 name = text
+                if lone:
+                    name, kind = lone.group(1), "flag"
                 if name in self.repo.source():
                     continue
             else:
                 continue
-            removed = self.repo.last_change("-S", name, "--", ".", ":(exclude)*.md")
+            removed = self.repo.removed(name, word)
             if removed:
-                self.report(line, "name", f"{text}: gone from the code since {removed}")
+                self.report(line, kind, f"{text}: gone from the code{removed}")
 
     def check(self):
         self.check_links()

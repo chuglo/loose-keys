@@ -11,17 +11,29 @@ is fixed in it.
 The docs are every tracked or new Markdown file: `README.md`, `SECURITY.md`,
 `docs/`, the `AGENTS.md` files (each nested one is relative to its own
 folder) and the `SKILL.md` files under `.agents/skills/`. Audit the pages the
-person named,
-or all of them. Window text in `gui/app/` and finding text in `src/rules/`
-are not docs; AGENTS.md has their rules.
+person named, or all of them. Window text in `gui/app/` and finding text in
+`src/rules/` are not docs; AGENTS.md has their rules.
+
+## Before a commit
+
+1. The change is what is staged (`git diff --cached`), or the whole branch
+   before a squash merge (`git diff main...BRANCH`). List what it renames,
+   removes or changes, and `git grep` the docs for each old name and value
+   (section 1).
+2. Run `check_refs.py` with no pages, since a code change can break a
+   reference on any page, and `check_prose.py` only on the Markdown pages
+   the commit changes (section 2).
+3. Check the facts the change touches against the table in section 3.
+4. When the commit changes a user page, have its changed text reviewed as
+   "How user docs read" says.
+5. Fix in that commit what the change made wrong. Report anything else in
+   the section 5 form, without fixing it.
 
 ## 1. Start from the change
 
 When the request is about a change (a diff, a branch, a commit, "I
 renamed…"), list the old names and values from `git diff` or `git log -p`
 and `git grep` the docs for each. This finds more than the scripts do.
-Before a commit, the change is what is staged (`git diff --cached`); before
-a squash merge, the whole branch (`git diff main...BRANCH`).
 
 ## 2. Run the checks
 
@@ -39,18 +51,25 @@ top of each script lists its kinds. A finding is a line to read, not a
 verdict: confirm each before reporting it.
 
 `check_refs.py` finds links, anchors, repository paths, options and code
-names that no longer hold. A missing file says whether its deletion is not
-yet committed, or names the commit that last had it; a missing name names
-the commit that removed it. Read that commit to see where the thing went.
-It skips a name the code never had, such as a standard library item, a lint
-or an Apple constant, so it misses a typo too.
+names that no longer hold. On a nested `AGENTS.md`, a path starting with
+`../` or with a folder beside the page is read from the page's folder, any
+other from the root. An option alone in inline code is judged like a code
+name, since the command it belongs to is unknown. A missing file says
+whether its deletion is not yet committed, or names the commit that last
+had it; a missing name or option says whether its removal is not yet
+committed, or names the commit that removed it. Read that commit to see
+where the thing went. It skips a name or option the code never had, such as
+a standard library item, a lint, an Apple constant or another tool's
+option, so it misses a typo too.
 
 `check_prose.py` finds filler words, "the owner", emoji, dated run results,
 phrases about past drafts and worktrees, a page named like a spec or plan,
-and passages of ten or more words said twice. It compares the named pages
-against every page, but only word for word and outside code blocks. For a
-repeat in other words, `git grep` the page's distinctive terms (script
-names, variables, unusual words) across `*.md`.
+and passages of ten or more words said twice. A phrase split by a line
+break inside a paragraph counts, and so do a date and a result word in one
+sentence on different lines. It compares the named pages against every
+page, but only word for word and outside code blocks. For a repeat in other
+words, `git grep` the page's distinctive terms (script names, variables,
+unusual words) across `*.md`.
 
 ## 3. Facts
 
@@ -194,14 +213,15 @@ the pages and sources you read) and Not verified (what you did not read).
 
 ## Fixing
 
-Only after the person picks the findings to fix:
+After the person picks the findings to fix, or before a commit for what its
+change made wrong:
 
-1. Work in a worktree, as AGENTS.md says. Make the agreed changes and no
-   others.
+1. Work in a worktree, as AGENTS.md says. Make those changes and no others.
 2. Run both scripts on the edited pages and reread the changed text. For a
    user page, do the review in "How user docs read". A change only to the
-   files AGENTS.md calls prose-only needs no build or test. A change to code, such as the usage text in `src/main.rs` or a
-   script's comment, follows the AGENTS.md matrix.
+   files AGENTS.md calls prose-only needs no build or test. A change to
+   code, such as the usage text in `src/main.rs` or a script's comment,
+   follows the AGENTS.md matrix.
 3. Show the diff. Commit on the branch in the form `git log main` shows,
    keeping the configured commit signing. Push or merge only when asked.
 

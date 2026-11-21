@@ -34,6 +34,22 @@ Every finding names the file, the rule and the first step to take today.
 seamless robust
 {FENCE}
 See [the guide](robust.md).
+
+Then ask the
+owner. An earlier
+draft said so. It's worth
+noting this. It used
+to say more.
+On 2026-10-28 the
+build passed.
+Approved on 2026-10-13.
+The build passed.
+Ask the
+
+owner later. Ask the
+| owner | x |
+Ask the `x`
+owner too.
 """,
     "docs/b.md": "# Page B\n\nAs the overview says, every finding names the file, "
                  "the rule and the first step to take today.\n",
@@ -67,6 +83,11 @@ EXPECTED = [
     ("docs/a.md", 6, "emoji"),
     ("docs/a.md", 7, "record"),
     ("docs/a.md", 9, "history"),
+    ("docs/a.md", 17, "owner"),
+    ("docs/a.md", 18, "history"),
+    ("docs/a.md", 19, "filler"),
+    ("docs/a.md", 20, "history"),
+    ("docs/a.md", 22, "record"),
     ("docs/b.md", 3, "repeat"),
     ("docs/design-notes.md", 1, "plan"),
     ("docs/usage.md", 3, "long-sentence"),

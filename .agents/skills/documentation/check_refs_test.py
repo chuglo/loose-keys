@@ -20,11 +20,15 @@ FILES = {
     "src/main.rs": 'const USAGE: &str = "  --limits  also print limits";\n'
                    "fn real_fn() {}\nstruct ReadTurns;\n"
                    'const SKIPPED: &str = ".cache/tool";\nconst GAP: &str = "scan-limit";\n',
-    "tools/run.sh": '#!/bin/sh\ncase "$1" in --work) ;; esac\n',
+    "tools/run.sh": '#!/bin/sh\n# reads src/main.rs\ncase "$1" in --work) ;; esac\n',
     "tools/parse.rs": 'if arg == "--binary" {}\n',
-    "gui/AGENTS.md": "Engine code is in `src/engine.rs`; `src/missing.rs` is not.\n",
+    "gui/AGENTS.md": "Engine code is in `src/engine.rs`; `src/missing.rs` is not.\n"
+                     "`app/View.swift` and `../tools/run.sh` hold; `app/Gone.swift`,\n"
+                     "`../tools/gone.sh`, `src/main.rs` and `src/was.rs` do not.\n",
     "gui/src/engine.rs": "fn engine() {}\n",
-    "docs/a.md": "# Page A\n\n## Real Heading\n\n## Real Heading\n\n```sh\n# Not A Heading\n```\n",
+    "gui/app/View.swift": "struct View {}\n",
+    "docs/a.md": "# Page A\n\n## Real Heading\n\n## Real Heading\n\n```sh\n# Not A Heading\n```\n"
+                 "Root paths such as `src/main.rs` hold here; `../r.json` is an example.\n",
     ".gitignore": "/target\n/out/\n",
 }
 
@@ -60,6 +64,8 @@ cat src/nothere.rs
 ```
 Alone: `scan --limits` holds and `scan --gone` does not.
 [Deleted](docs/old.md) but not committed.
+Options: `--limits` holds, `--into <VM>` was never ours, `--old-opt PATH` was removed.
+`staged_fn` and `--dropped` were removed but not committed.
 """
 
 EXPECTED = [
@@ -75,7 +81,14 @@ EXPECTED = [
     ("README.md", 23, "path"),
     ("README.md", 29, "flag"),
     ("README.md", 30, "link"),
+    ("README.md", 31, "flag"),
+    ("README.md", 32, "name"),
+    ("README.md", 32, "flag"),
     ("gui/AGENTS.md", 1, "path"),
+    ("gui/AGENTS.md", 2, "path"),
+    ("gui/AGENTS.md", 3, "path"),
+    ("gui/AGENTS.md", 3, "path"),
+    ("gui/AGENTS.md", 3, "path"),
 ]
 
 
@@ -99,13 +112,18 @@ def commit(root, message):
 
 def make_repo(root):
     run(root, "init", "-q")
-    write(root, {"src/old.rs": 'fn old_fn() {}\nconst N: &str = "old-name";\n'})
+    write(root, {"src/old.rs": 'fn old_fn() {}\nconst N: &str = "old-name --old-opt";\n',
+                 "gui/src/was.rs": "fn was() {}\n"})
     commit(root, "Add old names")
     os.remove(os.path.join(root, "src/old.rs"))
+    os.remove(os.path.join(root, "gui/src/was.rs"))
     write(root, FILES)
-    write(root, {"README.md": README, "docs/old.md": "# Old\n"})
+    write(root, {"README.md": README, "docs/old.md": "# Old\n",
+                 "src/main.rs": FILES["src/main.rs"]
+                 + 'fn staged_fn() {}\nconst D: &str = "--dropped";\n'})
     commit(root, "Remove old names")
     os.remove(os.path.join(root, "docs/old.md"))
+    write(root, {"src/main.rs": FILES["src/main.rs"]})
 
 
 def check(root):
@@ -138,6 +156,14 @@ def main():
             failures.append("a deleted path should name the commit that last had it")
         if "docs/old.md: no such file (deleted, not committed)" not in out.stdout:
             failures.append("a deletion not yet committed should say so")
+        if "--old-opt PATH: gone from the code since " not in out.stdout:
+            failures.append("a removed lone option should name the commit that removed it")
+        for name in ("staged_fn", "--dropped"):
+            if f"{name}: gone from the code (removed, not committed)" not in out.stdout:
+                failures.append(f"{name}: a removal not yet committed should say so")
+        if "src/was.rs: no such file or folder (last in " not in out.stdout:
+            failures.append("a path on a nested page should name the commit that last "
+                            "had it under the page's folder")
 
         write(root, {"README.md": "# Readme\n\nSee [A](docs/a.md#page-a) and `src/main.rs`.\n",
                      "gui/AGENTS.md": "See `src/engine.rs`.\n"})

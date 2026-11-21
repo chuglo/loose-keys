@@ -23,6 +23,10 @@ to read, not a verdict. Kinds:
   stacked-clauses  a sentence with at least STACKED_MARKS commas and
                    semicolons, unless it is a plain list
 
+A filler, owner or history phrase also counts when a line break inside a
+paragraph splits it, and a record when its date and result word are on
+different lines of one sentence; each reports the line where it starts.
+
 The last two read only the user pages, USER_PAGES. A paragraph or list item is
 joined across its wrapped lines before it is split into sentences, at ". ",
 "? " and "! " except after an abbreviation such as "e.g.". Headings, table
@@ -110,7 +114,9 @@ def blocks(text):
             cur = None
             if skip:
                 continue
-        body = re.sub(r"^(?:>\s*)?(?:(?:[-*+]|\d+[.)])\s+)?", "", body)
+        # Trailing space is kept: it may be a blanked code span, which
+        # must not join the words on either side of it into a phrase.
+        body = re.sub(r"^(?:>\s*)?(?:(?:[-*+]|\d+[.)])\s+)?", "", line.lstrip())
         if cur is None:
             cur = ("", [])
         joined, starts = cur
@@ -161,10 +167,12 @@ def sentence_findings(rel, text):
 
 
 def line_findings(rel, text):
-    """Findings within single lines. A quotation is someone else's words,
-    so its wording is not checked."""
+    """Findings within single lines, then in phrases wrapped onto the next
+    line of a paragraph. A quotation is someone else's words, so its
+    wording is not checked."""
     found = []
-    for number, line in enumerate(mdpages.blank(QUOTED, text).split("\n"), 1):
+    text = mdpages.blank(QUOTED, text)
+    for number, line in enumerate(text.split("\n"), 1):
         for match in FILLER.finditer(line):
             found.append((rel, number, "filler", f'"{match.group(0)}"'))
         if OWNER.search(line):
@@ -178,6 +186,31 @@ def line_findings(rel, text):
                           f'"{RESULT.search(line).group(0)}"'))
         for match in HISTORY.finditer(line):
             found.append((rel, number, "history", f'"{match.group(0)}"'))
+    return found + [f for f in wrapped_findings(rel, text) if f not in found]
+
+
+def wrapped_findings(rel, text):
+    """Phrases that a line break inside a paragraph splits, and a date and
+    a result word on different lines of one sentence, at the first line."""
+    found = []
+    for joined, starts in blocks(text):
+        def line(offset):
+            return [n for o, n in starts if o <= offset][-1]
+        for kind, pattern in (("filler", FILLER), ("owner", OWNER), ("history", HISTORY)):
+            for match in pattern.finditer(joined):
+                if line(match.start()) == line(match.end() - 1):
+                    continue
+                detail = ('write "the person directing the session"' if kind == "owner"
+                          else f'"{match.group(0)}"')
+                found.append((rel, line(match.start()), kind, detail))
+        for offset, sentence in sentences(joined):
+            date, result = DATE.search(sentence), RESULT.search(sentence)
+            if not (date and result):
+                continue
+            lines = sorted((line(offset + date.start()), line(offset + result.start())))
+            if lines[0] != lines[1]:
+                found.append((rel, lines[0], "record",
+                              f'{date.group(0)} with "{result.group(0)}"'))
     return found
 
 
