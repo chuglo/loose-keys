@@ -26,9 +26,10 @@ The command checks the home folder that `HOME` names.
 **Save Counts Only…** writes the same file. Findings you set aside
 in the app count as open in this file.
 
-The file's `schema` is `loose-keys/feedback/1`. With `--device-id`, it's
-`loose-keys/device-counts/1`, and the file also has `device_id` and
-`generated_at`.
+The file's `schema` is `loose-keys/feedback/1`. To tell Macs apart, add
+`--device-id NAME`. For example, use each Mac's serial number as the name. The
+`schema` is then `loose-keys/device-counts/1`. The file also has `device_id`,
+the name you gave. It also has `generated_at`, the time of the scan.
 
 | Field | Meaning |
 |---|---|
@@ -45,7 +46,9 @@ The file's `schema` is `loose-keys/feedback/1`. With `--device-id`, it's
 ## Expected findings set by MDM
 
 An organization can list findings that its own tools create on purpose. Those
-findings then start out in Set Aside instead of Worth Reviewing.
+findings then start out in the app's **Set Aside** list instead of **Worth
+Reviewing**, the list of findings that need a decision.
+[What each list holds](usage.md#what-each-list-holds) explains the lists.
 
 To do this, deliver a configuration profile with a payload of type
 `dev.loosekeys.desktop`. The payload holds the key `ExpectedFindings`, an array

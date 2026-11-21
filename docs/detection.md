@@ -25,9 +25,10 @@ Each finding has a risk level and numbered steps for dealing with it.
 | Medium | Someone who copies it would need something more to use it, such as a password or this Mac's keychain, or it gives access to less. |
 | Low | It's protected, for example by a passphrase, or it's only for testing. |
 
-In the tables below, "Listed in" says where a finding goes. Loose Keys doesn't
-flag items in Stored Sign-ins. The app lists them under **Stored Sign-ins**,
-and the text summary lists them under STORED SIGN-INS. See
+In the tables below, "Listed in" says where a finding goes. Items in Stored
+Sign-ins don't need a decision from you. Loose Keys doesn't alert you about
+them. The app lists them under **Stored Sign-ins**, and the text summary
+lists them under STORED SIGN-INS. See
 [What each list holds](usage.md#what-each-list-holds).
 
 ## Supported checks
@@ -98,13 +99,18 @@ In this section and the next, *variable files* means `.env*`, `*.env`,
 files, `~/.gradle/gradle.properties`, `~/.codex/config.toml` and
 `~/.config/goose/secrets.yaml`.
 
+A variable's name looks like a secret when it contains a word such as
+`PASSWORD`, `SECRET`, `TOKEN`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL`. A
+name that ends in `_FILE`, `_PATH`, `_URL`, `_ID` or `_NAME` doesn't. Such a
+name is usually a setting or a location, not a secret.
+
 | What | Where it looks | Listed in | Not found when |
 |---|---|---|---|
 | Service tokens in about 140 known issuer formats (AWS, GitHub, GitLab, OpenAI, Anthropic, Google Gemini, Stripe, Slack, npm, PyPI, Cloudflare, Vercel and more), and Slack and Discord webhook URLs | the first 4 KiB of any file up to 1 MiB, and anywhere in the files in note 1 | Worth Reviewing | it's past the first 4 KiB of a file not in note 1. In a file over 1 MiB, you get a `too-large` gap instead |
-| Stripe test-mode keys | as above | Stored Sign-ins, at low risk | – |
+| Stripe test-mode keys | the same places as service tokens | Stored Sign-ins, at low risk | – |
 | Keys whose prefix doesn't name the service: Google API keys starting `AIza` (including Gemini keys in that form), Notion keys starting `secret_`, and Twilio, Dropbox and ElevenLabs keys | variable files, and the MCP and AI tool settings files below | Worth Reviewing | the variable or setting isn't named like a secret |
 
-1. Loose Keys looks anywhere in these files, not only the first 4 KiB:
+1. Loose Keys reads each of these files whole, up to 1 MiB. They are
    variable files, the history files of psql, MySQL, redis-cli, Python,
    Node.js and irb, Aider's `.aider.chat.history.md` and
    `.aider.input.history`, and `~/.cache/huggingface/token`.
@@ -164,9 +170,10 @@ every other file it checks for tokens.
 
 ## What isn't reported
 
-Loose Keys doesn't check browser cookies and sessions, the app data macOS
-protects (see [Where the scanner looks](#where-the-scanner-looks)), the
-Keychain, images or password-manager vaults. It doesn't open archives.
+Loose Keys doesn't check Safari or the Keychain. It also skips browser cookies
+and sessions, images and password-manager vaults. It skips the app data that
+macOS protects too (see [Where the scanner looks](#where-the-scanner-looks)).
+It doesn't open archives.
 
 Loose Keys doesn't report an AWS access key ID that's part of a request
 signature, such as in a signed download link. The ID alone isn't a secret.
@@ -184,7 +191,7 @@ these cases:
 | Shorter than 8 characters (12 in MCP server configs and JSON settings files, 16 in OAuth token files), or looks like a sample or placeholder | `.env*`, shell, MCP and AI tool settings files | – |
 | Its name says the key is public or publishable | variable files, and an MCP server's environment and headers | – |
 | Looks like a file path (note 1) | variable files, and an MCP server's environment and headers | `/app/.ssh/id_rsa`, `.ssh/id_ed25519`, `id_ed25519_work` |
-| Names another variable named like a secret | variable files | `OPENAI_API_KEY` |
+| Names another variable named like a secret | variable files | `API_KEY=OPENAI_API_KEY` |
 | Repeats its variable's name or a word of it, or ends in `...` | variable files | `POSTGRES_PASSWORD=postgres` |
 | A password in a URL that is shorter than the limits above, looks like a placeholder, is `password`, or repeats the URL's user name | variable files | – |
 | A variable whose prefix tells a framework to build its value into the app (note 2) | variable files | `NEXT_PUBLIC_`, `VITE_`, `EXPO_PUBLIC_`, `REACT_APP_`, `NUXT_PUBLIC_`, `PUBLIC_`, `GATSBY_` |

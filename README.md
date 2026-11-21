@@ -56,6 +56,7 @@ loose-keys scan
 
 The command uses the same scanner as the app, but it doesn't read the app's
 saved state. Findings you set aside in the app still appear in the command's results.
+The command never goes online.
 
 ```sh
 loose-keys scan --limits                  # also print what the scan can't detect

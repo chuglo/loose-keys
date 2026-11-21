@@ -71,8 +71,11 @@ couldn't read. Use **Export** to save the report before you quit. After a new
 launch, the Overview's Worth Reviewing count comes from the saved findings.
 
 Worth Reviewing has one item for each password or token the app can pick out,
-however many files it's in. Loose Keys doesn't match other findings, such as a
-private key file, across files. The same key in two key files is two items. The saved
+however many files it's in. It can pick out service tokens, such as GitHub
+and OpenAI tokens. It can also pick out AWS secret access keys, passwords in
+URLs, and secrets in variables and in MCP and AI tool settings. Loose Keys
+doesn't match other findings, such as a private key file, across files. The
+same key in two key files is two items. The saved
 report and the copied summary list every finding, so their count can be
 higher. Within one file, it works like this:
 
@@ -159,8 +162,8 @@ item is fixed and leaves its list. This happens even when the scan couldn't
 read everything else. It doesn't happen when you stop the scan with **Stop
 Scan**. A stored sign-in that's no longer found leaves its list the same way.
 
-The app stops rechecking after 10 seconds. Any item it hasn't reached stays
-open until a later scan.
+Each scan rechecks for 10 seconds at most. If it doesn't reach an item in that
+time, the item stays open until a later scan.
 
 If you've stopped checking a folder, the app rechecks an item there only if a
 scan still reads that item's file. Other items in the folder stay
