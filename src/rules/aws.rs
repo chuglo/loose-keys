@@ -97,63 +97,87 @@ const LOOK: &str = "Look for the secret access key that goes with this ID, in th
 const REVOKE_SESSIONS: &str = "For a temporary access key, open the role it's for in IAM instead, and on its Revoke sessions tab choose Revoke active sessions. This ends other people's sessions of that role too.";
 const NOTHING_MORE: &str = "If you don't find a secret access key, there's nothing more to do.";
 
+pub(crate) use super::token::aws_access_key_id;
+
+const MAX_PROFILES: usize = 100;
+
 /// AWS files are parsed leniently, so invalid UTF-8 never hides other keys.
-fn aws_hits(bytes: &[u8]) -> Hits {
-    let text = String::from_utf8_lossy(bytes);
-    // Positions in `text` are positions in the file only if nothing was replaced.
-    let exact = matches!(text, std::borrow::Cow::Borrowed(_));
-    let hits = aws_profiles_with_keys(&text).into_iter().map(|mut hit| {
-        if !exact {
-            hit.span = None;
-        }
-        hit
-    });
-    capped_hits(hits, 100)
+pub(crate) fn aws_hits(bytes: &[u8]) -> Hits {
+    capped_hits(aws_profiles_with_keys(bytes), MAX_PROFILES)
 }
 
-/// Profile headers whose section contains aws_secret_access_key, with the
-/// temporary keys' wording where the section has a session token too. A
-/// hit's position is its section's access key ID, which is what the
-/// service-token rule finds in the same file: the two are one credential.
-pub fn aws_profiles_with_keys(text: &str) -> Vec<Hit> {
-    // Each section: its header's line, its profile, whether it has a secret
-    // access key and a session token, and its access key ID.
-    let mut sections: Vec<(usize, &str, bool, bool, Option<&str>)> = Vec::new();
-    // A byte order mark is not part of the first line.
-    for (i, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
-        let l = raw.trim();
-        if l.starts_with('[') && l.ends_with(']') {
-            let name = &l[1..l.len() - 1];
+/// Profiles containing an access secret. The two byte positions pair the
+/// secret with the public ID found by the service-token rule.
+fn aws_profiles_with_keys(bytes: &[u8]) -> impl Iterator<Item = Hit> + '_ {
+    let mut profiles = Vec::new();
+    let mut current: Option<Hit> = None;
+    let mut line_start = 0;
+    for (i, raw) in bytes.split_inclusive(|b| *b == b'\n').enumerate() {
+        let text = String::from_utf8_lossy(raw);
+        let line = if i == 0 {
+            text.trim_start_matches('\u{feff}').trim()
+        } else {
+            text.trim()
+        };
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             // ~/.aws/config writes "[profile name]" for all but the default.
             let profile = name.strip_prefix("profile ").map_or(name, str::trim);
-            sections.push((i + 1, profile, false, false, None));
-        } else if let (Some(section), Some((k, v))) = (sections.last_mut(), l.split_once('=')) {
+            if let Some(completed) = current.take().filter(|h| h.span.is_some()) {
+                profiles.push(completed);
+                if profiles.len() > MAX_PROFILES {
+                    break;
+                }
+            }
+            current = Some(Hit::line(i + 1).about(&format!("profile {profile}")));
+        } else if let (Some(hit), Some((key, value))) = (current.as_mut(), line.split_once('=')) {
             // botocore reads the file raw: "$" and "!" are part of a value.
-            if let Some(value) = scalar_literal_by(v, raw_literal) {
-                match k.trim().to_ascii_lowercase().as_str() {
-                    "aws_access_key_id" => section.4 = Some(value),
-                    "aws_secret_access_key" => section.2 = true,
+            if let Some(value) = scalar_literal_by(value, raw_literal) {
+                match key.trim().to_ascii_lowercase().as_str() {
+                    "aws_access_key_id" => {
+                        hit.aws_pair = aws_value_span(raw, &text, value, line_start)
+                    }
+                    "aws_secret_access_key" => {
+                        hit.span = aws_value_span(raw, &text, value, line_start)
+                    }
                     // The older name, which botocore also reads (unverified).
-                    "aws_session_token" | "aws_security_token" => section.3 = true,
+                    "aws_session_token" | "aws_security_token" => {
+                        hit.wording = Some(&TEMPORARY_KEYS)
+                    }
                     _ => {}
                 }
             }
         }
+        line_start += raw.len();
     }
-    sections
-        .into_iter()
-        .filter(|(_, _, secret, _, _)| *secret)
-        .map(|(line, profile, _, session, id)| {
-            let hit = Hit {
-                wording: session.then_some(&TEMPORARY_KEYS),
-                ..Hit::line(line).about(&format!("profile {profile}"))
-            };
-            match id {
-                Some(id) => hit.at(text, id),
-                None => hit,
+    profiles.extend(current.filter(|h| h.span.is_some()));
+    profiles.into_iter()
+}
+
+/// Lossy decoding can widen invalid bytes to a three-byte replacement
+/// character. Map both ends back to the file before hashing the value.
+fn aws_value_span(
+    raw: &[u8],
+    text: &str,
+    value: &str,
+    line_start: usize,
+) -> Option<std::ops::Range<usize>> {
+    let span = Hit::file().at(text, value).span?;
+    if raw.len() == text.len() {
+        return Some(line_start + span.start..line_start + span.end);
+    }
+    let offset = |at| {
+        let (mut decoded, mut source) = (0, line_start);
+        for chunk in raw.utf8_chunks() {
+            let valid = chunk.valid().len();
+            if at <= decoded + valid {
+                return Some(source + (at - decoded));
             }
-        })
-        .collect()
+            decoded += valid + '\u{fffd}'.len_utf8();
+            source += valid + chunk.invalid().len();
+        }
+        (at == text.len()).then_some(line_start + raw.len())
+    };
+    Some(offset(span.start)?..offset(span.end)?)
 }
 
 #[cfg(test)]
@@ -163,7 +187,7 @@ mod tests {
     #[test]
     fn aws_sections() {
         let ini = "[default]\naws_access_key_id = A\naws_secret_access_key = B\n\n[sso]\nsso_start_url = x\n\n[other]\nAWS_SECRET_ACCESS_KEY=C\n[empty]\naws_secret_access_key =\n";
-        let hits = aws_profiles_with_keys(ini);
+        let hits = aws_profiles_with_keys(ini.as_bytes()).collect::<Vec<_>>();
         assert_eq!(
             hits.iter().map(|h| h.line).collect::<Vec<_>>(),
             vec![Some(1), Some(8)]
@@ -172,38 +196,43 @@ mod tests {
     }
 
     /// The service-token rule finds the access key ID in the same file, so
-    /// the profile's hit is at that ID and the two can be one item. A
-    /// profile with no ID has no position.
+    /// the profile carries its position separately from the secret.
     #[test]
-    fn a_profile_is_found_at_its_access_key_id() {
+    fn a_profile_keeps_both_positions() {
         let ini = "\u{feff}[default]\naws_access_key_id = fixture-id\naws_secret_access_key = synthetic-only\n[bare]\naws_secret_access_key = synthetic-only\n";
-        let hits = aws_profiles_with_keys(ini);
-        let at = hits[0].span.clone().unwrap();
+        let hits = aws_profiles_with_keys(ini.as_bytes()).collect::<Vec<_>>();
+        let at = hits[0].aws_pair.clone().unwrap();
         assert_eq!(&ini[at], "fixture-id");
-        assert_eq!(hits[1].span, None);
+        assert_eq!(hits[1].aws_pair, None);
+        for hit in hits {
+            assert_eq!(&ini[hit.span.unwrap()], "synthetic-only");
+        }
     }
 
     /// ~/.aws/config names a profile "[profile name]", the credentials file "[name]".
     #[test]
     fn a_profile_is_named_once() {
         let hits = aws_profiles_with_keys(
-            "[profile prod]\naws_secret_access_key = synthetic-only\n[default]\naws_secret_access_key = synthetic-only\n",
+            b"[profile prod]\naws_secret_access_key = synthetic-only\n[default]\naws_secret_access_key = synthetic-only\n",
         );
-        let named: Vec<_> = hits.iter().map(|h| h.subject.as_deref()).collect();
-        assert_eq!(named, [Some("profile prod"), Some("profile default")]);
+        let named: Vec<_> = hits.map(|h| h.subject).collect();
+        assert_eq!(
+            named,
+            [Some("profile prod".into()), Some("profile default".into())]
+        );
     }
 
     /// Keys with a session token are temporary, as tools that sign in
     /// through AWS STS write them, wherever the token stands in the profile.
     #[test]
     fn temporary_keys_have_their_own_wording() {
-        let hits = aws_profiles_with_keys(concat!(
+        let hits: Vec<_> = aws_profiles_with_keys(concat!(
             "[static]\naws_secret_access_key = synthetic-only\n",
             "[sts]\naws_session_token = synthetic-only\naws_secret_access_key = synthetic-only\n",
             "[legacy]\naws_secret_access_key = synthetic-only\naws_security_token = synthetic-only\n",
             "[empty]\naws_secret_access_key = synthetic-only\naws_session_token =\n",
             "[token-only]\naws_session_token = synthetic-only\n",
-        ));
+        ).as_bytes()).collect();
         let found: Vec<_> = hits
             .iter()
             .map(|h| (h.subject.as_deref(), h.wording.is_some()))
@@ -217,6 +246,14 @@ mod tests {
                 (Some("profile empty"), false),
             ]
         );
+    }
+
+    #[test]
+    fn invalid_bytes_do_not_change_the_positions_of_values() {
+        let ini = b"[default]\naws_access_key_id = fixture-id # \xff\naws_secret_access_key = part-\xfe-\xff # literal\n";
+        let hits = aws_hits(ini).unwrap();
+        assert_eq!(&ini[hits[0].aws_pair.clone().unwrap()], b"fixture-id");
+        assert_eq!(&ini[hits[0].span.clone().unwrap()], b"part-\xfe-\xff");
     }
 
     #[test]

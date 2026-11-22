@@ -9,6 +9,7 @@
 mod agent;
 #[cfg(test)]
 mod background_tests;
+mod coverage;
 #[cfg(test)]
 #[path = "../../tests/support/detection.rs"]
 mod detection_corpus;
@@ -17,6 +18,8 @@ mod engine_text_tests;
 #[cfg(test)]
 #[path = "../../tests/support/fixture_body.rs"]
 mod fixture_body;
+#[cfg(test)]
+mod folder_scope_tests;
 mod monitor;
 mod release;
 mod review;
@@ -26,6 +29,10 @@ mod stored_tests;
 // The scanner the `loose-keys` command uses.
 use loose_keys::{fsutil, report, rules, scan};
 
+use coverage::{automatic_coverage, unread_count, ManualReport, ResultsView, ACCESS_FOLDERS};
+#[cfg(test)]
+use coverage::{gap_text, results_view};
+#[cfg(test)]
 use report::Report;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, CStr, CString};
@@ -33,17 +40,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-/// Paths listed per "not checked" reason; saved reports have all of them.
-const GAPS_SHOWN: usize = 20;
-
 struct App {
     /// Gates and cancels this app's manual scans. Automatic checks are the
     /// background agent's job, in its own process.
     monitor: monitor::Monitor,
     home: Result<PathBuf, &'static str>,
-    report: Mutex<Option<Report>>,
+    report: Mutex<Option<ManualReport>>,
     scanning: AtomicBool,
-    review: Mutex<review::Review>,
+    review: Mutex<StateCache>,
     store: Result<review::Store, String>,
     storage_error: Mutex<Option<String>>,
     /// Whether `storage_error` is from a change that could not be saved.
@@ -58,6 +62,12 @@ struct App {
     rechecks: std::time::Duration,
     /// Set once the store has been read, which the first command does.
     read: OnceLock<()>,
+}
+
+#[derive(Default)]
+struct StateCache {
+    generation: u64,
+    state: Option<review::Review>,
 }
 
 /// The rechecks run with the store locked, which the background agent and a
@@ -143,29 +153,6 @@ fn helper_running(pid: u32) -> bool {
     matches!((theirs, ours), (Ok(a), Ok(b)) if a.dev() == b.dev() && a.ino() == b.ino())
 }
 
-/// Whether a refusal the helper saved still stands. One that an older
-/// build's pass saved, for a place this build leaves out, would be shown
-/// until the next weekly pass. Paths are saved below the home as `~/…`.
-fn still_unread(path: &str, reason: &str) -> bool {
-    reason != "permission-denied"
-        || !path
-            .strip_prefix("~/")
-            .is_some_and(|rel| scan::not_tried(Path::new(rel)))
-}
-
-/// The helper's count of places it couldn't read, less the saved ones that
-/// no longer stand.
-fn unread_count(agent: &review::Agent) -> usize {
-    let gone = agent.unread_places.as_ref().map_or(0, |snapshot| {
-        snapshot
-            .places
-            .iter()
-            .filter(|(path, reason)| !still_unread(path, reason))
-            .count()
-    });
-    agent.unread.saturating_sub(gone)
-}
-
 fn health(agent: &review::Agent) -> Health {
     Health {
         running: helper_running(agent.pid),
@@ -174,45 +161,6 @@ fn health(agent: &review::Agent) -> Health {
         left: agent.left,
         unread: unread_count(agent),
         error: agent.error.clone(),
-    }
-}
-
-/// Details are read on demand; frequent status polls carry only counts.
-#[derive(Serialize)]
-struct AutomaticCoverage {
-    full_pass: Option<String>,
-    unread: usize,
-    unread_gaps: Option<Vec<GapView>>,
-    unread_truncated: bool,
-}
-
-fn automatic_coverage(agent: &review::Agent) -> AutomaticCoverage {
-    AutomaticCoverage {
-        full_pass: agent.baseline.clone(),
-        unread: unread_count(agent),
-        unread_gaps: agent.unread_places.as_ref().map(|snapshot| {
-            let mut grouped = std::collections::BTreeMap::<&str, Vec<String>>::new();
-            for (path, reason) in snapshot.places.iter().filter(|(p, r)| still_unread(p, r)) {
-                grouped
-                    .entry(reason)
-                    .or_default()
-                    .push(report::escape(path));
-            }
-            grouped
-                .into_iter()
-                .map(|(reason, paths)| {
-                    // Kept by the helper, which never runs as root.
-                    let (label, help) = gap_text(reason, false);
-                    GapView {
-                        label: report::escape(label),
-                        help: help.to_owned(),
-                        count: paths.len(),
-                        paths,
-                    }
-                })
-                .collect()
-        }),
-        unread_truncated: agent.unread_places.as_ref().is_some_and(|p| p.truncated),
     }
 }
 
@@ -233,14 +181,14 @@ fn try_update_state<T>(
 ) -> Answer<T> {
     let store = app.store.as_ref().map_err(Clone::clone)?;
     let (mut refused, mut made) = (false, false);
-    let result = store.update(|state| {
+    let result = store.update_versioned(|state| {
         let out = change(state);
         (refused, made) = (out.is_err(), out.is_ok());
         out
     });
     match result {
-        Ok((state, out)) => {
-            *app.review.lock().unwrap() = state;
+        Ok((generation, state, out)) => {
+            app.remember_state(generation, state);
             Ok(out)
         }
         Err(e) if refused => Err(e),
@@ -283,39 +231,38 @@ fn update_if_changed(
 /// decides what to say.
 fn save_unchanged(app: &App) -> Answer<review::Review> {
     let store = app.store.as_ref().map_err(Clone::clone)?;
-    let (state, ()) = store.update(|_| Ok(()))?;
-    *app.review.lock().unwrap() = state.clone();
+    let (generation, state, ()) = store.update_versioned(|_| Ok(()))?;
+    app.remember_state(generation, state.clone());
     Ok(state)
 }
 
 /// The shared state as the store has it now, with what the agent has written
 /// since this app last looked. A command answers from the state it is handed
-/// here, never from the app's copy after it: commands run at once, and a
-/// read that began before a change may be the last to leave its state in the
-/// copy. The copy is what is left to answer from once the store cannot be
-/// read. A read that works clears an error from an earlier read, and not
-/// one from a change that could not be saved.
+/// here. If the store is unreadable, keep the newest observed state.
+/// A read that works clears a read error. A save error stays because the
+/// change it would have saved was lost.
 fn refresh_state(app: &App) -> review::Review {
     let unsaved = {
         let error = app.storage_error.lock().unwrap();
         error.is_some() && app.storage_unsaved.load(Ordering::SeqCst)
     };
     if !unsaved {
-        if let Ok(store) = &app.store {
-            match store.read() {
-                Ok(state) => {
-                    *app.review.lock().unwrap() = state.clone();
-                    let mut error = app.storage_error.lock().unwrap();
-                    if !app.storage_unsaved.load(Ordering::SeqCst) {
-                        *error = None;
-                    }
-                    return state;
-                }
-                Err(e) => *app.storage_error.lock().unwrap() = Some(e),
-            }
+        match read_state(app) {
+            Ok(state) => return state,
+            Err(error) => *app.storage_error.lock().unwrap() = Some(error),
         }
     }
-    app.review.lock().unwrap().clone()
+    app.review.lock().unwrap().state.clone().unwrap_or_default()
+}
+
+fn read_state(app: &App) -> Answer<review::Review> {
+    let (generation, state) = app.store.as_ref().map_err(Clone::clone)?.read_versioned()?;
+    app.remember_state(generation, state.clone());
+    let mut error = app.storage_error.lock().unwrap();
+    if !app.storage_unsaved.load(Ordering::SeqCst) {
+        *error = None;
+    }
+    Ok(state)
 }
 
 #[derive(Serialize)]
@@ -365,7 +312,7 @@ fn monitor_status(app: &App) -> MonitorView {
     let r = refresh_state(app);
     // Each copied out on its own, so no lock is held while another is taken.
     let error = app.storage_error.lock().unwrap().clone();
-    let results = app.report.lock().unwrap().as_ref().map(results_view);
+    let results = app.report.lock().unwrap().as_ref().map(ManualReport::view);
     MonitorView {
         enabled: r.monitoring,
         paused: r.paused,
@@ -1020,20 +967,31 @@ fn skip_folder(app: &App, id: u64) -> Answer<()> {
     })
 }
 
-/// `index` is the folder's place in the list the front end drew, and `shown`
-/// the text it drew there. A press that arrives after the list has moved up
-/// names the wrong place, so it is acted on only while the two still agree.
+/// Match the displayed row after other removals may have shifted it.
+fn displayed_folder<T>(folders: &[T], index: usize, named: impl Fn(&T) -> bool) -> Option<usize> {
+    if folders.get(index).is_some_and(&named) {
+        return Some(index);
+    }
+    let mut matching = folders
+        .iter()
+        .enumerate()
+        .filter(|(_, folder)| named(folder));
+    let (index, _) = matching.next()?;
+    matching.next().is_none().then_some(index)
+}
+
 fn unskip_folder(app: &App, index: usize, shown: String) -> Answer<()> {
     if app.storage_error.lock().unwrap().is_some() {
         return Err("Loose Keys could not open its saved data.".into());
     }
     update_if_changed(app, |state| {
-        let there = state.skipped.get(index);
-        let named = there.is_some_and(|skip| report::escape(&skip.path) == shown);
-        if named {
+        let index = displayed_folder(&state.skipped, index, |skip| {
+            report::escape(&skip.path) == shown
+        });
+        if let Some(index) = index {
             state.skipped.remove(index);
         }
-        Ok(named)
+        Ok(index.is_some())
     })
 }
 
@@ -1043,6 +1001,22 @@ fn skipped_paths(state: &review::Review, home: &Path) -> Vec<PathBuf> {
         .honoured_skips()
         .filter_map(|s| full_path(&s.path, Some(home)))
         .collect()
+}
+
+/// Saved exclusions in the spelling used by the current volume.
+fn saved_skips(state: &review::Review, home: &Path) -> Vec<PathBuf> {
+    skipped_paths(state, home)
+        .iter()
+        .map(|dir| scan::saved_path(dir, home))
+        .collect()
+}
+
+fn in_saved_folder(at: &Path, home: &Path, skip: &[PathBuf]) -> bool {
+    if skip.is_empty() {
+        return false;
+    }
+    let spelled = scan::saved_path(at, home);
+    skip.iter().any(|dir| spelled.starts_with(dir))
 }
 
 fn retry_notifications(app: &App) -> Answer<()> {
@@ -1072,7 +1046,7 @@ impl App {
             home,
             report: Mutex::new(None),
             scanning: AtomicBool::new(false),
-            review: Mutex::new(review::Review::default()),
+            review: Mutex::new(StateCache::default()),
             store,
             storage_error: Mutex::new(None),
             storage_unsaved: AtomicBool::new(false),
@@ -1101,19 +1075,29 @@ impl App {
                 .store
                 .as_ref()
                 .map_err(Clone::clone)
-                .and_then(review::Store::read);
-            let storage_error = loaded.as_ref().err().cloned();
-            let loaded = loaded.unwrap_or_default();
-            let wanted = loaded.monitoring && !loaded.menu_bar_off && !scan::is_root();
-            *self.review.lock().unwrap() = loaded;
-            let readable = storage_error.is_none();
-            *self.storage_error.lock().unwrap() = storage_error;
-            // Only taken away: one the person removed is not added back. A
-            // failure shows in Settings, which reads the status again.
-            if readable && !wanted {
-                let _ = reconcile_app_login(false, app_login(), set_app_login);
+                .and_then(review::Store::read_versioned);
+            match loaded {
+                Ok((generation, loaded)) => {
+                    let wanted = loaded.monitoring && !loaded.menu_bar_off && !scan::is_root();
+                    self.remember_state(generation, loaded);
+                    // A Login Item the person removed is not added back.
+                    if !wanted {
+                        let _ = reconcile_app_login(false, app_login(), set_app_login);
+                    }
+                }
+                Err(error) => *self.storage_error.lock().unwrap() = Some(error),
             }
         });
+    }
+
+    fn remember_state(&self, generation: u64, state: review::Review) {
+        let mut cache = self.review.lock().unwrap();
+        if generation > cache.generation {
+            *cache = StateCache {
+                generation,
+                state: Some(state),
+            };
+        }
     }
 
     /// After a command panicked: let later ones take the locks it held. What
@@ -1198,7 +1182,11 @@ fn dispatch(app: &App, command: &str, args: &Args) -> Answer<String> {
             if app.storage_error.lock().unwrap().is_some() {
                 return Err("Loose Keys could not open its saved data.".into());
             }
-            done(automatic_coverage(&state.agent))
+            let coverage = {
+                let report = app.report.lock().unwrap();
+                automatic_coverage(&state.agent, report.as_ref())
+            };
+            done(coverage)
         }
         "set_monitoring" => done(set_monitoring(
             app,
@@ -1316,8 +1304,22 @@ pub extern "C" fn ch_agent_main() -> ! {
 
 // ---- Places to check ----
 
-/// The home folders macOS asks about one at a time, before a scan.
-const ACCESS_FOLDERS: [&str; 3] = ["Desktop", "Documents", "Downloads"];
+const UNKNOWN_SCOPE: &str = "Couldn't read the places to check. Try scanning again.";
+
+fn scan_state(app: &App) -> Answer<review::Review> {
+    match read_state(app) {
+        Ok(state) => Ok(state),
+        // The scan tries to save against the store and reports any failure.
+        // Keep the selected scope if a transient read fails before it starts.
+        Err(_) => app
+            .review
+            .lock()
+            .unwrap()
+            .state
+            .clone()
+            .ok_or_else(|| UNKNOWN_SCOPE.into()),
+    }
+}
 
 /// A user-initiated preparation step, not a scan or a permission verdict.
 /// The fixed locations are already in home scan scope. Listing with a zero
@@ -1331,10 +1333,17 @@ fn prepare_access(app: &App, index: usize) -> Answer<()> {
         .home
         .as_ref()
         .map_err(|e| format!("Cannot scan: {e}."))?;
+    let state = scan_state(app)?;
+    let path = home.join(folder);
+    if state.skips(&format!("~/{folder}"))
+        || in_saved_folder(&path, home, &saved_skips(&state, home))
+    {
+        return Ok(());
+    }
     // A denial, absent folder or link must not prevent checking other places.
     // The subsequent scan reads afresh and reports its own gaps; this command
     // neither claims coverage nor caches an authorization result.
-    let _ = fsutil::list_dir(&home.join(folder), false, &mut 0);
+    let _ = fsutil::list_dir(&path, false, &mut 0);
     Ok(())
 }
 
@@ -1370,11 +1379,21 @@ fn add_place(app: &App, path: &Path) -> Answer<()> {
     }
     let p = scan::selected_root(path.as_os_str())
         .map_err(|e| format!("Cannot add that folder: {e}."))?;
+    let spelling = |path: &Path| match &app.home {
+        Ok(home) => scan::saved_path(path, home),
+        Err(_) => path.to_path_buf(),
+    };
+    let p = spelling(&p);
     if !p.to_str().is_some_and(|text| !text.contains('\0')) {
         return Err("That folder's name cannot be used.".into());
     }
     try_update_state(app, |state| {
-        if !state.selected_places.contains(&p) && app.home.as_ref() != Ok(&p) {
+        if app.home.as_ref() != Ok(&p)
+            && !state
+                .selected_places
+                .iter()
+                .any(|saved| spelling(saved) == p)
+        {
             if state.selected_places.len() >= review::MAX_SELECTED_PLACES
                 || p.as_os_str().len() > review::MAX_SELECTED_PATH_BYTES
             {
@@ -1400,7 +1419,7 @@ fn type_place(app: &App, text: String) -> PlacesView {
     places_view(app, error)
 }
 
-/// As for `unskip_folder`: the place in the list, and what was shown there.
+/// The index is a hint: another removal may already have shifted this row.
 fn remove_place(app: &App, index: usize, shown: String) -> PlacesView {
     if app.storage_error.lock().unwrap().is_some() {
         return places_view(
@@ -1413,75 +1432,17 @@ fn remove_place(app: &App, index: usize, shown: String) -> PlacesView {
             return Err("Wait for the scan to finish.".into());
         }
         let places = &mut state.selected_places;
-        let named = places.get(index).is_some_and(|place| show(place) == shown);
-        if named {
+        let index = displayed_folder(places, index, |place| show(place) == shown);
+        if let Some(index) = index {
             places.remove(index);
         }
-        Ok(named)
+        Ok(index.is_some())
     })
     .err();
     places_view(app, error)
 }
 
 // ---- Scan and results ----
-
-#[derive(Serialize)]
-struct ResultsView {
-    status: &'static str,
-    generated_at: String,
-    review: usize,
-    stored: usize,
-    not_checked: usize,
-    gaps: Vec<GapView>,
-    /// Which of the folders `prepare_access` asks for the scan was denied,
-    /// as fixed words: the person can allow access to these again.
-    blocked: Vec<&'static str>,
-}
-
-#[derive(Serialize, Clone)]
-struct GapView {
-    label: String,
-    help: String,
-    count: usize,
-    paths: Vec<String>,
-}
-
-fn results_view(r: &Report) -> ResultsView {
-    let review = r.findings.iter().filter(|f| f.kind == "review").count();
-    let gaps = report::group_gaps(r)
-        .into_iter()
-        .map(|(reason, paths)| {
-            let (label, help) = gap_text(reason, r.context == "system");
-            GapView {
-                label: label.to_owned(),
-                help: help.to_owned(),
-                count: paths.len(),
-                paths: paths
-                    .iter()
-                    .take(GAPS_SHOWN)
-                    .map(|p| report::escape(p))
-                    .collect(),
-            }
-        })
-        .collect();
-    let blocked = ACCESS_FOLDERS
-        .into_iter()
-        .filter(|folder| {
-            r.not_checked
-                .iter()
-                .any(|gap| gap.reason == "permission-denied" && gap.path == format!("~/{folder}"))
-        })
-        .collect();
-    ResultsView {
-        status: r.status,
-        generated_at: r.generated_at.clone(),
-        review,
-        stored: r.findings.len() - review,
-        not_checked: r.not_checked.len(),
-        gaps,
-        blocked,
-    }
-}
 
 /// Returns when the scan ends, so the front end calls it off its main thread.
 fn start_scan(app: &App) -> Answer<ResultsView> {
@@ -1522,29 +1483,21 @@ fn perform_scan(app: &App) -> Answer<ResultsView> {
     if !app.monitor.arm(monitor::ScanKind::Manual) {
         return Err(SCAN_BLOCKED.into());
     }
+    let mut state = scan_state(app)?;
     emit(c"monitor-status", ());
-    // The places to check and the folders to leave out are the store's as
-    // the scan starts, from one read, for the reason `refresh_state` gives.
-    // A store that cannot be read is the save's to report, below: it must
-    // not erase the chosen places or cancel a scan, so until then the app's
-    // copy has to do.
-    let read = app.store.as_ref().ok().and_then(|store| store.read().ok());
-    let state = read.unwrap_or_else(|| app.review.lock().unwrap().clone());
     // The store creates the fingerprint key the first time it is saved.
-    // Where it cannot be, as when it was unreadable from the start, the scan
-    // digests with a key of its own and runs to its end. Its save, below,
-    // then saves nothing and says why: the storage error is set, and a store
-    // that reads again by then has another key.
-    let mut key = state.key.clone();
-    if key.is_empty() && app.storage_error.lock().unwrap().is_none() {
+    if state.key.is_empty() && app.storage_error.lock().unwrap().is_none() {
         match save_unchanged(app) {
-            Ok(saved) => key = saved.key,
+            Ok(saved) => state = saved,
             Err(e) => *app.storage_error.lock().unwrap() = Some(e),
         }
     }
-    if key.is_empty() {
-        key = review::new_key();
-    }
+    let started_at = state.check_generation;
+    let key = if state.key.is_empty() {
+        review::new_key()
+    } else {
+        state.key.clone()
+    };
     let skip = skipped_paths(&state, &home);
     let made_with = key.clone();
     let r = scan::Scan::report_controlled(
@@ -1555,7 +1508,6 @@ fn perform_scan(app: &App) -> Answer<ResultsView> {
         move |rule, bytes, shared| material_fingerprint(rule, &key, bytes, shared),
         |p| emit(c"scan-progress", p),
     );
-    let view = results_view(&r);
     // Merge into the shared state in one step; the agent may be writing too.
     // The rechecks get their own time, counted once the store is locked:
     // from before the scan, or while the agent held the store, they could
@@ -1578,11 +1530,13 @@ fn perform_scan(app: &App) -> Answer<ResultsView> {
             let stop = || {
                 rechecking.elapsed() >= app.rechecks || app.monitor.cancel.load(Ordering::SeqCst)
             };
-            let new = review.merge(&r, |item, want| {
+            let skip = saved_skips(review, &home);
+            let rechecks = scan::Rechecks::new(&home, &stop);
+            let new = review.merge_observed(&r, started_at, |item, want| {
                 if stop() {
                     return None;
                 }
-                still_there(item, &home, &key, want, &stop)
+                still_there(item, &home, &key, want, &rechecks, &skip)
             });
             // A cancelled scan says nothing about what was left out before
             // it. One that stopped at a work limit did not present every
@@ -1621,18 +1575,22 @@ fn perform_scan(app: &App) -> Answer<ResultsView> {
     }
     let replaced = matches!(saved, Ok(None));
     let new = matches!(saved, Ok(Some(true)));
-    if !replaced {
-        *app.report.lock().unwrap() = Some(r);
-    }
+    let view = if replaced {
+        Err(LIST_REPLACED.into())
+    } else {
+        let mut last = app.report.lock().unwrap();
+        let id = last.as_ref().map_or(1, |previous| previous.id + 1);
+        let report = ManualReport { id, report: r };
+        let view = report.view();
+        *last = Some(report);
+        Ok(view)
+    };
     if new {
         emit(c"review-ready", ());
     }
     drop(_guard);
     emit(c"monitor-status", ());
-    if replaced {
-        return Err(LIST_REPLACED.into());
-    }
-    Ok(view)
+    view
 }
 
 /// Write the report where the person chose, as a new file that only they can
@@ -1640,7 +1598,7 @@ fn perform_scan(app: &App) -> Answer<ResultsView> {
 fn save_report(app: &App, path: String, feedback: bool) -> Answer<String> {
     let json = {
         let r = app.report.lock().unwrap();
-        let r = r.as_ref().ok_or("Run a scan first.")?;
+        let r = &r.as_ref().ok_or("Run a scan first.")?.report;
         if feedback {
             report::to_feedback_json(r)
         } else {
@@ -1664,7 +1622,7 @@ fn save_report(app: &App, path: String, feedback: bool) -> Answer<String> {
 fn summary_text(app: &App) -> Answer<String> {
     let r = app.report.lock().unwrap();
     Ok(report::to_text(
-        r.as_ref().ok_or("Run a scan first.")?,
+        &r.as_ref().ok_or("Run a scan first.")?.report,
         true,
     ))
 }
@@ -1755,49 +1713,29 @@ fn still_there(
     home: &Path,
     key: &[u8],
     want: scan::Want,
-    stop: &dyn Fn() -> bool,
+    rechecks: &scan::Rechecks<'_>,
+    skip: &[PathBuf],
 ) -> Option<review::Still> {
     let path = recheck_path(&item.path, Some(home))?;
-    let digest = |rule: &str, bytes: &[u8], shared| material_fingerprint(rule, key, bytes, shared);
-    scan::recheck_identities(&item.rule, &path, home, item.mount, &digest, want, stop)
-}
-
-/// `root`: the scan ran as root, where no link is followed.
-fn gap_text(reason: &str, root: bool) -> (&str, &str) {
-    match reason {
-        // Labels are headings in the window, so they use title case.
-        "permission-denied" => (
-            "No Access",
-            "macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.",
-        ),
-        "unreadable" => (
-            "Couldn't Be Read",
-            "If an app such as a browser is using any of these, quit the app, then scan again.",
-        ),
-        // The heading says it; the limits are in docs/detection.md.
-        "too-large" => ("Too Large to Check", ""),
-        "cloud-only-file" => (
-            "Stored Only in the Cloud",
-            "Download these to this Mac, then scan again.",
-        ),
-        // The heading and the list's opening line say it; the limits are in
-        // docs/detection.md.
-        "scan-limit" => ("Only Partly Checked", ""),
-        "symlink" if root => (
-            "Link Not Followed",
-            "These sign-in files are links. Loose Keys follows no links when running as root.",
-        ),
-        "symlink" => (
-            "Link Not Followed",
-            "These sign-in files are links to places outside your home folder. \
-             Loose Keys does not follow such links.",
-        ),
-        other => (other, ""),
+    if !skip.is_empty() {
+        let spelled = scan::saved_path(&path, home);
+        if skip.iter().any(|dir| spelled.starts_with(dir))
+            && !spelled
+                .strip_prefix(home)
+                .is_ok_and(|rel| scan::read_when_skipped(&item.rule, rel))
+        {
+            return None;
+        }
     }
+    let digest = |rule: &str, bytes: &[u8], shared| material_fingerprint(rule, key, bytes, shared);
+    rechecks.identities(&item.rule, &path, item.mount, &digest, want)
 }
 
 #[cfg(test)]
 mod tests {
+    mod observations;
+    mod places;
+
     use super::*;
     use serde_json::{json, Value};
 
@@ -2291,7 +2229,17 @@ mod tests {
         assert_eq!(saved["ok"], Value::Null, "{saved}");
         let reopened = App::open(Ok(home.clone()));
         reopened.ready();
-        assert_eq!(reopened.review.lock().unwrap().update_check, Some(true));
+        assert_eq!(
+            reopened
+                .review
+                .lock()
+                .unwrap()
+                .state
+                .as_ref()
+                .unwrap()
+                .update_check,
+            Some(true)
+        );
         assert_eq!(
             ask(&reopened, "monitor_status", "{}")["ok"]["update_check"],
             true
@@ -2475,7 +2423,16 @@ mod tests {
         set_menu_bar_with_login(&app, false, || 1, |_| panic!("not in Login Items")).unwrap();
         let reopened = App::open(Ok(home.clone()));
         reopened.ready();
-        assert!(reopened.review.lock().unwrap().menu_bar_off);
+        assert!(
+            reopened
+                .review
+                .lock()
+                .unwrap()
+                .state
+                .as_ref()
+                .unwrap()
+                .menu_bar_off
+        );
         let status = ask(&reopened, "monitor_status", "{}");
         assert_eq!(status["ok"]["menu_bar"], false);
         assert!(status["ok"]["app_login"].is_u64());
@@ -3223,6 +3180,7 @@ mod tests {
             .unwrap()
             .as_ref()
             .unwrap()
+            .report
             .not_checked
             .iter()
             .any(|gap| gap.path == "~/Documents" && gap.reason == "permission-denied"));
@@ -4813,55 +4771,6 @@ mod tests {
         );
     }
 
-    /// State that could not be read from the start gives the app no key to
-    /// digest with. A scan the person asks for still runs, saves nothing,
-    /// and the list says it is unavailable, not that it is empty.
-    #[test]
-    fn a_scan_runs_when_the_state_could_not_be_read_from_the_start() {
-        use std::os::unix::fs::PermissionsExt;
-        let home = std::env::temp_dir().join(format!(
-            "credential-engine-test-{}-unreadable-from-start",
-            std::process::id()
-        ));
-        std::fs::create_dir(&home).unwrap();
-        drop(review::Store::open(&home).unwrap());
-        let state = home.join(review::STATE_DIR).join("state.json");
-        std::fs::write(&state, "{damaged").unwrap();
-        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
-        std::fs::create_dir(home.join("Documents")).unwrap();
-        std::fs::write(
-            home.join("Documents/export.csv"),
-            "url,username,password\nhttps://fixture.invalid,fixture,synthetic\n",
-        )
-        .unwrap();
-        let app = App::open(Ok(home.clone()));
-        app.ready();
-        const UNREADABLE: &str = "The review list file is damaged or in an unknown format.";
-        assert_eq!(ask(&app, "pending_review", "{}")["ok"]["error"], UNREADABLE);
-
-        let alone = one_scan();
-        SEEN.lock().unwrap().clear();
-        ch_set_event_handler(Some(seen));
-        let scan = ask(&app, "start_scan", "{}");
-        ch_set_event_handler(None);
-        let events = std::mem::take(&mut *SEEN.lock().unwrap());
-        drop(alone);
-
-        let saved = std::fs::read_to_string(&state).unwrap();
-        // What it found is lost, so the error stays once the state reads.
-        std::fs::remove_file(&state).unwrap();
-        let after = ask(&app, "pending_review", "{}")["ok"]["error"].clone();
-        std::fs::remove_dir_all(home).unwrap();
-        assert_eq!(scan["ok"]["review"], 1, "{scan}");
-        assert_eq!(
-            events.last().map(|(name, _)| name.as_str()),
-            Some("monitor-status"),
-            "the window was not told the scan ended"
-        );
-        assert_eq!(saved, "{damaged", "the scan saved over the state");
-        assert_eq!(after, UNREADABLE);
-    }
-
     #[test]
     fn a_scan_run_to_its_end_decides_whether_the_list_is_still_full() {
         static STOP: OnceLock<std::sync::Arc<AtomicBool>> = OnceLock::new();
@@ -5062,7 +4971,7 @@ mod tests {
                 reason: "symlink",
             }],
         };
-        let help = |r: &Report| results_view(r).gaps[0].help.clone();
+        let help = |r: &Report| results_view(r, 1).gaps[0].help.clone();
         assert!(help(&r).contains("outside your home folder"));
         r.context = "system";
         let root = help(&r);
@@ -5470,7 +5379,7 @@ mod tests {
             "truncated": false,
         });
         let agent: review::Agent = serde_json::from_value(saved).unwrap();
-        let output = serde_json::to_value(automatic_coverage(&agent)).unwrap();
+        let output = serde_json::to_value(automatic_coverage(&agent, None)).unwrap();
         let shown: Vec<_> = output["unread_gaps"]
             .as_array()
             .unwrap()
@@ -5490,7 +5399,7 @@ mod tests {
             "truncated": true,
         });
         let agent: review::Agent = serde_json::from_value(saved).unwrap();
-        let output = serde_json::to_value(automatic_coverage(&agent)).unwrap();
+        let output = serde_json::to_value(automatic_coverage(&agent, None)).unwrap();
         assert_eq!(
             output["unread_gaps"][0]["paths"][0],
             "~/hostile\\u{202e}\\u{1b}"
@@ -5523,7 +5432,7 @@ mod tests {
                 reason: "unreadable",
             }],
         };
-        let v = results_view(&r);
+        let v = results_view(&r, 1);
         let json = serde_json::to_string(&v).unwrap();
         let back: serde_json::Value = serde_json::from_str(&json).unwrap();
         let text = back.to_string();
@@ -5571,7 +5480,16 @@ mod tests {
         /// Save a report as the app and the helper do, with each listed
         /// file they would look at again read as they read it.
         fn save(&self, state: &mut review::Review, report: &Report) -> bool {
-            state.merge(report, |item, want| {
+            self.save_observed(state, report, state.check_generation)
+        }
+
+        fn save_observed(
+            &self,
+            state: &mut review::Review,
+            report: &Report,
+            started_at: u64,
+        ) -> bool {
+            state.merge_observed(report, started_at, |item, want| {
                 let path = recheck_path(&item.path, Some(&self.0))?;
                 let never = || false;
                 scan::recheck_identities(
@@ -5863,7 +5781,7 @@ mod tests {
     #[test]
     fn a_command_acts_on_the_store_and_not_on_what_an_older_read_left() {
         let (home, app, before) = found_since("older-read");
-        let late = || *app.review.lock().unwrap() = before.clone();
+        let late = || app.review.lock().unwrap().state = Some(before.clone());
         let listed = ask(&app, "pending_review", "{}");
         assert_eq!(listed["ok"]["items"][0]["id"], 1);
         late();
@@ -5900,7 +5818,7 @@ mod tests {
             threads.spawn(|| {
                 let started = std::time::Instant::now();
                 while !done.load(Ordering::SeqCst) && started.elapsed().as_secs() < 10 {
-                    *app.review.lock().unwrap() = before.clone();
+                    app.review.lock().unwrap().state = Some(before.clone());
                 }
             });
             let empty = (0..2000)

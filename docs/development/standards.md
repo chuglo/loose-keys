@@ -206,7 +206,8 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   reading state that may be half changed. The two places that recover say why
   they may: `App::recover` clears the poison because each value it guards is
   only ever replaced whole, and `Store::alone` takes a poisoned guard because
-  that mutex holds no data. A new `Mutex` field in `App` goes into `recover`,
+  that mutex only holds the observation number, which advances after a
+  successful read or save. A new `Mutex` field in `App` goes into `recover`,
   and only if the same is true of it. [4][9]
 - New code: do not hold a guard across a call that can block or come back
   in: the scanner, `Store::read` and `update`, `emit`, any `ch_*` function,
@@ -234,6 +235,21 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   nothing: an engine command that can refuse goes through
   `try_update_state`, which leaves the saved state and the app's copy as
   they were and does not count the refusal as a storage failure.
+- The manual scan and each automatic batch or slice retain the saved
+  `check_generation` before reading. Every merged check advances it inside
+  the store transaction. When a different generation is already saved,
+  `confirm_overlapping_findings` reads the reported rule and file again
+  within the recheck budget. Updating a place already in the list requires
+  finding the same identity and, where available, digest on that read.
+  A first observation stays unless a complete recheck shows it has gone.
+  The same check that marks an item fixed still uses a fresh read when the
+  report omits it. The scan's exported report describes its original reads.
+  Covered by `a_manual_scan_does_not_undo_a_later_worker_resolution`,
+  `an_overlapping_scan_does_not_restore_a_pruned_finding` and
+  `a_late_observation_does_not_reopen_a_fixed_item`. A first observation
+  whose path cannot be read again can still be stale, as can details that
+  changed while its value stayed the same. A concurrently running older
+  build does not follow this ordering.
 - While `storage_error` is set, the commands that change settings,
   decisions or folders refuse first, and a scan saves nothing. A later
   read that works clears an error from reading. An error from a change
@@ -249,12 +265,15 @@ the comment "The C interface" in `gui/src/lib.rs`; the window's side is
   was cancelled with nothing to list
   (`a_scan_not_saved_keeps_the_error_after_the_state_reads_again`,
   `a_scan_whose_save_could_not_read_the_state_keeps_the_error`,
-  `a_stopped_scan_keeps_the_error_only_when_it_found_something`). A scan
-  still runs when the state was unreadable from the start and holds no
-  fingerprint key yet: it digests with a key made for that run, saves
-  nothing, and scans the home alone, since the added places and skipped
-  folders are in the state it could not read
-  (`a_scan_runs_when_the_state_could_not_be_read_from_the_start`).
+  `a_stopped_scan_keeps_the_error_only_when_it_found_something`). Manual
+  scans and folder-access preparation read the current scope. If a read
+  fails after a successful one, they use the latest scope the app read or
+  saved. The store numbers successful observations while locked, so a
+  delayed response cannot put an older set of added or skipped folders
+  back in the cache. An app that has yet to read its scope starts neither
+  a scan nor a permission probe until the state can be read. Tests:
+  `delayed_scope_read_cannot_widen_a_scan_when_the_store_is_unreadable`
+  and `unknown_scope_blocks_preparation_and_scan_until_the_state_reads_again`.
 - `Monitor` is the one condition variable. State is changed under its mutex
   and then notified. `wait` checks the state again in a loop, because a wait
   can return with no notification and a notification with no waiter is lost.
@@ -374,6 +393,23 @@ The threats are a local user racing a root run with links, and hostile files
   scan and a check of changes give it an `unreadable` gap, and a recheck
   knows nothing. Test:
   `a_dangling_link_where_presence_is_the_finding_is_not_checked`.
+- Discovery, known content reads, agent sweeps, change checks and rechecks
+  skip presence-only wallet files and directories, Telegram Desktop's
+  session tree and DBeaver's credential file. The prefix guard covers the
+  named paths and resolves known in-home symlink destinations before content
+  reads. Matching is by path, so it does not apply to separately named hard
+  links or guarantee protection during a concurrent rename or link change.
+  A link to an ancestor cannot suppress discovery of that ancestor.
+  The lookup uses one metadata-only listing per browser root, bounded by
+  the 10,000-entry folder limit. The scan or recheck batch reuses that lookup.
+  A stop is checked between browsers and profiles. A profile beyond the
+  listing limit keeps its named store unopened, but its link destinations
+  are unknown. An explicitly selected folder, changed path or recheck can
+  spell a recognised store differently on a case-insensitive volume. The
+  guard asks for the filesystem spelling without following links. Tests: `discovery_never_reads_presence_only_wallets_and_sessions`,
+  `presence_only_symlink_destinations_stay_unopened`,
+  `differently_cased_extension_ids_are_still_presence_only` and
+  `cancelled_rechecks_do_not_start_a_file_read`.
 - `through_links` is the one deliberate exception to following no links in
   what is scanned. A known sign-in location that is a link is resolved once,
   used only if the real path is inside the home folder, and never as root. Do
@@ -396,8 +432,8 @@ The threats are a local user racing a root run with links, and hostile files
   `a_wallet_store_in_a_linked_profile_is_found_where_it_is`,
   `an_entry_that_leads_to_no_folder_is_no_profile`. Not covered: a run as
   root, a link changed between the resolution and the presence check, and
-  a change at the real place a storage folder that is itself a link leads
-  to, which a scan finds and a check of changes does not.
+  macOS file events at a linked storage folder. Synthetic change checks
+  cover events in a linked store's real path.
   The gap says why a link was not followed: `symlink` when it leads outside
   the home folder or the scan runs as root, where the text report and the
   window say that no link is followed; `permission-denied` or `unreadable`
@@ -417,8 +453,7 @@ The threats are a local user racing a root run with links, and hostile files
   as left out, a selected one would be an `unreadable` gap, and the whole
   home could be excluded. Test:
   `folders_named_through_a_linked_home_are_the_ones_in_it`. Not covered: a
-  folder named through another link to the home, and places added in the app
-  (`add_place`), which are taken as given.
+  folder named through another link to the home, including one chosen in the app.
 - Discovery passes over folders only, so `--exclude` refuses a path that is
   a file or a link (`symlink_metadata` in `excluded_folder`, `src/main.rs`):
   either would be read while the report said it was left out. The path is
@@ -432,8 +467,9 @@ The threats are a local user racing a root run with links, and hostile files
   `~/documents` for `~/Documents`. So `scan::on_disk` looks up each folder
   on the way with `symlink_metadata`: `--exclude` refuses a path with a link
   in it, such as `~/docs-link/notes`, and both `--exclude` and `--select`
-  keep the part that can be looked up as `fs::canonicalize` spells it, which
-  with no link in it changes only the spelling. `realpath` keeps a path
+  use the spelling returned by `getattrlist` for the existing prefix.
+  `FSOPT_NOFOLLOW_ANY` keeps that lookup from resolving a link exchanged
+  for a folder. The lookup can return a path
   under `/System/Volumes/Data`, which reaches the same folders with no link
   on the way, so the longest part that is the home folder or a folder above
   it, compared by device and inode, is then spelled as the home is, and the
@@ -445,11 +481,16 @@ The threats are a local user racing a root run with links, and hostile files
   while the report listed it as left out, and a selected one would be walked
   a second time. Tests: `an_excluded_folder_is_the_one_the_scan_would_read`,
   `a_folder_selected_in_another_spelling_is_scanned_once`,
-  `a_folder_named_through_the_data_volume_is_the_one_the_scan_reads`. Not
-  covered: a link put on the way after the lookup, another name for a folder
-  that the home folder's own path does not pass through, and places added or
-  folders skipped in the app, which come from the folder panel or the scan's
-  own report. `--select` takes `/System/Volumes/Data` or a folder above it,
+  `a_folder_named_through_the_data_volume_is_the_one_the_scan_reads`.
+  App scans look up saved roots and exclusions again. Change events, resumed
+  folders and review rechecks compare their paths in the same spelling.
+  A case-only rename on a case-insensitive volume therefore keeps the
+  exclusion. On a case-sensitive volume the new name is a different path.
+  Tests: `saved_folder_scope_uses_the_spelling_on_disk` and
+  `automatic_checks_respect_a_saved_skip_after_a_case_only_rename`.
+  A concurrent rename can still change what a path names during the scan.
+  Another name for a folder that the home folder's own path does not pass
+  through can also evade the comparison. `--select` takes `/System/Volumes/Data` or a folder above it,
   as it takes `/`, and the walk from there can reach the home again under
   `/System/Volumes/Data`, where a folder excluded by its usual path is read.
   `--exclude` also takes macOS's lookup prefixes themselves, such as
@@ -547,7 +588,9 @@ The threats are a local user racing a root run with links, and hostile files
   Not verified: whether looking up a known location inside a listed folder
   makes macOS ask.
 - The app's `prepare_access` command takes only an index into Desktop,
-  Documents and Downloads under the scan home. It lists the folder through
+  Documents and Downloads under the scan home. It checks the saved scan
+  scope first and skips a folder the person asked to skip. It lists the
+  remaining folders through
   `fsutil::list_dir` with a budget of zero entries, which is enough for macOS
   to ask for access: it keeps no names, opens no file, follows no link and
   counts as no coverage. No lock is held while a prompt is open. A failed
@@ -594,10 +637,21 @@ The threats are a local user racing a root run with links, and hostile files
   save, since every reader already has the new state. Not covered by a
   test: a folder sync cannot be made to fail in one.
 - Everything read back is bounded and checked before use, the app's own state
-  included: `Store::open` and `load` require the user's ownership, no access
-  for others, one link, a size limit and sane counts; the update answer's
-  copy is opened with the same checks (`Store::open_private`). Code running
-  as the user can edit those files.
+  included. The open store directory must belong to the user and have no
+  group or other mode bits. The access check accepts empty and deny-only
+  lists. It refuses allow entries because the descriptor's POSIX owner
+  does not identify the entry's principal, and APFS can return a zero owner
+  UUID even for a file with an ACL. The store makes no directory-service
+  lookup. It checks its directory at open and under the store lock, and
+  checks the state, separate update answer and interrupted temporary files
+  on their opened descriptors. Each file must be regular and have one name
+  and the same ownership, mode and ACL protections as the directory.
+  State and the update answer also have read limits. A new temporary file
+  is checked before writing because it can inherit entries. An ACL that
+  cannot be inspected blocks the operation. Tests cover inherited grants
+  and denies, existing state, an interrupted save and legacy migration on
+  the local volume. Other filesystems and access changes during an operation
+  are unverified. Code running as the user can edit those files.
 - The organization's expected-findings list enters only through the
   window's `set_expected`, from a preference macOS reports as forced
   (`CFPreferencesAppValueIsForced`). The merged defaults are never read:
@@ -627,10 +681,11 @@ The threats are a local user racing a root run with links, and hostile files
   link, so a link anywhere on that path stops it rather than sending the
   state elsewhere. It moves `state.json` from the older `~/.loose-keys-review`
   once, holding both folders' locks, only when the old file is a private
-  regular file of the user's and the new folder holds none; anything else
-  there is left as it is. It looks first without the locks, so a start with
-  nothing to move does not wait for the store, as when the old folder stays
-  because something else is in it.
+  regular file of the user's and the new folder holds none. An unsafe access
+  list on the old folder or file blocks migration and leaves the state in
+  place. It looks first without the locks, so a start with nothing to move
+  does not wait for the store, as when the old folder stays because
+  something else is in it.
 - The window names an item by its id, so the ids in `state.json` are input
   like any other number in a file. `Store::load` refuses a list in which two
   items share an id, an id is above `next_id`, or `next_id` has no room left
@@ -743,17 +798,23 @@ a failed save retries the slice. Snapshots contain no file contents or credentia
 values. `UnreadPlaces` deduplicates path/reason pairs and limits them to 4096
 entries and 512 KiB serialized, within the store's 8 MiB limit. Reaching
 either limit marks the snapshot truncated, and the window says the list is
-full. The store validates these bounds on save and load.
+full. A slice also signals when its own report cap omitted an unread path.
+Ordinary slice checkpoints are resumed and do not set this flag.
+`automatic_coverage_reports_overflow_in_a_single_slice` checks that distinction
+for a pass with more unread paths than one slice can list.
+The store validates the saved size and count on save and load.
 
-`automatic_coverage` reads this snapshot on demand without scanning or probing
-file access. It returns all retained paths escaped through `report::escape`;
-there are no file actions on these display paths. Frequent status polls keep
-only the count, truncation flag and completion time. The model orders detail
-reads with `ReadTurns`, retains a usable snapshot after failures, and refreshes
-it when a newly completed pass is observed while the places not checked are
-open. The window merges them with the last manual scan's places into one
-list ("The window and running the app"). Exports contain only the manual
-report.
+The engine reads the automatic snapshot on demand in `automatic_coverage`.
+It combines the retained paths with the last manual report, counts distinct
+paths under each reason and escapes up to 20 names per reason for display.
+The combined response identifies the manual report it used with a
+process-local number so the model can match it even when two scans finish
+in the same second. Frequent status polls carry only the automatic count
+and completion time. The model orders detail reads with `ReadTurns`, retains
+the last usable details after a failed read, and asks again when the manual
+report or completed automatic pass changes while the popover is open.
+Exports contain only the manual report. Test:
+`unchecked_places_count_the_union_before_limiting_each_reason`.
 
 State without a snapshot is shown as count-only until the next automatic
 full pass, and an older app or helper saving state can discard the field.
@@ -770,6 +831,13 @@ Tests: `a_full_pass_says_how_many_places_it_did_not_read` in
 window check opens the list from the Overview, asserts that no scan was
 requested and that a failed read keeps the saved paths, and checks that
 Settings neither counts nor links to the list.
+
+A `-wal` or `-journal` file event rechecks its base database when that path
+matches a known Chromium profile database or the gcloud credential database.
+A deleted sidecar can trigger the recheck. The same settled reads still
+withhold counts while either sidecar is present and nonempty. Synthetic checks
+cover both suffixes and a linked database. Native FSEvents delivery during a
+browser checkpoint is unverified.
 
 ### Saved stored sign-ins
 
@@ -1029,6 +1097,20 @@ checker does not catch either. [8]
   older running app/helper from writing unsafe labels again.
   Real window/clipboard behavior and older concurrent
   app/helper behavior remain unverified.
+- In the AWS credentials and config files, the profile's access secret
+  supplies its keyed review identity. The service-token rule's corresponding
+  public ID shares that identity only in the same profile and only while its
+  access secret is present. An ID by itself retains its public ID identity.
+  In a secret field, text shaped like a public ID is keyed in a separate
+  domain. This prevents a value decision about an ID from hiding the access
+  secret, and a value decision about a secret from hiding a standalone ID.
+  Only byte positions and keyed digests are kept. The private state's
+  `aws_identity_version` migration removes older value decisions made on AWS
+  profiles because their digests described the ID or the profile material.
+  Public-ID decisions, Kept choices and organization expectations retain
+  their scope. Tests cover both directions, rotation, grouping with the
+  generic match, and reopening the saved decisions. The old identity is
+  refreshed by scanning, and no credential is validated with AWS.
 - A known file's own rule records where its one value is (`Hit::at`, a
   position), as the service-token rule does, so a token both find in one
   file gets the same keyed `secret` digest under both and is one review item
@@ -1301,7 +1383,10 @@ exception, for device-management checks that ask for it. The usage text in
   up to 1,000 instances per resource and 100 named sensitive attributes per
   instance; in a version 3 state (Terraform 0.11 and earlier) a resource's
   instances are its `primary` and its `deposed` copies, searched under the
-  same limits. Service-token matching keeps the first 100 occurrences, then only
+  same limits. A file-wide budget of 32,000 nodes bounds the iterative walk
+  of marked resource attributes and sensitive outputs. It counts nested
+  collections and their values; matched strings also feed the keyed app
+  fingerprints. Service-token matching keeps the first 100 occurrences, then only
   new values until 100 distinct values have been found; later repeats are
   grouped. When another distinct value or capped match is omitted, or
   Terraform's inspection budget leaves entries unchecked, retained findings
@@ -1650,18 +1735,15 @@ is replaced (macOS behaviour).
   request whose own read failed and left its answer to this one. A read
   that works closes the alert a failed read opened, which otherwise waits,
   with only the menu bar open, to come over a list that reads fine. Folder
-  answers go through `RequestOrder`, which numbers each request and uses an
-  answer only when no later request's answer has been used, so neither an
-  older list nor an older failure replaces what a newer answer showed. A
-  failed read is no such answer: a change still on its way, such as Add
-  Folder, is shown when it comes, and the failure stays said until a newer
-  list comes. Two
-  folder changes that overlap may need another refresh to show the result.
-  The folders are read at launch, each time Settings opens, and when Scan
-  Now is pressed before any list was read. A list the window couldn't get
-  is said on the Overview and in Settings, and one the engine couldn't read
-  from its saved state in Settings, never as no added folders. Scans and
-  cancelling are not ordered with these reads.
+  reads are numbered in `RequestOrder`, while folder writes take turns.
+  A completed write supplies the list and supersedes reads issued before
+  it finished. Those reads might have run before the write took effect.
+  Failed reads keep the last usable list and show the reason. Remove and
+  Include Again match the displayed name if an earlier action shifted the
+  row. If the indicated row no longer matches and the name is ambiguous,
+  the command leaves the list alone. The folders are read at launch, when
+  Settings opens, and before a scan if the model lacks a usable read.
+  Scans and cancelling are not ordered with these reads.
 - While the window is in front, one task refreshes the review list and helper
   status, waiting five seconds after each pair of reads. Leaving the front
   cancels it, unless Show in Menu Bar is on: it then waits thirty seconds

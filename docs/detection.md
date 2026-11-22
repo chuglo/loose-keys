@@ -38,8 +38,8 @@ checks below are grouped by what they find.
 
 ### Keys and exports
 
-Where a row says "every file", Loose Keys reads every file in your home folder,
-whatever its extension. That way it finds a renamed file.
+When a row says "every file", Loose Keys checks files in those folders regardless
+of their extension. It can still find a file if you rename it.
 
 | What | Where it looks | Listed in | Not found when |
 |---|---|---|---|
@@ -74,11 +74,11 @@ whatever its extension. That way it finds a renamed file.
 | Package registry and build tool credentials | project and home `.npmrc`, Yarn, pnpm, `.pypirc`, Poetry, Cargo, RubyGems, Bundler, Composer, Maven, Gradle | Worth Reviewing | – |
 | Passwords inside URLs | Git and pip config, `~/.curlrc` | Worth Reviewing | – |
 | Google service-account keys | anywhere | Worth Reviewing | – |
-| Kubeconfig credentials | `~/.kube`, and a kubeconfig saved anywhere else | Worth Reviewing | – |
+| Kubeconfig credentials in YAML or JSON | `~/.kube` and copies in other folders Loose Keys checks | Worth Reviewing | – |
 | Passwords in client configs | dbt and Snowflake | Worth Reviewing | – |
 | Saved passwords and keys | rclone | Worth Reviewing | – |
 | Tokens and secrets | Terraform, Vault, Azure service principal | Worth Reviewing | – |
-| Terraform state values named like secrets or marked sensitive | `*.tfstate`, `terraform.tfstate*` | Worth Reviewing | the value isn't named like a secret or marked sensitive (Loose Keys doesn't read other values) |
+| Strings in Terraform state whose names look like secrets or that are marked sensitive, including strings in sensitive lists and objects | `*.tfstate`, `terraform.tfstate*` | Worth Reviewing | the value's name doesn't look like a secret and the value isn't marked sensitive |
 | Saved passwords or private keys | `.netrc`, `.pgpass`, `.my.cnf`, FileZilla, DBeaver | Worth Reviewing | – |
 | GnuPG private keys | GnuPG files | Worth Reviewing | – |
 | GnuPG private key with a passphrase | GnuPG files | Stored Sign-ins | – |
@@ -160,11 +160,15 @@ every other file it checks for tokens.
    12-word BIP-39 test vectors. It doesn't check the phrase's checksum or
    whether a wallet uses it.
 
+Loose Keys skips the contents of these wallets, even when you select their
+folders. If it follows a link to a wallet, it skips the files it finds there
+too. It may still read the same file if it finds a hard link to it elsewhere.
+
 ### Other
 
 | What | Where it looks | Listed in | Not found when |
 |---|---|---|---|
-| Telegram Desktop session | its session folder | Worth Reviewing | – |
+| Telegram Desktop session | a marker file that tells Loose Keys a session is present. Loose Keys leaves the marker file and session folder unopened | Worth Reviewing | – |
 | KeePass 2 database | every file | Stored Sign-ins | it's a KeePass 1 `.kdb` file (Loose Keys doesn't recognise those) |
 | Password-looking lines | `.txt` and `.rtf` notes | Worth Reviewing | – |
 
@@ -338,6 +342,7 @@ text summary each show the reason in their own words.
 | Header reads | 4 KiB | – |
 | Whole-file reads | 1 MiB, for a file read whole, such as a config, shell history, note, Terraform state or browser database | a larger file is a `too-large` gap (note 2) |
 | Matches | some rules list only the first 100 matches in a file, and the notes check lists only the first 20 lines | after the first 100, the service-token check lists only new tokens, up to 100 different ones. If any are still left out, Loose Keys keeps what it listed, and a `scan-limit` gap makes the scan partial |
+| Terraform sensitive values | 32,000 values per state file, including marked strings, lists and objects and the values they contain | Loose Keys keeps what it found before reaching the limit and reports a `scan-limit` gap |
 | Findings | 4096 in an app scan | the scan stops and a `scan-limit` gap makes it partial. The command line has no such limit |
 | Agent records | 16 levels deep, 50,000 entries per tree, 256 MiB per file and 50 different tokens listed per file | A larger file is a `too-large` gap. A record with more tokens is a `scan-limit` gap. A deeper folder is reported once (note 3) |
 | Time | the app stops a scan after 30 seconds, and gives one agent record at most 60 seconds | the app stops once it finishes the file it's reading, or when you press **Stop Scan**. The command line has no time limit, so stop it with Control-C |

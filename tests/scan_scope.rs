@@ -2466,3 +2466,44 @@ fn fail_on_open_changes_only_the_exit_status_and_only_when_asked() {
     gated["generated_at"] = plain["generated_at"].clone();
     assert_eq!(plain, gated);
 }
+
+#[test]
+fn json_kubeconfigs_are_found_by_the_cli_without_reporting_public_fields() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.home().join(".kube")).unwrap();
+    let config = serde_json::json!({
+        "apiVersion": "v1", "kind": "Config",
+        "clusters": [{"name": "fixture", "cluster": {"server": "https://example.invalid",
+            "certificate-authority-data": "synthetic-public-ca"}}],
+        "users": [{"name": "fixture", "user": {"password": "synthetic-private-password",
+            "client-certificate-data": "synthetic-public-cert"}}]
+    });
+    for path in [".kube/config", "copy.json"] {
+        fs::write(f.home().join(path), config.to_string()).unwrap();
+    }
+    let mut public = config;
+    public["users"][0]["user"]
+        .as_object_mut()
+        .unwrap()
+        .remove("password");
+    fs::write(f.home().join("public.json"), public.to_string()).unwrap();
+    fs::write(f.home().join("unrelated.json"), r#"{"apiVersion":"v1","kind":"Config","clusters":[],"users":[{"name":"fixture","user":{"exec":{"password":"synthetic-other-password"}}}],"password":"synthetic-root-password"}"#).unwrap();
+    let report = f.json(&[]);
+    let mut paths: Vec<_> = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["rule"] == "dev.kube.inline-credentials")
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["~/.kube/config", "~/copy.json"]);
+    let report = report.to_string();
+    for value in [
+        "synthetic-private-password",
+        "synthetic-public-ca",
+        "synthetic-public-cert",
+    ] {
+        assert!(!report.contains(value));
+    }
+}

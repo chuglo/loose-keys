@@ -357,18 +357,40 @@ final class SampleEngine: Engine {
     /// A scan counts each finding. For the list above that is 9: the token in
     /// two files is two, the item set aside is still found, and the fixed one
     /// is not.
+    private static func manualGap(count: Int = 123) -> String {
+        let paths = ["~/Library/Mail", "~/Library/Messages", "~/Library/Safari", "~/Library/Cookies",
+                     "~/Library/Group Containers/group.com.apple.notes"]
+            + (1...15).map { "~/Library/SyntheticManual\($0)" }
+        let list = paths.map { "\"\($0)\"" }.joined(separator: ",")
+        return """
+        {"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":\(count),"paths":[\(list)]}
+        """
+    }
+
     private static let results = """
-    {"status":"partial","generated_at":"2026-10-10T21:40:00Z",
-     "review":9,"stored":5,"not_checked":123,
-     "gaps":[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":123,"paths":["~/Library/Mail","~/Library/Messages","~/Library/Safari","~/Library/Cookies","~/Library/Group Containers/group.com.apple.notes"]}],
-     "blocked":[]}
+    {"scan_id":1,"status":"partial","generated_at":"2026-10-10T21:40:00Z",
+     "review":9,"stored":5,"not_checked":123,"gaps":[\(manualGap())],"blocked":[]}
     """
 
     private static var automaticCoverage: String {
         let fullPass = completedPass ? #""2026-10-14T12:00:00Z""# : "null"
-        let gaps = unread > 0 ? #"[{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":1,"paths":["~/Library/Mail"]},{"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":3,"paths":["~/Library/SyntheticUnread","~/Library/SyntheticUnread2","~/Library/SyntheticUnread3"]}]"# : "[]"
+        let manual = scanRequests > 0
+        var groups = manual ? [manualGap(count: unread > 3 ? 124 : 123)] : []
+        if unread > 0 {
+            if !manual {
+                groups.append(#"{"label":"No Access","help":"macOS privacy protection or file permissions don't let Loose Keys read these. Nearly every Mac has some.","count":1,"paths":["~/Library/Mail"]}"#)
+            }
+            let unreadable = unread > 3 ? unread - 2 : 3
+            let paths = ["~/Library/SyntheticUnread"]
+                + (2...min(unreadable, 20)).map { "~/Library/SyntheticUnread\($0)" }
+            let list = paths.map { "\"\($0)\"" }.joined(separator: ",")
+            groups.append("""
+            {"label":"Couldn't Be Read","help":"If an app such as a browser is using any of these, quit the app, then scan again.","count":\(unreadable),"paths":[\(list)]}
+            """)
+        }
+        let gaps = coverageMissing ? "null" : "[\(groups.joined(separator: ","))]"
         return """
-        {"full_pass":\(fullPass),"unread":\(unread),"unread_gaps":\(coverageMissing ? "null" : gaps),"unread_truncated":false}
+        {"full_pass":\(fullPass),"unread":\(unread),"manual_scan_id":\(manual ? "1" : "null"),"unread_gaps":\(gaps),"unread_truncated":false}
         """
     }
 
@@ -1153,7 +1175,7 @@ enum Checks {
                     until: { model.showingPlaces && written().contains("~/Library/Mail") })
         // A section's heading may reach assistive software as a name, not a value.
         let listed = written() + everything().flatMap(names)
-        let missing = ["No Access", "and 118 more"].filter { !listed.contains($0) }
+        let missing = ["No Access", "and 103 more"].filter { !listed.contains($0) }
         expect(missing.isEmpty && !listed.contains { $0.contains("(123)") },
                "the places not checked are listed under a title-case heading, with no count beside it (missing: \(missing))")
         model.showingPlaces = false
@@ -1795,7 +1817,7 @@ enum Checks {
         // and consent to them can still be withdrawn.
         SampleEngine.listFull = true
         SampleEngine.monitoring = true
-        SampleEngine.unread = 3
+        SampleEngine.unread = 27
         await model.refreshReview()
         await model.refreshMonitor()
         await open(.overview)
@@ -1850,8 +1872,8 @@ enum Checks {
         SampleEngine.placesFailed = true
         await model.refreshPlaces()
         expect(await eventually { written(in: settingsWindow).contains("Couldn't read the list of folders you added.") }
-               && button("Remove", in: settingsWindow) == nil,
-               "with the saved state unreadable, Settings says the added folders could not be listed")
+               && button("Remove", in: settingsWindow) != nil,
+               "with the saved state unreadable, Settings explains the failure and keeps the last list of added folders")
         SampleEngine.placesFailed = false
         await model.refreshPlaces()
         expect(await eventually { !written(in: settingsWindow).contains("Couldn't read the list of folders you added.")
@@ -1863,8 +1885,10 @@ enum Checks {
                     until: { model.showingPlaces && written().contains("~/Library/SyntheticUnread") })
         // A section's heading may reach assistive software as a name, not a value.
         let automaticListed = written() + everything().flatMap(names)
-        expect(automaticListed.contains("Couldn't Be Read") && !automaticListed.contains { $0.contains("(3)") },
+        expect(automaticListed.contains("Couldn't Be Read") && !automaticListed.contains { $0.contains("(25)") },
                "the automatic scan's places are listed under a title-case heading, with no count beside it")
+        expect(automaticListed.contains("and 5 more") && automaticListed.contains("and 104 more"),
+               "the automatic-only reasons and the combined reasons say how many places are beyond the first twenty")
         // A place both scans missed is listed once, under one heading, with no
         // word on which scan missed which.
         expect(written().filter { $0 == "~/Library/Mail" }.count == 1

@@ -69,6 +69,11 @@ struct RequestOrder {
         return asked
     }
 
+    /// A completed mutation supersedes every read issued before it finished.
+    mutating func finishedChange() {
+        used = asked
+    }
+
     /// Whether no answer to a later request has been used.
     func isNewest(_ request: Int) -> Bool {
         request > used
@@ -246,6 +251,7 @@ final class AppModel: ObservableObject {
     /// Notifications…, until it says anything else.
     @Published var notificationsTurnedDown = false
     private var placesOrder = RequestOrder()
+    private var placesChange: Task<ScanPlaces, Error>?
     /// The newest places request whose failure is shown. An older list that
     /// comes after it is shown, but does not say the folders were read.
     private var placesFailedAt = 0
@@ -777,18 +783,28 @@ final class AppModel: ObservableObject {
         let request = placesOrder.next()
         do {
             let answer: ScanPlaces = try await engine.request("places")
-            guard placesOrder.use(request) else { return }
-            places = answer
-            if request > placesFailedAt { placesProblem = answer.error.map(EngineText.shown) }
+            if let error = answer.error {
+                notePlacesFailure(EngineText.shown(error), request: request)
+                if places == nil { places = answer }
+            } else if placesOrder.use(request) {
+                places = answer
+                if request > placesFailedAt { placesProblem = nil }
+            }
         } catch {
             // The folders already shown stay, and so may a change still on its
             // way: a list that could not be got is not an empty one, so the
             // failure does not count as an answer that puts older ones aside.
-            guard placesOrder.isNewest(request) else { return }
-            placesFailedAt = request
-            placesProblem = error.localizedDescription
+            guard notePlacesFailure(error.localizedDescription, request: request) else { return }
             if reportFailure { failure = Failure(title: FailureTitle.readPlaces, reason: error.localizedDescription) }
         }
+    }
+
+    @discardableResult
+    private func notePlacesFailure(_ reason: String, request: Int) -> Bool {
+        guard placesOrder.isNewest(request), request > placesFailedAt else { return false }
+        placesFailedAt = request
+        placesProblem = reason
+        return true
     }
 
     /// The list as the engine reads it after this was asked. Only these reads
@@ -936,6 +952,15 @@ final class AppModel: ObservableObject {
         return health.fullPass != nil || (health.unread ?? 0) > 0
     }
 
+    var uncheckedGaps: [Gap] {
+        if let coverage = automaticCoverage,
+           coverage.manualScanId == results?.scanId,
+           let combined = coverage.unreadGaps {
+            return combined
+        }
+        return results?.gaps ?? []
+    }
+
     /// Some place the last manual scan or automatic full pass could not read.
     /// No count is shown for it: nearly every Mac has places macOS keeps private.
     var somePlacesNotChecked: Bool {
@@ -1034,7 +1059,7 @@ final class AppModel: ObservableObject {
         pane = .overview
         Task {
             do {
-                if places == nil { await refreshPlaces(reportFailure: true) }
+                if places == nil || placesProblem != nil { await refreshPlaces(reportFailure: places == nil) }
                 guard places?.home != nil else {
                     preparingAccess = false
                     phase = results == nil ? .ready : .done
@@ -1106,9 +1131,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// A folder is named by its place in the list and by what is shown there.
-    /// The engine acts only while the two agree, so a second press that lands
-    /// after the list has moved up does nothing to the folder now in that place.
+    /// Send the displayed name as well as the row, which may already have
+    /// shifted since the button was pressed.
     func removeFolder(_ index: Int, shown: String, from origin: ActionOrigin = .window) {
         attempt(FailureTitle.removeFolder, from: origin) {
             let places = try await self.changePlaces("remove_place", ["index": index, "shown": shown])
@@ -1116,19 +1140,29 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// A change to the folders, answered with the list after it. The list is
-    /// shown unless a later request's answer already is. A refusal is always
-    /// the caller's to report.
+    /// Keep writes in order. A read that ran while a write was out may
+    /// have seen the list from before the change, even if it was sent later.
     private func changePlaces(_ command: String, _ args: [String: Any]) async throws -> ScanPlaces {
-        let request = placesOrder.next()
-        let answer: ScanPlaces = try await engine.request(command, args)
-        if placesOrder.use(request) {
-            places = answer
-            // A change that was saved read the saved state. A refusal says
-            // nothing of it, and is the caller's to report.
-            if answer.error == nil, request > placesFailedAt { placesProblem = nil }
+        let previous = placesChange
+        let change = Task {
+            _ = await previous?.result
+            let request = placesOrder.next()
+            let answer: ScanPlaces = try await engine.request(command, args)
+            if answer.error == nil {
+                placesOrder.finishedChange()
+                places = answer
+                if request > placesFailedAt { placesProblem = nil }
+            } else if placesOrder.isNewest(request) {
+                // An action refusal provides no newer list to put aside an
+                // outstanding read, and must keep the folders already shown.
+                let visible = places ?? answer
+                places = ScanPlaces(home: visible.home, homeError: visible.homeError,
+                                    extra: visible.extra, error: answer.error)
+            }
+            return answer
         }
-        return answer
+        placesChange = change
+        return try await change.value
     }
 
     func checkFolderAgain(_ index: Int, shown: String, from origin: ActionOrigin = .window) {

@@ -24,9 +24,12 @@ see [Detection and limits](detection.md).
 
 Opening the app doesn't turn on automatic scanning or notifications.
 
-Before a scan or before you turn on automatic scanning, the app asks
-macOS for access to Desktop, Documents and Downloads. It asks for one folder at
-a time.
+Loose Keys asks macOS for access to Desktop, Documents and Downloads before a
+scan or before you turn on automatic scanning. It asks for one folder at a
+time and leaves out any you've chosen to skip.
+
+If Loose Keys can't read your folder list when it opens, it waits until it
+can read the list before scanning. Click **Scan Now** to try again.
 
 - If you deny one, Loose Keys still checks the rest. After the scan, the
   Overview names the folder it couldn't read. It offers **Open System
@@ -381,9 +384,11 @@ checks in `update-check.json` beside it. The directory uses mode `0700`, and
 the files use `0600`.
 
 If the app can't open Worth Reviewing, it can't save anything that a scan or
-the helper finds. You also can't change choices or settings. First, check
-whether other users can read the folder or a file in it. If so, set the modes above,
-then quit Loose Keys and open it again. If a newer version saved the list, open
+the helper finds. You also can't change choices or settings. Check the permissions
+on the folder and its files. An access list can still grant access even
+when the permissions match the ones above. Restore those
+permissions and remove any extra access grants. Then quit Loose Keys and
+reopen it. If a newer version saved the list, open
 that version again. Otherwise, quit Loose Keys and move `state.json` out of the
 folder. The app then starts a new list and forgets what that file held,
 including your choices and folders.

@@ -16,8 +16,24 @@ impl Scan {
     /// time or a cancel ends the walk, the unvisited folders are kept in
     /// `pending` and each top-level folder holding some gets one gap.
     pub(super) fn discover(&mut self, root: &Path, start: Vec<(PathBuf, usize)>) {
+        // A selected root can use different spelling on a case-insensitive
+        // volume. Its children must use the same spelling as the guard.
+        let spelled = (root != self.home)
+            .then(|| super::paths::on_disk(root, &self.home))
+            .flatten();
+        let start = match &spelled {
+            Some(spelled) => start
+                .into_iter()
+                .map(|(dir, depth)| (if dir == root { spelled.clone() } else { dir }, depth))
+                .collect(),
+            None => start,
+        };
+        let root = spelled.as_deref().unwrap_or(root);
         let mut walk = Walk::new(start);
         while let Some((dir, depth)) = walk.next() {
+            if self.unopened().contains(&dir) {
+                continue;
+            }
             let spent =
                 self.traversal.remaining == 0 && !self.traversal.completed.contains_key(&dir);
             if self.stopped() || spent {
@@ -122,6 +138,12 @@ impl Scan {
             let began = listed.take().unwrap_or_else(|| self.started.elapsed());
             let held = self.findings.len();
             let left = std::mem::replace(&mut self.work_unfinished, false);
+            if self.unopened().contains(&p) {
+                if ordered {
+                    reached = Some(p);
+                }
+                continue;
+            }
             let skipped = is_dir && self.skipped(&p);
             // macOS denies reads of this per-container bookkeeping file; it
             // never holds credentials, so it would only add a gap.

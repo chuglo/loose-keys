@@ -775,6 +775,7 @@
 "A file with that name already exists, and Loose Keys never replaces files. Choose another name." = "Ya existe un archivo con ese nombre, y Loose Keys nunca reemplaza archivos. Elige otro nombre.";
 
 /* gui/src/lib.rs:1239 */
+"Couldn't read the places to check. Try scanning again." = "No se pudieron leer los lugares que comprobar. Vuelve a intentar el análisis.";
 "Could not save: %@." = "No se pudo guardar: %@.";
 
 /* gui/src/lib.rs:1260 */

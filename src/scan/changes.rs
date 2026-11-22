@@ -6,8 +6,19 @@ use crate::fsutil::{list_dir, through_links, FOLDER_ENTRIES};
 use crate::report::NotChecked;
 use crate::rules::browser::CHROMIUM;
 use crate::rules::{Rule, Target, RULES};
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+
+/// SQLite can checkpoint or finish a rollback with only a sidecar event.
+fn sqlite_base_for_event(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.as_bytes();
+    let base = name
+        .strip_suffix(b"-wal")
+        .or_else(|| name.strip_suffix(b"-journal"))?;
+    (!base.is_empty()).then(|| path.with_file_name(OsStr::from_bytes(base)))
+}
 
 impl Scan {
     /// For a check of changes: the entries of the browser's folder `dir`,
@@ -19,6 +30,9 @@ impl Scan {
     /// the check's own limits kept it from that, the changed path is also
     /// left unfinished: a profile not looked in may hold what a rule names.
     fn profiles(&mut self, dir: &Path) -> Vec<(PathBuf, bool)> {
+        if self.unopened().contains(dir) {
+            return Vec::new();
+        }
         if !self.profiles.contains_key(dir) {
             if self.stopped() {
                 self.unread_once(dir);
@@ -113,6 +127,9 @@ impl Scan {
     /// own limits kept from being looked at in full also leaves unfinished
     /// every path asked about: a link not looked at may lead to it.
     fn linked_targets(&mut self, dir: &Path, file: &'static str, p: &Path) -> Vec<PathBuf> {
+        if self.unopened().contains(dir) {
+            return Vec::new();
+        }
         let key = (dir.to_path_buf(), file);
         if !self.linked_target_cache.contains_key(&key) {
             let mut real = Vec::new();
@@ -197,10 +214,23 @@ impl Scan {
                     .any(|a| EXCLUDED.iter().any(|name| a.ends_with(name)))
             })
         };
-        for p in paths {
-            if !p.starts_with(home) || s.skipped(p) {
+        for original in paths {
+            if !original.starts_with(home) {
                 continue;
             }
+            let spelled;
+            let p = if s.skip.is_empty() {
+                original
+            } else {
+                spelled = super::saved_path(original, home);
+                &spelled
+            };
+            if s.skipped(p) {
+                continue;
+            }
+            let protected = s.unopened().protected_spelling(p, home);
+            let presence_only = protected.is_some();
+            let known_path = protected.as_ref().unwrap_or(p);
             // In an excluded folder, only what a full scan reads there: known
             // locations, and the files rules name in the `.git` of a
             // repository it would reach.
@@ -208,7 +238,9 @@ impl Scan {
                 .into_iter()
                 .flatten()
                 .find(|d| d.file_name() == Some(".git".as_ref()))
-                .filter(|git| git.parent().is_some_and(|repo| !excluded(repo, true)));
+                .filter(|git| {
+                    !presence_only && git.parent().is_some_and(|repo| !excluded(repo, true))
+                });
             if s.stopped() {
                 // Said only of what would have been read: in a `.git`, the
                 // folder itself or a file a rule names there.
@@ -223,12 +255,14 @@ impl Scan {
                 // nothing and record that they did not.
                 let said = s.unread;
                 s.work_unfinished = false;
-                s.known_at(p, false);
-                s.known_at(p, true);
+                s.known_at(known_path, false);
+                if !presence_only {
+                    s.known_at(p, true);
+                }
                 let known = s.unread > said;
-                let meta = std::fs::symlink_metadata(p);
-                let walked =
-                    meta.is_ok_and(|m| (m.is_dir() || m.is_file()) && !excluded(p, m.is_dir()));
+                let walked = !presence_only
+                    && std::fs::symlink_metadata(p)
+                        .is_ok_and(|m| (m.is_dir() || m.is_file()) && !excluded(p, m.is_dir()));
                 // Not for a record too deep for any scan: that is said, and
                 // checking it again would read no more.
                 if walked || named || s.work_unfinished {
@@ -237,24 +271,25 @@ impl Scan {
                     }
                     let cancelled = s.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst));
                     if cancelled {
-                        unreached.cancelled.push(p.clone());
+                        unreached.cancelled.push(original.clone());
                     } else {
-                        unreached.out_of_budget.push(p.clone());
+                        unreached.out_of_budget.push(original.clone());
                     }
                 }
                 continue;
             }
             s.work_unfinished = false;
-            s.known_at(p, false);
-            let meta = std::fs::symlink_metadata(p)
-                .ok()
+            s.known_at(known_path, false);
+            let meta = (!presence_only)
+                .then(|| std::fs::symlink_metadata(p).ok())
+                .flatten()
                 .filter(|m| !excluded(p, m.is_dir()));
             // A file's head is read before it is read as a record: a record
             // once begun is read to its end, past the time, and the head
             // would then be left unread. The report keeps a full scan's
             // order, with what the record holds first.
             let file = meta.as_ref().is_some_and(|m| m.is_file());
-            if !file {
+            if !file && !presence_only {
                 s.known_at(p, true);
             }
             let (found, gaps) = (s.findings.len(), s.not_checked.len());
@@ -283,11 +318,11 @@ impl Scan {
             if s.work_unfinished {
                 let cancelled = s.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst));
                 if cancelled {
-                    unreached.cancelled.push(p.clone());
+                    unreached.cancelled.push(original.clone());
                 } else if begun && !shared {
-                    unreached.cut_short.push(p.clone());
+                    unreached.cut_short.push(original.clone());
                 } else {
-                    unreached.out_of_budget.push(p.clone());
+                    unreached.out_of_budget.push(original.clone());
                 }
             }
             shared = true;
@@ -303,6 +338,12 @@ impl Scan {
         // The extensions' storage is looked for once, for every rule's.
         let mut extensions = false;
         let named = |file: &str| p.file_name() == Some(file.as_ref());
+        let database = (!records).then(|| sqlite_base_for_event(p)).flatten();
+        // A removed sidecar can still have a base file, including one a
+        // profile or database link names.
+        let linked_database = database
+            .as_deref()
+            .filter(|base| std::fs::symlink_metadata(base).is_ok_and(|m| m.is_file()));
         // A known folder: as it is named, and where a link puts it, which
         // is where a change in it is reported.
         type Folder = [Option<PathBuf>; 2];
@@ -331,7 +372,11 @@ impl Scan {
                         let at = self.home.join(f);
                         let real = self.targeted(&at);
                         let above = |real: &PathBuf| real.starts_with(p);
-                        if at.starts_with(p) || real.as_ref().is_some_and(above) {
+                        let sidecar = f == crate::rules::GCLOUD_DATABASE
+                            && database
+                                .as_ref()
+                                .is_some_and(|base| *base == at || real.as_ref() == Some(base));
+                        if sidecar || at.starts_with(p) || real.as_ref().is_some_and(above) {
                             if let Some(real) = real {
                                 self.whole(rule, &real);
                             }
@@ -372,15 +417,31 @@ impl Scan {
                             // one change when it is moved in as a whole;
                             // what changes in it is reported file by file.
                             let mut read = Vec::new();
-                            read.extend(top.filter(|top| top.starts_with(p)));
+                            let top_at = self.home.join(browser).join(file);
+                            read.extend(top.filter(|top| {
+                                top.starts_with(p)
+                                    || database
+                                        .as_ref()
+                                        .is_some_and(|base| base == &top_at || base == top)
+                            }));
                             if is(p.parent(), folder) {
                                 read.extend(self.targeted(&p.join(file)));
                             } else if named(file) && is(p.parent().and_then(Path::parent), folder) {
                                 read.extend(self.targeted(p));
                             }
-                            // Or where a link in the folder leads.
-                            if let Some(real) = folder[1].as_ref().filter(|_| leads) {
-                                read.extend(self.linked_targets(real, file, p));
+                            if let Some(base) = database.as_deref().filter(|base| {
+                                base.file_name() == Some(file.as_ref())
+                                    && is(base.parent().and_then(Path::parent), folder)
+                            }) {
+                                read.extend(self.targeted(base));
+                            }
+                            if let Some(real) = &folder[1] {
+                                if leads {
+                                    read.extend(self.linked_targets(real, file, p));
+                                }
+                                if let Some(base) = linked_database {
+                                    read.extend(self.linked_targets(real, file, base));
+                                }
                             }
                             for file in read {
                                 self.whole(rule, &file);
@@ -396,6 +457,10 @@ impl Scan {
                         }
                     }
                     Target::Extension(id, what) => {
+                        if let Some(store) = self.unopened().extension(p, id) {
+                            self.store_at(rule, store, what);
+                            continue;
+                        }
                         if browsers.iter().any(under) {
                             // A browser's folder or one above it: every
                             // profile's storage in each such browser, as a

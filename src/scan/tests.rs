@@ -6,6 +6,7 @@ use crate::rules::browser::CHROMIUM;
 use std::fs;
 use std::sync::{Arc, Mutex};
 
+mod credential_files;
 mod encoded_images;
 
 struct Fixture(PathBuf);
@@ -4474,7 +4475,36 @@ fn every_row_count_waits_for_an_empty_log_and_journal() {
         unknown.sort_unstable();
         assert_eq!(gaps, unknown, "{beside}");
         for (_, at, _) in stores {
-            fs::remove_file(f.0.join(format!("{at}{beside}"))).unwrap();
+            let sidecar = f.0.join(format!("{at}{beside}"));
+            let changed = || {
+                let cancel = Arc::new(AtomicBool::new(false));
+                Scan::changed(
+                    &f.0,
+                    &[],
+                    std::slice::from_ref(&sidecar),
+                    limits(1000),
+                    cancel,
+                    digest,
+                )
+                .0
+            };
+            let active = changed();
+            assert!(active.findings.is_empty(), "{beside}");
+            assert!(
+                active
+                    .not_checked
+                    .iter()
+                    .any(|gap| gap.path == format!("~/{at}") && gap.reason == "unreadable"),
+                "{beside} {at}"
+            );
+            fs::remove_file(&sidecar).unwrap();
+            assert!(
+                changed()
+                    .findings
+                    .iter()
+                    .any(|finding| finding.path == format!("~/{at}")),
+                "{beside} {at}"
+            );
         }
     }
 }

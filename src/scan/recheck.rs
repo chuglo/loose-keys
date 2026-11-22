@@ -1,12 +1,14 @@
 //! Checking one file again outside a scan, to learn whether a review item is
 //! still there.
 
+use super::presence::Unopened;
 use super::read::{settled, take_piece, value_key, READ_PIECE};
 use super::{is_root, CONFIG_MAX, HEADER, STREAM_MAX};
 use crate::fsutil::{
     list_dir, open_regular, read_config, read_head, through_links, FOLDER_ENTRIES,
 };
 use crate::rules::{Hit, Matcher, Rule, Target, RULES};
+use std::cell::OnceCell;
 use std::io::Read;
 use std::path::Path;
 
@@ -38,7 +40,14 @@ pub(super) fn recheck_values(
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
-    recheck_by(rule, path, home, mount, digest, None, &|| false)
+    recheck_by(
+        &Rechecks::new(home, &|| false),
+        rule,
+        path,
+        mount,
+        digest,
+        None,
+    )
 }
 
 /// Which kind of item a recheck is for: one worth reviewing, or a stored
@@ -63,7 +72,7 @@ pub fn recheck_identities(
     want: Want,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
-    recheck_by(rule, path, home, mount, digest, Some(want), stop)
+    Rechecks::new(home, stop).identities(rule, path, mount, digest, want)
 }
 
 pub(super) fn scope_digest(
@@ -78,24 +87,56 @@ pub(super) fn scope_digest(
     Some(digest("", &material, false))
 }
 
-/// `identities`: private registry-place identities, keeping what a scan would
-/// list as that kind of item; None, display labels, for an item worth
-/// reviewing.
+/// A batch of rechecks shares one metadata lookup for presence-only locations.
+pub struct Rechecks<'a> {
+    home: &'a Path,
+    stop: &'a dyn Fn() -> bool,
+    unopened: OnceCell<Unopened>,
+}
+
+impl<'a> Rechecks<'a> {
+    pub fn new(home: &'a Path, stop: &'a dyn Fn() -> bool) -> Self {
+        Self {
+            home,
+            stop,
+            unopened: OnceCell::new(),
+        }
+    }
+
+    pub fn identities(
+        &self,
+        rule: &str,
+        path: &Path,
+        mount: Option<u32>,
+        digest: &dyn Fn(&str, &[u8], bool) -> String,
+        want: Want,
+    ) -> Option<Vec<(Option<String>, Option<String>)>> {
+        recheck_by(self, rule, path, mount, digest, Some(want))
+    }
+}
+
+/// With a kind, return private registry-place identities. Without one,
+/// return display labels for items worth reviewing.
 fn recheck_by(
+    rechecks: &Rechecks<'_>,
     rule: &str,
     path: &Path,
-    home: &Path,
     mount: Option<u32>,
     digest: &dyn Fn(&str, &[u8], bool) -> String,
     identities: Option<Want>,
-    stop: &dyn Fn() -> bool,
 ) -> Option<Vec<(Option<String>, Option<String>)>> {
+    let home = rechecks.home;
+    let stop = rechecks.stop;
+    if stop() {
+        return None;
+    }
     // A scan no longer lists a token in a file a tool keeps its own sign-in
     // in, so one an earlier version listed there is not found again.
     let own = |rel: &Path| super::known::sign_in_file(rel);
     if crate::rules::finds_tokens_anywhere(rule) && path.strip_prefix(home).is_ok_and(own) {
         return Some(Vec::new());
     }
+    let unopened = || rechecks.unopened.get_or_init(|| Unopened::at(home, stop));
     let mut still = Vec::new();
     // What a scan lists as `identities`' kind, as `Scan::add_from` decides
     // it. A stored sign-in: a test credential, or what its rule stores while
@@ -105,10 +146,10 @@ fn recheck_by(
         _ => !hit.low && (rule.kind == "review" || shared),
     };
     // The value alone, under no rule's name, as `Scan::add_from` asks for it.
-    let valued = |hit: Hit, bytes: &[u8]| {
+    let valued = |rule: &Rule, hit: Hit, bytes: &[u8]| {
         let scope = identities.and_then(|_| scope_digest(&hit, bytes, digest));
-        let value = hit.span.and_then(|s| bytes.get(s));
-        (scope.or(hit.subject), value.map(|v| digest("", v, false)))
+        let value = super::aws::value_digest(rule, &hit, bytes, digest);
+        (scope.or(hit.subject), value)
     };
     // One id can have a rule for each format its files come in. The rules
     // whose targets are this file, by its name or through a link, are the
@@ -130,6 +171,15 @@ fn recheck_by(
         return None;
     }
     for rule in forms {
+        if !matches!(rule.matcher, Matcher::Present) && path.starts_with(home) {
+            let protected = unopened().protected_spelling(path, home).is_some();
+            if stop() {
+                return None;
+            }
+            if protected {
+                continue;
+            }
+        }
         match rule.matcher {
             // Presence alone is never a stored sign-in.
             Matcher::Present if identities == Some(Want::Stored) => continue,
@@ -149,13 +199,14 @@ fn recheck_by(
                 }
                 if std::fs::symlink_metadata(at).is_ok() {
                     let named = rule.targets.iter().filter_map(|t| match *t {
-                        Target::Present(_, what) | Target::Extension(_, what)
-                            if names(t, path) || linked(t, path, home) =>
-                        {
-                            Some((crate::rules::label(what), None))
-                        }
-                        _ => None,
-                    });
+                    Target::Present(_, what) | Target::Extension(_, what)
+                        if names(t, path) || linked(t, path, home)
+                          || matches!(*t, Target::Extension(id, _) if path.starts_with(home) && unopened().extension(path, id) == Some(path)) =>
+                    {
+                        Some((crate::rules::label(what), None))
+                    }
+                    _ => None,
+                });
                     let before = still.len();
                     still.extend(named);
                     // There, but at a place this rule does not look: its
@@ -194,7 +245,7 @@ fn recheck_by(
                         let wanted = |hit: &Hit| kept(rule, hit, shared);
                         for hit in test(&piece, 1, &mut state).ok()?.into_iter().filter(wanted) {
                             if seen.insert(value_key(&hit, &piece)) {
-                                still.push(valued(hit, &piece));
+                                still.push(valued(rule, hit, &piece));
                             }
                         }
                     }
@@ -218,15 +269,18 @@ fn recheck_by(
             // Links and special files are not evidence of removal.
             return crate::fsutil::checked_or_absent(path, mount, home).then_some(still);
         };
-        let hits = match rule.matcher {
+        let mut hits = match rule.matcher {
             Matcher::Head(m) => m(&h.bytes).then(Hit::file).into_iter().collect(),
             Matcher::Whole { test, .. } => test(&h.bytes).ok()?,
             _ => Vec::new(),
         };
+        if identities.is_some() {
+            super::aws::pair_ids(home, path, rule, &h.bytes, &mut hits);
+        }
         let hits = hits.into_iter().filter(|hit| kept(rule, hit, h.shared));
-        still.extend(hits.map(|hit| valued(hit, &h.bytes)));
+        still.extend(hits.map(|hit| valued(rule, hit, &h.bytes)));
     }
-    Some(still)
+    (!stop()).then_some(still)
 }
 
 /// Whether a target is this path: the place a rule knows, or a name it reads.
@@ -253,7 +307,7 @@ fn names(target: &Target, path: &Path) -> bool {
 
 /// Whether a target is this path through a link: the known location is a
 /// link, or is under one, that leads here.
-fn linked(target: &Target, path: &Path, home: &Path) -> bool {
+pub(super) fn linked(target: &Target, path: &Path, home: &Path) -> bool {
     let through = |at: &Path| match through_links(at, home) {
         Some(Ok(real)) => Some(real),
         _ => None,

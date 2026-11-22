@@ -252,6 +252,70 @@ impl Item {
     }
 }
 
+impl Review {
+    /// Another check saved since this one started. Its omissions are not
+    /// proof of removal, but an earlier observation must not restore a
+    /// now-absent finding, including one pruned from the list.
+    pub(super) fn confirm_overlapping_findings(
+        &self,
+        report: &Report,
+        recheck: impl Fn(&Item, Want) -> Option<Still>,
+    ) -> Report {
+        let mut reads = std::collections::HashMap::new();
+        let saved_places: std::collections::HashSet<_> = self
+            .items
+            .iter()
+            .map(|i| ("review", i.rule.as_str(), i.path.as_str(), i.identity()))
+            .chain(
+                self.stored
+                    .items
+                    .iter()
+                    .map(|i| ("inventory", i.rule.as_str(), i.path.as_str(), i.identity())),
+            )
+            .collect();
+        let findings = report
+            .findings
+            .iter()
+            .filter(|f| {
+                let want = match f.kind {
+                    "review" => Want::Review,
+                    "inventory" => Want::Stored,
+                    _ => return true,
+                };
+                let item = Item::new(f, &report.generated_at);
+                let place = (f.kind, f.rule, f.path.as_str());
+                let still = reads.entry(place).or_insert_with(|| recheck(&item, want));
+                if saved_places.contains(&(f.kind, f.rule, f.path.as_str(), f.identity())) {
+                    // An earlier scan may have observed what a newer check has
+                    // since resolved or replaced. Require positive evidence
+                    // before updating an observation already on the list.
+                    still.as_ref().is_some_and(|values| {
+                        values.iter().any(|(identity, value)| {
+                            identity.as_deref() == item.identity()
+                                && (item.secret.is_none() || item.secret == *value)
+                        })
+                    })
+                } else {
+                    // A first observation stays on the list unless a complete
+                    // recheck shows the value is gone.
+                    still.as_ref().is_none_or(|values| !absent(&item, values))
+                }
+            })
+            .cloned()
+            .collect();
+        Report {
+            schema: report.schema,
+            tool_version: report.tool_version,
+            generated_at: report.generated_at.clone(),
+            status: report.status,
+            context: report.context,
+            coverage: report.coverage.clone(),
+            findings,
+            not_checked: report.not_checked.clone(),
+        }
+    }
+}
+
 /// `Review::resolve` over one list, for the findings of its `kind`.
 /// `skipped` says, for each item, whether a scan leaves its file unread.
 pub(super) fn resolve_in(

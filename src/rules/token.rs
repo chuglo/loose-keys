@@ -240,6 +240,15 @@ fn padding(b: u8) -> bool {
     b == b'='
 }
 
+/// Whether the complete value has the shape of an AWS public key ID.
+pub(crate) fn aws_access_key_id(value: &[u8]) -> bool {
+    PROVIDERS.iter().filter(|p| p.key_id).any(|p| {
+        value.strip_prefix(p.prefix.as_bytes()).is_some_and(|body| {
+            (p.min..=p.max).contains(&body.len()) && body.iter().copied().all(p.body)
+        })
+    })
+}
+
 fn upper_base32(b: u8) -> bool {
     b.is_ascii_uppercase() || (b'2'..=b'7').contains(&b)
 }

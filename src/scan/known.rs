@@ -171,6 +171,9 @@ impl Scan {
             let Some(dir) = self.targeted(&self.home.join(parent)) else {
                 continue;
             };
+            if self.unopened().contains(&dir) {
+                continue;
+            }
             let mut remaining = FOLDER_ENTRIES;
             let listing = list_dir(&dir, false, &mut remaining);
             self.counts.entries += FOLDER_ENTRIES - remaining;
@@ -261,6 +264,9 @@ impl Scan {
         // the folders after that one.
         let (mut too_deep, mut spent) = (false, false);
         while let Some((dir, depth, after)) = queue.pop_front() {
+            if self.unopened().contains(&dir) {
+                continue;
+            }
             if self.stopped() {
                 if !self.unread(&dir) {
                     // Gone: nothing of it is unread, but the next may be.
@@ -289,7 +295,8 @@ impl Scan {
             let (folders, files): (Vec<_>, Vec<_>) =
                 entries.entries.into_iter().partition(|(_, is_dir)| *is_dir);
             for (p, _) in folders.into_iter().filter(|_| after.is_none()) {
-                if !self.skipped(&p)
+                if !self.unopened().contains(&p)
+                    && !self.skipped(&p)
                     && !EXCLUDED.iter().any(|name| p.ends_with(name))
                     && !TREE_SKIP
                         .iter()
@@ -328,6 +335,9 @@ impl Scan {
         let Some(dir) = self.targeted(&self.home.join(parent)) else {
             return;
         };
+        if self.unopened().contains(&dir) {
+            return;
+        }
         if self.stopped() {
             self.unread(&dir);
             return;
@@ -354,6 +364,9 @@ impl Scan {
         let Some(dir) = self.targeted(&self.home.join(name)) else {
             return;
         };
+        if self.unopened().contains(&dir) {
+            return;
+        }
         if self.stopped() {
             self.unread(&dir);
             return;

@@ -325,7 +325,8 @@ run from the repository or worktree root as their instructions specify.
   then keep the change uncommitted until they approve.
 - Engine calls answer in any order. Review and monitor reads go through
   `ReadTurns` in `AppModel`, which coalesces requests and allows one read of
-  each list at a time. Folder responses use `RequestOrder`. Keep failures
+  each list at a time. Folder writes take turns. `RequestOrder` prevents a
+  folder read from replacing a completed change. Keep failures
   under the same ordering rules as successful responses. A failed request
   must not replace a usable list with an empty one.
 - Never say "nothing found" for a list that could not be read, saved or

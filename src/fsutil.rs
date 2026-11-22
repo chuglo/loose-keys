@@ -9,6 +9,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
+mod access_list;
+pub use access_list::has_access_grants;
+use access_list::{has_access_list, lets_others_change};
+
 /// Why something in scope could not be checked (matches the report schema).
 pub type Gap = &'static str;
 
@@ -473,111 +477,9 @@ pub fn write_export(path: &Path, json: &str, root: bool) -> Result<(), String> {
     written
 }
 
-// macOS's access-list calls, which `libc` does not declare (sys/acl.h).
-extern "C" {
-    fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
-    fn acl_get_entry(
-        acl: *mut libc::c_void,
-        entry_id: libc::c_int,
-        entry: *mut *mut libc::c_void,
-    ) -> libc::c_int;
-    fn acl_get_tag_type(entry: *mut libc::c_void, tag: *mut libc::c_int) -> libc::c_int;
-    fn acl_get_permset(entry: *mut libc::c_void, perms: *mut *mut libc::c_void) -> libc::c_int;
-    fn acl_get_perm_np(perms: *mut libc::c_void, perm: libc::c_int) -> libc::c_int;
-    fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
-}
-
-/// Whether an open file has an access list with at least one entry.
-fn has_access_list(file: &File) -> io::Result<bool> {
-    const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
-    const ACL_FIRST_ENTRY: libc::c_int = 0;
-    // SAFETY: live descriptor and a valid list type; the call returns a new
-    // list for this code to free, or NULL.
-    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
-    if acl.is_null() {
-        let e = io::Error::last_os_error();
-        return match e.raw_os_error() {
-            Some(libc::ENOENT) => Ok(false),
-            _ => Err(e),
-        };
-    }
-    let mut entry = std::ptr::null_mut();
-    // SAFETY: `acl` is the live list just returned and `entry` is writable.
-    // The entry points into the list and is not used after it is freed.
-    let found = unsafe { acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) } == 0;
-    // SAFETY: `acl` came from acl_get_fd_np, is not used again and is freed
-    // once.
-    unsafe {
-        acl_free(acl);
-    }
-    Ok(found)
-}
-
-/// Whether a folder's access list lets others add, remove or rename names in
-/// it, or change its access list or owner: an allow entry with any of those
-/// rights. A deny entry only takes rights away.
-fn lets_others_change(dir: &File) -> io::Result<bool> {
-    const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
-    const ACL_FIRST_ENTRY: libc::c_int = 0;
-    const ACL_NEXT_ENTRY: libc::c_int = -1;
-    const ACL_EXTENDED_ALLOW: libc::c_int = 1;
-    // ACL_ADD_FILE, ACL_ADD_SUBDIRECTORY, ACL_DELETE_CHILD,
-    // ACL_WRITE_SECURITY and ACL_CHANGE_OWNER.
-    const CHANGES: [libc::c_int; 5] = [1 << 2, 1 << 5, 1 << 6, 1 << 12, 1 << 13];
-    // SAFETY: live descriptor and a valid list type; the call returns a new
-    // list for this code to free, or NULL.
-    let acl = unsafe { acl_get_fd_np(dir.as_raw_fd(), ACL_TYPE_EXTENDED) };
-    if acl.is_null() {
-        let e = io::Error::last_os_error();
-        return match e.raw_os_error() {
-            Some(libc::ENOENT) => Ok(false),
-            _ => Err(e),
-        };
-    }
-    let (mut which, mut entry) = (ACL_FIRST_ENTRY, std::ptr::null_mut());
-    let found = 'entries: {
-        // SAFETY: `acl` is the live list just returned and `entry` is
-        // writable. Entries and permission sets point into the list, which
-        // is freed only after this block.
-        while unsafe { acl_get_entry(acl, which, &mut entry) } == 0 {
-            which = ACL_NEXT_ENTRY;
-            let mut tag = 0;
-            // SAFETY: `entry` was just returned for the live list and `tag`
-            // is writable.
-            if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
-                break 'entries Err(io::Error::last_os_error());
-            }
-            if tag != ACL_EXTENDED_ALLOW {
-                continue;
-            }
-            let mut perms = std::ptr::null_mut();
-            // SAFETY: as above, with `perms` writable.
-            if unsafe { acl_get_permset(entry, &mut perms) } != 0 {
-                break 'entries Err(io::Error::last_os_error());
-            }
-            for perm in CHANGES {
-                // SAFETY: `perms` was just returned for a live entry, and
-                // `perm` is one of the SDK's acl_perm_t values.
-                match unsafe { acl_get_perm_np(perms, perm) } {
-                    0 => {}
-                    1 => break 'entries Ok(true),
-                    _ => break 'entries Err(io::Error::last_os_error()),
-                }
-            }
-        }
-        Ok(false)
-    };
-    // SAFETY: `acl` came from acl_get_fd_np, nothing from it is used again
-    // and it is freed once.
-    unsafe {
-        acl_free(acl);
-    }
-    found
-}
-
 /// Remove `name` from `dir` if it is still the file `file` has open. A file
 /// put in its place since, even by the same name, is left as it is.
-fn remove_own(dir: &File, name: &CStr, file: &File) {
+pub fn remove_own(dir: &File, name: &CStr, file: &File) {
     let (mut own, mut there) = (
         std::mem::MaybeUninit::<libc::stat>::uninit(),
         std::mem::MaybeUninit::<libc::stat>::uninit(),

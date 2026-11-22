@@ -4,7 +4,7 @@
 
 mod ai;
 mod apps;
-mod aws;
+pub(crate) mod aws;
 pub mod browser;
 mod cloud;
 mod docker;
@@ -20,6 +20,7 @@ mod sqlite;
 mod token;
 mod wallet;
 
+pub(crate) use cloud::GCLOUD_DATABASE;
 pub use token::StreamState;
 
 #[cfg(test)]
@@ -128,6 +129,9 @@ pub struct Hit {
     /// Where the secret sits in the bytes that were tested: a position, not
     /// a value. Lets the scanner tell two different secrets apart.
     pub span: Option<std::ops::Range<usize>>,
+    /// The other value's position in an AWS credentials profile: its
+    /// public ID for a profile hit, its secret for a paired generic ID hit.
+    pub(crate) aws_pair: Option<std::ops::Range<usize>>,
     /// Registry key bytes used only for keyed place identity, never display.
     pub scope: Option<std::ops::Range<usize>>,
     /// A count or other detail that can change while the finding stays the
@@ -484,6 +488,7 @@ pub fn material(rule: &str, bytes: &[u8]) -> Vec<u8> {
     let secrets = match rule {
         "dev.mcp.inline-secret" => ai::mcp_material(bytes),
         "dev.terraform.state-secret" => cloud::tfstate_material(bytes),
+        "dev.kube.inline-credentials" => cloud::kube_material(bytes),
         "app.rclone.stored-secret" => apps::rclone_material(bytes, false),
         "app.rclone.stored-login" => apps::rclone_material(bytes, true),
         _ => None,

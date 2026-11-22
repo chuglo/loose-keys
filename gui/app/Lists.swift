@@ -258,34 +258,6 @@ extension ReviewTable {
 struct PlacesNotChecked: View {
     @EnvironmentObject private var model: AppModel
 
-    /// One heading's places, from the last scan and automatic scanning together.
-    private struct Place: Identifiable {
-        let label: String
-        let help: String
-        var paths: [String]
-        /// The most places either scan counted under this heading.
-        var count: Int
-        var id: String { label }
-        var more: Int { max(0, count - paths.count) }
-    }
-
-    /// Each place once, under its heading. Which scan missed it changes
-    /// nothing a person does, so it is not said. The headings keep the last
-    /// scan's order, then automatic scanning's.
-    private var places: [Place] {
-        var merged: [Place] = []
-        let automatic = model.hasAutomaticCoverage ? model.automaticCoverage?.unreadGaps ?? [] : []
-        for gap in (model.results?.gaps ?? []) + automatic {
-            if let at = merged.firstIndex(where: { $0.label == gap.label }) {
-                merged[at].paths += gap.paths.filter { !merged[at].paths.contains($0) }
-                merged[at].count = max(merged[at].count, gap.count)
-            } else {
-                merged.append(Place(label: gap.label, help: gap.help, paths: gap.paths, count: gap.count))
-            }
-        }
-        return merged
-    }
-
     /// When each list was made: the last scan's, and automatic scanning's last full pass.
     private var when: String {
         var parts: [String] = []
@@ -324,7 +296,7 @@ struct PlacesNotChecked: View {
                     }
                 }
             }
-            ForEach(places) { place in
+            ForEach(model.uncheckedGaps) { place in
                 Section {
                     ForEach(place.paths, id: \.self) { path in
                         Text(path)
@@ -349,6 +321,6 @@ struct PlacesNotChecked: View {
         }
         .formStyle(.grouped)
         .frame(width: 440, height: 380)
-        .task { await model.refreshAutomaticCoverage() }
+        .task(id: model.results?.scanId) { await model.refreshAutomaticCoverage() }
     }
 }

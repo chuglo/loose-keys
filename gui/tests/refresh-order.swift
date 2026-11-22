@@ -496,7 +496,7 @@ func places(_ extra: [String], error: String? = nil) -> String {
 
 /// What a scan that found this many review findings answers.
 func scanResults(review: Int, stored: Int = 0) -> String {
-    json(["status": "partial", "generated_at": "2026-10-13T00:00:00Z",
+    json(["scan_id": 1, "status": "partial", "generated_at": "2026-10-13T00:00:00Z",
           "review": review, "stored": stored, "not_checked": 0, "gaps": [Any](), "blocked": [String]()])
 }
 
@@ -761,6 +761,35 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
 
 // MARK: Places to check
 
+@MainActor func placesReadBeforeSaveDoesNotHideAddedFolder() async {
+    let bench = Bench()
+    let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    let done = URL(string: "about:blank")!
+    let add = await bench.ask("type_place") { $0.addFolders([folder, done]) }
+    let read = await bench.ask("places") { await $0.refreshPlaces() }
+    await bench.answer(read, .success(places([])))
+    bench.answer(add.call, .success(places([folder.path])))
+    await eventually("the add task consumed the save response") { bench.model.failure != nil }
+    check(bench.model.places?.extra == [folder.path],
+          "places: a refresh that read before an overlapping save cannot hide the added folder")
+}
+
+@MainActor func placesWritesWaitForOneAnother() async {
+    let bench = Bench()
+    let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    let first = await bench.ask("type_place") { $0.addFolders([folder]) }
+    _ = await bench.request { $0.removeFolder(0, shown: "/Volumes/Fixture") }
+    check(await bench.holdsOnly(0, "remove_place"), "places: a removal waits for an addition to answer")
+    let refresh = await bench.ask("places") { await $0.refreshPlaces() }
+    bench.answer(first.call, refused)
+    let removal = await bench.next("remove_place")
+    bench.answer(removal, .success(places([])))
+    await eventually("the removal is applied after the failed addition") { bench.model.places != nil }
+    await bench.answer(refresh, .success(places(["/Volumes/Fixture"])))
+    check(bench.model.places?.extra == [], "places: an outstanding read cannot put a removed folder back")
+    check(bench.model.failure?.title == FailureTitle.addFolder, "places: the failed addition is reported")
+}
+
 @MainActor func placesOlderListAfterRemoval() async {
     let bench = Bench()
     let read = await bench.ask("places") { await $0.refresh() }
@@ -862,6 +891,31 @@ let refused = Result<String, EngineError>.failure(EngineError(message: "That act
     bench.model.cancelAccessPreparation()
     bench.answer(access, .success("null"))
     await eventually("the cancelled preparation ends") { !bench.model.preparingAccess }
+}
+
+@MainActor func scanDoesNotStartWhenPreparationCannotReadScope() async {
+    let bench = Bench()
+    let first = await bench.ask("places") { await $0.refreshPlaces() }
+    await bench.answer(first, .success(places([], error: "Could not read the saved state.")))
+    let retry = await bench.ask("places") { $0.startScan() }
+    await bench.answer(retry, .success(places([], error: "Could not read the saved state.")))
+    let preparation = await bench.next("prepare_access")
+    bench.answer(preparation, refused)
+    await eventually("refusing preparation returns to the ready page") {
+        bench.model.phase == .ready && !bench.model.preparingAccess
+    }
+    check(bench.engine.held("start_scan").isEmpty && bench.model.failure?.title == FailureTitle.scan,
+          "scan: the preparation error is shown and no scan reaches the engine")
+    let recovered = await bench.ask("places") { $0.startScan() }
+    await bench.answer(recovered, .success(places(["/Volumes/Recovered"])))
+    let next = await bench.next("prepare_access", after: 1)
+    check(bench.model.places?.extra == ["/Volumes/Recovered"] && bench.model.placesProblem == nil,
+          "scan: retry reads the recovered scope before preparing access")
+    bench.model.cancelAccessPreparation()
+    bench.answer(next, .success("null"))
+    await eventually("cancelling the recovered preparation returns to the ready page") {
+        bench.model.phase == .ready && !bench.model.preparingAccess
+    }
 }
 
 // MARK: A scan in progress
@@ -1994,10 +2048,35 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
           "coverage: reading details neither scans nor prompts for file access")
 }
 
+@MainActor func automaticCoverageFollowsTheManualReport() async {
+    let bench = Bench()
+    let gap: [String: Any] = ["label": "No Access", "help": "", "count": 21, "paths": ["~/manual"]]
+    func manual(_ id: Int) -> ScanResults? {
+        let body = json(["scan_id": id, "status": "partial", "generated_at": "2026-10-13T00:00:00Z",
+                         "review": 0, "stored": 0, "not_checked": 21, "gaps": [gap], "blocked": [String]()])
+        return try? decodeEngine(ScanResults.self, from: Data(body.utf8))
+    }
+    let combined = json(["manual_scan_id": 1, "unread": 2, "unread_truncated": false,
+                         "unread_gaps": [gap.merging(["count": 22, "paths": ["~/manual", "~/automatic"]]) { _, value in value }]])
+    bench.model.results = manual(1)
+    let read = await bench.ask("automatic_coverage") { await $0.refreshAutomaticCoverage() }
+    await bench.answer(read, .success(combined))
+    check(bench.model.uncheckedGaps.first?.count == 22,
+          "coverage: the displayed count is the union from the matching manual scan")
+    bench.model.results = manual(2)
+    check(bench.model.uncheckedGaps.first?.count == 21,
+          "coverage: a stale union cannot replace the current manual scan, even at the same time stamp")
+    let next = await bench.ask("automatic_coverage") { await $0.refreshAutomaticCoverage() }
+    await bench.answer(next, .success(combined.replacingOccurrences(of: #""manual_scan_id":1"#, with: #""manual_scan_id":2"#)))
+    check(bench.model.uncheckedGaps.first?.paths == ["~/manual", "~/automatic"],
+          "coverage: the matching union restores the automatic place")
+}
+
 @main enum RefreshOrder {
     @MainActor static func main() async {
         let cases: [(String, @MainActor () async -> Void)] = [
             ("automatic coverage: ordered reads and failures", automaticCoverageReads),
+            ("automatic coverage: follows the manual report", automaticCoverageFollowsTheManualReport),
             ("multiple review selection", multipleReviewSelection),
             ("set aside leaves the review queue", setAsideLeavesReview),
             ("set aside failures and changed values", setAsideFailuresAndChanges),
@@ -2018,6 +2097,9 @@ func helperStatus(login: Int, running: Bool, paused: Bool = false) -> String {
             ("background checks: older failure, then newer status", monitorOlderFailureBeforeNewer),
             ("background checks: newest failure after older status", monitorNewestFailure),
             ("background checks: a failed status read keeps its reason", monitorFailureKeepsReason),
+            ("places: refresh that read before an add", placesReadBeforeSaveDoesNotHideAddedFolder),
+            ("places: ordered writes and an overlapping refresh", placesWritesWaitForOneAnother),
+            ("places: preparation with unknown scope", scanDoesNotStartWhenPreparationCannotReadScope),
             ("places: older list after a removal", placesOlderListAfterRemoval),
             ("places: older failure after newer list", placesOlderFailureAfterNewer),
             ("places: removal refusal preserves folders and reports why", placesRemovalRefusal),

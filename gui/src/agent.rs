@@ -149,6 +149,7 @@ struct Inbox {
 #[derive(Default)]
 struct Known {
     key: Vec<u8>,
+    check_generation: u64,
     enabled: bool,
     paused: bool,
     /// Paths of unresolved review items and stored sign-ins.
@@ -163,6 +164,11 @@ struct Known {
     /// state remembered.
     tickets: u64,
     remembered: u64,
+}
+
+struct CheckStart {
+    key: Vec<u8>,
+    generation: u64,
 }
 
 static AGENT: OnceLock<Agent> = OnceLock::new();
@@ -186,6 +192,7 @@ impl Agent {
         }
         known.remembered = ticket;
         known.key = state.key.clone();
+        known.check_generation = state.check_generation;
         known.open = state
             .items
             .iter()
@@ -207,19 +214,25 @@ impl Agent {
         }
     }
 
-    /// The key a check's digests are made with, and a digest made with it.
+    /// The saved state a check starts from, and a digest made with its key.
     fn fingerprint(
         &self,
     ) -> (
-        Vec<u8>,
+        CheckStart,
         impl Fn(&str, &[u8], bool) -> String + Send + 'static,
     ) {
-        let key = self.known.lock().unwrap().key.clone();
-        let made_with = key.clone();
+        let started = {
+            let known = self.known.lock().unwrap();
+            CheckStart {
+                key: known.key.clone(),
+                generation: known.check_generation,
+            }
+        };
+        let key = started.key.clone();
         let digest = move |rule: &str, bytes: &[u8], shared| {
             crate::material_fingerprint(rule, &key, bytes, shared)
         };
-        (made_with, digest)
+        (started, digest)
     }
 
     /// Save what a check found. `only` limits the recheck of open items to
@@ -227,7 +240,7 @@ impl Agent {
     /// lists a finding in: it read that file, and what it found there may
     /// stand in place of what was listed. `place` is how far in the change
     /// history every change has now been checked, when that has moved.
-    /// `key` is the one the check's digests were made with.
+    /// `started` identifies the state the check began with.
     /// Returns whether it was saved. If not, what was found is on no list,
     /// and the check has to be made again before anything is saved that
     /// says it was made.
@@ -235,7 +248,7 @@ impl Agent {
     fn record(
         &self,
         report: &Report,
-        key: &[u8],
+        started: &CheckStart,
         only: Option<&[PathBuf]>,
         place: Option<u64>,
         health: impl FnOnce(&mut review::Agent),
@@ -247,29 +260,27 @@ impl Agent {
             // check's digests would be taken for other values there. Nothing
             // it found is saved; the list is, unchanged, so that its key is
             // known below and the check made again with it.
-            if state.key != key {
+            if state.key != started.key {
                 return Ok(false);
             }
             // Counted from here: the store is locked from here on.
             let rechecking = Instant::now();
             let found: HashSet<&str> = report.findings.iter().map(|f| f.path.as_str()).collect();
-            state.merge(report, |item, want| {
+            let skip = crate::saved_skips(state, &self.home);
+            let stop = || {
+                rechecking.elapsed() >= self.rechecks || self.monitor.cancel.load(Ordering::SeqCst)
+            };
+            let rechecks = scan::Rechecks::new(&self.home, &stop);
+            state.merge_observed(report, started.generation, |item, want| {
                 let path = crate::recheck_path(&item.path, Some(&self.home))?;
                 let changed = |only: &[PathBuf]| only.iter().any(|p| path.starts_with(p));
                 if only.is_some_and(|only| !changed(only)) && !found.contains(item.path.as_str()) {
                     return None;
                 }
-                // Out of time, or told to stop: nothing is known of the rest,
-                // and they stay as they are until they are next checked.
-                // Asked again while one large file is read.
-                let stop = || {
-                    rechecking.elapsed() >= self.rechecks
-                        || self.monitor.cancel.load(Ordering::SeqCst)
-                };
                 if stop() {
                     return None;
                 }
-                crate::still_there(item, &self.home, key, want, &stop)
+                crate::still_there(item, &self.home, &started.key, want, &rechecks, &skip)
             });
             state.agent.last_check = Some(report.generated_at.clone());
             state.agent.error = None;
@@ -742,7 +753,7 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
         // against itself.
         let skip = agent.known.lock().unwrap().skip.clone();
         if !ready.is_empty() {
-            let (key, digest) = agent.fingerprint();
+            let (started, digest) = agent.fingerprint();
             let (report, left) = Scan::changed(
                 &agent.home,
                 &skip,
@@ -780,7 +791,9 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                 // A full pass stands for changes that were lost, so the place
                 // stays where it was until that pass has ended.
                 let place = (full_pass.is_none() && !owed).then(|| handled(&waiting, event));
-                if !agent.record(&report, &key, Some(&ready), place, |h| h.changes += done) {
+                if !agent.record(&report, &started, Some(&ready), place, |h| {
+                    h.changes += done
+                }) {
                     // Not saved: every path of the batch waits to be checked
                     // again, its change not yet handled, so no later save
                     // puts the place past it. This check counts as one made,
@@ -808,8 +821,8 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                     stalled = 0;
                 }
                 let before = resume.clone();
-                let (key, digest) = agent.fingerprint();
-                let (report, pending) = Scan::sweep(
+                let (started, digest) = agent.fingerprint();
+                let (report, pending, omitted) = Scan::sweep_with_coverage(
                     &agent.home,
                     &skip,
                     resume,
@@ -817,22 +830,23 @@ fn work(agent: &'static Agent, mut full_pass: Option<Option<scan::Pending>>) {
                     cancel.clone(),
                     digest,
                 );
-                unread.record(&report);
+                unread.record(&report, omitted);
                 let done = pending.is_empty();
                 let nothing: &[PathBuf] = &[];
                 let place = (done && !owed).then(|| handled(&waiting, event));
                 let not_read = unread.places.len();
-                let saved = agent.record(&report, &key, (!done).then_some(nothing), place, |h| {
-                    // A pass owed after this one has every folder left: at
-                    // least one, so that a restart still makes it.
-                    h.left = folders_left(&pending).max(usize::from(owed));
-                    if done {
-                        h.baseline = Some(report.generated_at.clone());
-                        h.baseline_at = crate::now();
-                        h.unread = not_read;
-                        h.unread_places = Some(unread.clone());
-                    }
-                });
+                let saved =
+                    agent.record(&report, &started, (!done).then_some(nothing), place, |h| {
+                        // A pass owed after this one has every folder left: at
+                        // least one, so that a restart still makes it.
+                        h.left = folders_left(&pending).max(usize::from(owed));
+                        if done {
+                            h.baseline = Some(report.generated_at.clone());
+                            h.baseline_at = crate::now();
+                            h.unread = not_read;
+                            h.unread_places = Some(unread.clone());
+                        }
+                    });
                 // A pass that three slices in a row leave as they found it is
                 // given up, not retried forever. A first pass, or one a week
                 // overdue, is begun again at the next quarter-hourly check.
@@ -1021,6 +1035,7 @@ pub fn run() -> ! {
 
 #[cfg(test)]
 mod tests {
+    mod overlap;
     use super::*;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
@@ -1503,7 +1518,7 @@ mod tests {
         assert_eq!(saved["unread_places"]["truncated"], false);
         for output in [
             serde_json::to_string(&state).unwrap(),
-            serde_json::to_string(&crate::automatic_coverage(&state.agent)).unwrap(),
+            serde_json::to_string(&crate::automatic_coverage(&state.agent, None)).unwrap(),
         ] {
             for piece in pieces
                 .iter()

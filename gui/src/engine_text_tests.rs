@@ -18,7 +18,9 @@ const ES_419: &str = "gui/macos/es-419.lproj/Engine.strings";
 /// The files text is read from, as they were when this test was built.
 const SOURCES: &[(&str, &str)] = &[
     ("gui/src/lib.rs", include_str!("lib.rs")),
+    ("gui/src/coverage.rs", include_str!("coverage.rs")),
     ("gui/src/review.rs", include_str!("review.rs")),
+    ("gui/src/review/files.rs", include_str!("review/files.rs")),
     ("gui/src/review/stored.rs", include_str!("review/stored.rs")),
     ("gui/src/agent.rs", include_str!("agent.rs")),
     ("gui/src/monitor.rs", include_str!("monitor.rs")),
@@ -50,7 +52,9 @@ fn source(name: &str) -> &'static str {
 /// the window can be given.
 const ENGINE: &[&str] = &[
     "gui/src/lib.rs",
+    "gui/src/coverage.rs",
     "gui/src/review.rs",
+    "gui/src/review/files.rs",
     "gui/src/review/stored.rs",
     "gui/src/agent.rs",
     "gui/src/monitor.rs",

@@ -3,6 +3,7 @@
 import Foundation
 
 struct ScanResults: Decodable {
+    let scanId: Int
     let status: String
     let generatedAt: String
     let review: Int
@@ -19,6 +20,7 @@ struct Gap: Decodable, Identifiable {
     let count: Int
     let paths: [String]
     var id: String { label }
+    var more: Int { max(0, count - paths.count) }
 }
 
 struct ReviewList: Decodable {
@@ -131,6 +133,7 @@ struct ReleaseCheck: Decodable, Equatable {
 struct AutomaticCoverage: Decodable {
     let fullPass: String?
     let unread: Int
+    let manualScanId: Int?
     let unreadGaps: [Gap]?
     let unreadTruncated: Bool
 }

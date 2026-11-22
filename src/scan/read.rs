@@ -125,6 +125,9 @@ impl Scan {
         let Matcher::Stream(test) = rule.matcher else {
             return true;
         };
+        if self.unopened().contains(p) {
+            return true;
+        }
         if !self.whole_files_checked.insert((rule.id, p.to_path_buf())) {
             return true;
         }
@@ -245,6 +248,9 @@ impl Scan {
 
     /// Run every rule with this target against one file.
     pub(super) fn check_head(&mut self, p: &Path, target: Target) {
+        if self.unopened().contains(p) {
+            return;
+        }
         let Some(h) = self.head(p, HEADER) else {
             return;
         };
@@ -301,6 +307,9 @@ impl Scan {
         let Matcher::Whole { test, .. } = rule.matcher else {
             return;
         };
+        if self.unopened().contains(p) {
+            return;
+        }
         if !self.whole_files_checked.insert((rule.id, p.to_path_buf())) {
             return;
         }
@@ -318,7 +327,10 @@ impl Scan {
             Ok(None) => return,
             Err(g) => return self.gap(p, g),
         };
-        let hits = self.matcher_hits(p, test(&h.bytes));
+        let mut hits = self.matcher_hits(p, test(&h.bytes));
+        if self.fingerprint.is_some() {
+            super::aws::pair_ids(&self.home, p, rule, &h.bytes, &mut hits);
+        }
         for hit in hits {
             self.add(rule, p, hit, h.shared, &h.bytes);
         }

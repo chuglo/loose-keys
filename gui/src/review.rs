@@ -12,8 +12,10 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
+mod files;
 mod list;
 mod stored;
+use files::*;
 use list::*;
 pub use stored::Stored;
 #[cfg(test)]
@@ -222,6 +224,9 @@ pub struct Review {
     pub key: Vec<u8>,
     #[serde(default)]
     pub revision: u64,
+    /// Shared by the app and helper. Only a successful check save advances it.
+    #[serde(default)]
+    pub check_generation: u64,
     #[serde(default)]
     pub notified_revision: u64,
     #[serde(default)]
@@ -263,6 +268,8 @@ pub struct Review {
     /// builds drop it when saving, so their labels are invalidated again.
     #[serde(default)]
     pub(crate) registry_labels: u8,
+    #[serde(default)]
+    pub(crate) aws_identity_version: u8,
     /// The sign-ins apps keep, apart from what is worth reviewing. Builds
     /// before it drop it when they save, and it is filled again by the next
     /// scan.
@@ -309,7 +316,8 @@ pub struct UnreadPlaces {
 }
 
 impl UnreadPlaces {
-    pub fn record(&mut self, report: &Report) {
+    pub fn record(&mut self, report: &Report, omitted: bool) {
+        self.truncated |= omitted;
         let mut used = stored_size(self);
         for gap in report
             .not_checked
@@ -419,6 +427,16 @@ impl Review {
                 }
             }
             self.registry_labels = 1;
+        }
+    }
+
+    fn upgrade_aws_identities(&mut self) {
+        if self.aws_identity_version == 0 {
+            // Older profile decisions keyed the public ID, or only the
+            // file's material. They say nothing about the secret itself.
+            self.decisions
+                .retain(|d| d.rule != "dev.aws.inline-credentials" || d.reason == Reason::Kept);
+            self.aws_identity_version = 1;
         }
     }
 
@@ -706,6 +724,7 @@ impl Review {
 
     pub fn ingest(&mut self, report: &Report) -> bool {
         self.upgrade_registry_labels();
+        self.upgrade_aws_identities();
         self.number();
         let mut new = false;
         // Measured when the first new finding arrives, and once more if room is made.
@@ -823,11 +842,29 @@ impl Review {
     /// reviewing goes first, so it has the first of the time `recheck` is
     /// given. `recheck` is told which kind of item it reads the file for.
     /// Returns whether anything is news, which a stored sign-in never is.
+    #[cfg(test)]
     pub fn merge(
         &mut self,
         report: &Report,
         recheck: impl Fn(&Item, Want) -> Option<Still>,
     ) -> bool {
+        self.merge_observed(report, self.check_generation, recheck)
+    }
+
+    pub fn merge_observed(
+        &mut self,
+        report: &Report,
+        started_at: u64,
+        recheck: impl Fn(&Item, Want) -> Option<Still>,
+    ) -> bool {
+        let checked_again;
+        let report = if started_at != self.check_generation {
+            checked_again = self.confirm_overlapping_findings(report, &recheck);
+            &checked_again
+        } else {
+            report
+        };
+        self.check_generation = self.check_generation.saturating_add(1);
         self.resolve(report, |item| recheck(item, Want::Review));
         let new = self.ingest(report);
         self.resolve_stored(report, |item| recheck(item, Want::Stored));
@@ -883,8 +920,8 @@ impl Review {
 /// as long as it runs and takes the lock only while reading or changing it.
 pub struct Store {
     dir: File,
-    /// The file lock excludes other processes; this excludes other threads.
-    local: std::sync::Mutex<()>,
+    /// Orders this process's observations of the store, including resets.
+    local: std::sync::Mutex<u64>,
 }
 
 struct Locked<'a>(&'a File);
@@ -893,74 +930,6 @@ impl Drop for Locked<'_> {
         unsafe {
             libc::flock(self.0.as_raw_fd(), libc::LOCK_UN);
         }
-    }
-}
-
-/// The folder `name` in `parent`, opened without following a link. With
-/// `make`, it is made first if missing, private; without, None if missing.
-fn folder(parent: &File, name: &CStr, make: bool) -> Result<Option<File>, String> {
-    // SAFETY: an open folder and a NUL-terminated name.
-    if make
-        && unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0
-        && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists
-    {
-        return Err("Could not create the review list.".into());
-    }
-    // SAFETY: an open folder and a NUL-terminated name. O_NOFOLLOW refuses a
-    // link, and O_DIRECTORY anything that is not a folder.
-    let fd = unsafe {
-        libc::openat(
-            parent.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-        )
-    };
-    if fd < 0 {
-        return if !make && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-            Ok(None)
-        } else {
-            Err("Could not open the review list.".into())
-        };
-    }
-    // SAFETY: `fd` was just opened and is owned by nothing else.
-    Ok(Some(unsafe { File::from_raw_fd(fd) }))
-}
-
-/// Whether anything is at `name` in `dir`. A link counts and is not followed.
-fn present(dir: &File, name: &CStr) -> bool {
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    // SAFETY: an open folder, a NUL-terminated name and room for one stat.
-    unsafe {
-        libc::fstatat(
-            dir.as_raw_fd(),
-            name.as_ptr(),
-            stat.as_mut_ptr(),
-            libc::AT_SYMLINK_NOFOLLOW,
-        ) == 0
-    }
-}
-
-/// Whether `name` in `dir` is a regular file of this user's that no one else
-/// can read and that has no other name. A link is not followed.
-fn private_file(dir: &File, name: &CStr) -> bool {
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    // SAFETY: an open folder, a NUL-terminated name and room for one stat,
-    // read only once fstatat has filled it.
-    unsafe {
-        if libc::fstatat(
-            dir.as_raw_fd(),
-            name.as_ptr(),
-            stat.as_mut_ptr(),
-            libc::AT_SYMLINK_NOFOLLOW,
-        ) != 0
-        {
-            return false;
-        }
-        let stat = stat.assume_init();
-        stat.st_mode & libc::S_IFMT == libc::S_IFREG
-            && stat.st_uid == libc::geteuid()
-            && stat.st_mode & 0o077 == 0
-            && stat.st_nlink == 1
     }
 }
 
@@ -975,24 +944,34 @@ pub fn new_key() -> Vec<u8> {
 
 impl Store {
     fn lock(&self, kind: libc::c_int) -> Result<Locked<'_>, String> {
+        // SAFETY: the descriptor stays open while the guard holds the lock.
         if unsafe { libc::flock(self.dir.as_raw_fd(), kind) } != 0 {
             return Err("Could not get access to the review list.".into());
         }
-        Ok(Locked(&self.dir))
+        let lock = Locked(&self.dir);
+        if !private_directory(&self.dir) {
+            return Err("The review list's folder must be private and belong to you.".into());
+        }
+        Ok(lock)
     }
 
-    /// One thread at a time. The mutex holds no data, so a holder that
-    /// panicked leaves nothing in it to distrust: what it was changing was
-    /// never saved.
-    fn alone(&self) -> std::sync::MutexGuard<'_, ()> {
+    /// A panic leaves the counter safe to reuse. It is incremented only
+    /// after a successful read or save.
+    fn alone(&self) -> std::sync::MutexGuard<'_, u64> {
         self.local.lock().unwrap_or_else(|held| held.into_inner())
     }
 
     /// The current state, never a half-written one.
     pub fn read(&self) -> Result<Review, String> {
-        let _local = self.alone();
+        self.read_versioned().map(|(_, review)| review)
+    }
+
+    pub(super) fn read_versioned(&self) -> Result<(u64, Review), String> {
+        let mut generation = self.alone();
         let _lock = self.lock(libc::LOCK_SH)?;
-        self.load()
+        let review = self.load()?;
+        *generation += 1;
+        Ok((*generation, review))
     }
 
     /// Load, change and save as one step that no other process or thread can
@@ -1001,7 +980,15 @@ impl Store {
         &self,
         change: impl FnOnce(&mut Review) -> Result<T, String>,
     ) -> Result<(Review, T), String> {
-        let _local = self.alone();
+        self.update_versioned(change)
+            .map(|(_, review, out)| (review, out))
+    }
+
+    pub(super) fn update_versioned<T>(
+        &self,
+        change: impl FnOnce(&mut Review) -> Result<T, String>,
+    ) -> Result<(u64, Review, T), String> {
+        let mut generation = self.alone();
         let _lock = self.lock(libc::LOCK_EX)?;
         let mut review = self.load()?;
         if review.key.is_empty() {
@@ -1010,7 +997,8 @@ impl Store {
         review.number();
         let out = change(&mut review)?;
         self.save(&review)?;
-        Ok((review, out))
+        *generation += 1;
+        Ok((*generation, review, out))
     }
 
     /// The store in `home`, at `STATE_DIR`. Each folder on the way is made if
@@ -1025,14 +1013,12 @@ impl Store {
             dir = Some(next);
         }
         let dir = dir.expect("STATE_DIR names a folder");
-        let meta = dir.metadata().map_err(|e| e.to_string())?;
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+        if !private_directory(&dir) {
             return Err("The review list's folder must be private and belong to you.".into());
         }
         let store = Self {
             dir,
-            local: std::sync::Mutex::new(()),
+            local: std::sync::Mutex::new(0),
         };
         store.move_old(&home)?;
         Ok(store)
@@ -1069,6 +1055,12 @@ impl Store {
         if present(&self.dir, state) || !private_file(&old, state) {
             return Ok(());
         }
+        if !private_directory(&old) {
+            return Err("The review list's folder must be private and belong to you.".into());
+        }
+        let Some(_file) = Self::open_private_at(&old, state, STORE_BYTES as u64)? else {
+            return Ok(());
+        };
         // SAFETY: two open folders and a NUL-terminated name; the file itself
         // is moved, not anything it might point to.
         let moved = unsafe {
@@ -1091,29 +1083,12 @@ impl Store {
     /// The store's file `name`, opened without following a link, if it is a
     /// private regular file of this user's with no other name and no larger
     /// than `limit`. None if there is no file by that name.
-    fn open_private(&self, name: &CStr, limit: u64) -> Result<Option<File>, String> {
-        let fd = unsafe {
-            libc::openat(
-                self.dir.as_raw_fd(),
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            )
+    fn open_private_at(dir: &File, name: &CStr, limit: u64) -> Result<Option<File>, String> {
+        let Some(file) = open_file_at(dir, name).map_err(|_| "Could not read the review list.")?
+        else {
+            return Ok(None);
         };
-        if fd < 0 {
-            return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-                Ok(None)
-            } else {
-                Err("Could not read the review list.".into())
-            };
-        }
-        let file = unsafe { File::from_raw_fd(fd) };
-        let m = file.metadata().map_err(|e| e.to_string())?;
-        if !m.is_file()
-            || m.uid() != unsafe { libc::geteuid() }
-            || m.mode() & 0o077 != 0
-            || m.nlink() != 1
-            || m.len() > limit
-        {
+        if !private_regular_file(&file, limit).unwrap_or(false) {
             return Err(
                 "The review list file is not private, is the wrong kind of file, or is too large."
                     .into(),
@@ -1127,7 +1102,7 @@ impl Store {
     /// file, or holds anything but `true` or `false`, is no answer.
     fn update_answer(&self) -> Option<bool> {
         const LIMIT: u64 = 16;
-        let file = self.open_private(UPDATE_ANSWER, LIMIT).ok()??;
+        let file = Self::open_private_at(&self.dir, UPDATE_ANSWER, LIMIT).ok()??;
         let mut json = Vec::new();
         file.take(LIMIT + 1).read_to_end(&mut json).ok()?;
         serde_json::from_slice(&json).ok()
@@ -1144,9 +1119,11 @@ impl Store {
     }
 
     pub fn load(&self) -> Result<Review, String> {
-        let Some(file) = self.open_private(c"state.json", STORE_BYTES as u64)? else {
+        let Some(file) = Self::open_private_at(&self.dir, c"state.json", STORE_BYTES as u64)?
+        else {
             return Ok(Review {
                 registry_labels: 1,
+                aws_identity_version: 1,
                 update_check: self.update_answer(),
                 ..Review::default()
             });
@@ -1157,7 +1134,11 @@ impl Store {
             .map_err(|e| e.to_string())?;
         let mut review: Review = serde_json::from_str(&json)
             .map_err(|_| "The review list file is damaged or in an unknown format.")?;
-        if !review.ids_hold() || review.registry_labels > 1 || !review.selected_places_valid() {
+        if !review.ids_hold()
+            || review.registry_labels > 1
+            || review.aws_identity_version > 1
+            || !review.selected_places_valid()
+        {
             return Err("The review list file is damaged or in an unknown format.".into());
         }
         if (!review.key.is_empty() && review.key.len() != 32)
@@ -1176,6 +1157,7 @@ impl Store {
             return Err("The review list is too large for automatic scanning.".into());
         }
         review.upgrade_registry_labels();
+        review.upgrade_aws_identities();
         // Gone where an older build saved the state since it was answered.
         if review.update_check.is_none() {
             review.update_check = self.update_answer();
@@ -1207,39 +1189,26 @@ impl Store {
     fn replace(&self, dest: &CStr, name: &CStr, json: &[u8]) -> Result<(), String> {
         // Callers hold the store lock, which excludes another writer. Recover only our private
         // regular temporary file after an interrupted atomic replacement.
-        let stale = unsafe {
-            libc::openat(
-                self.dir.as_raw_fd(),
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            )
-        };
-        if stale >= 0 {
-            let file = unsafe { File::from_raw_fd(stale) };
-            let meta = file.metadata().map_err(|_| {
+        let stale = open_file_at(&self.dir, name).map_err(|_| {
+            "A save was interrupted, and Loose Keys could not check what it left behind."
+        })?;
+        if let Some(file) = stale {
+            if !private_regular_file(&file, u64::MAX).map_err(|_| {
                 "A save was interrupted, and Loose Keys could not check what it left behind."
-            })?;
-            if !meta.is_file()
-                || meta.uid() != unsafe { libc::geteuid() }
-                || meta.mode() & 0o077 != 0
-                || meta.nlink() != 1
-            {
+            })? {
                 return Err(
                     "A save was interrupted and left a file Loose Keys cannot trust.".into(),
                 );
             }
+            // SAFETY: live directory descriptor and NUL-terminated filename.
             if unsafe { libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0) } != 0 {
                 return Err(
                     "A save was interrupted, and Loose Keys could not recover the review list."
                         .into(),
                 );
             }
-        } else if std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound {
-            return Err(
-                "A save was interrupted, and Loose Keys could not check what it left behind."
-                    .into(),
-            );
         }
+        // SAFETY: live directory descriptor and NUL-terminated filename.
         let fd = unsafe {
             libc::openat(
                 self.dir.as_raw_fd(),
@@ -1251,7 +1220,15 @@ impl Store {
         if fd < 0 {
             return Err("Could not save the review list.".into());
         }
+        // SAFETY: openat returned a new owned descriptor.
         let mut file = unsafe { File::from_raw_fd(fd) };
+        if !private_regular_file(&file, u64::MAX).unwrap_or(false) {
+            fsutil::remove_own(&self.dir, name, &file);
+            return Err(
+                "The review list file is not private, is the wrong kind of file, or is too large."
+                    .into(),
+            );
+        }
         let written = file.write_all(json).and_then(|_| file.sync_all()).is_ok();
         // SAFETY: an open folder and two NUL-terminated names; the new file
         // itself is moved, not anything a name might point to.
@@ -1265,9 +1242,7 @@ impl Store {
                 )
             } == 0;
         if !renamed {
-            unsafe {
-                libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0);
-            }
+            fsutil::remove_own(&self.dir, name, &file);
             return Err("Could not save the review list.".into());
         }
         // The rename is the save: every reader has the new file from here
@@ -1281,6 +1256,8 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    mod access;
+
     use super::*;
     use crate::report::{Finding, NotChecked};
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -1328,17 +1305,17 @@ mod tests {
             })
             .collect();
         let mut snapshot = UnreadPlaces::default();
-        snapshot.record(&r);
+        snapshot.record(&r, false);
         assert_eq!(snapshot.places.len(), MAX_UNREAD);
         assert!(!snapshot.truncated);
         // Repeated slices must neither duplicate entries nor imply omissions.
-        snapshot.record(&r);
+        snapshot.record(&r, false);
         assert!(!snapshot.truncated);
         r.not_checked = vec![NotChecked {
             path: "~/one-more".into(),
             reason: "unreadable",
         }];
-        snapshot.record(&r);
+        snapshot.record(&r, false);
         assert_eq!(snapshot.places.len(), MAX_UNREAD);
         assert!(snapshot.truncated);
         assert!(snapshot.within_bounds());
@@ -1348,7 +1325,7 @@ mod tests {
             path: "x".repeat(UNREAD_BYTES),
             reason: "unreadable",
         }];
-        snapshot.record(&r);
+        snapshot.record(&r, false);
         assert!(snapshot.places.is_empty());
         assert!(snapshot.truncated);
         assert!(snapshot.within_bounds());
@@ -2597,6 +2574,46 @@ mod tests {
             assert!(!saved.contains("legacy-synthetic"));
         }
         drop(store);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn legacy_aws_profile_decisions_do_not_transfer_to_a_public_id() {
+        let home = synthetic_home("aws-identity-migration");
+        let store = Store::open(&home).unwrap();
+        let mut reports = report(&[("review", "~/.aws/credentials"), ("review", "~/notes")]);
+        let profile = &mut reports.findings[0];
+        profile.rule = "dev.aws.inline-credentials";
+        profile.secret = Some("keyed-public-id".into());
+        reports.findings[1].rule = "secret.service-token";
+        reports.findings[1].secret = Some("keyed-public-id".into());
+        let mut old = Review::default();
+        old.ingest(&reports);
+        old.decisions.push(Decision::about(
+            old.items[0].clone(),
+            Reason::Testing,
+            1,
+            "then".into(),
+        ));
+        old.decisions.push(Decision::about(
+            old.items[0].clone(),
+            Reason::Kept,
+            1,
+            "then".into(),
+        ));
+        assert!(old.decision(&old.items[1], 2).is_some());
+        old.aws_identity_version = 0;
+        store.save(&old).unwrap();
+
+        let (state, ()) = store.update(|_| Ok(())).unwrap();
+        assert!(state.decision(&state.items[1], 2).is_none());
+        assert_eq!(
+            state.decision(&state.items[0], 2).map(|d| d.reason),
+            Some(Reason::Kept)
+        );
+        let reopened = store.read().unwrap();
+        assert_eq!(reopened.aws_identity_version, 1);
+        assert_eq!(reopened.decisions.len(), 1);
         std::fs::remove_dir_all(home).unwrap();
     }
 

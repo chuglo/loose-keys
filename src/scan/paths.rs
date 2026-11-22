@@ -70,10 +70,26 @@ pub fn on_disk(path: &Path, home: &Path) -> Option<PathBuf> {
         }
     }
     let there: PathBuf = parts[..found].iter().collect();
-    // With no link in it, `realpath` changes only the spelling.
-    let mut spelled = std::fs::canonicalize(&there).unwrap_or(there);
+    // A link exchanged for a component after the checks above must not
+    // turn a saved spelling into a different folder to scan.
+    let mut spelled = super::spelling::full_path(&there).unwrap_or(there);
     spelled.extend(&parts[found..]);
     Some(home_spelling(spelled, home))
+}
+
+pub fn saved_path(path: &Path, home: &Path) -> PathBuf {
+    on_disk(path, home).unwrap_or_else(|| path.to_path_buf())
+}
+
+pub(super) fn saved_paths(paths: &[PathBuf], home: &Path) -> Vec<PathBuf> {
+    let mut unique = Vec::new();
+    for path in paths {
+        let spelled = saved_path(path, home);
+        if !unique.contains(&spelled) {
+            unique.push(spelled);
+        }
+    }
+    unique
 }
 
 /// `path` with its longest leading part that is the home folder or a folder

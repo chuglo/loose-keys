@@ -2,17 +2,23 @@
 //! The rules it applies are in `rules/`. This file has the limits, each kind
 //! of scan and what a scan records; the parts of the work are in `scan/`.
 
+mod aws;
 mod changes;
 mod discovery;
 mod known;
 mod paths;
+mod presence;
 mod read;
 mod recheck;
+mod spelling;
+mod sweep;
 mod traversal;
 
 pub use known::read_when_skipped;
-pub use paths::{change_at, home, is_root, named_folder, on_disk, selected_root, skipped_folder};
-pub use recheck::{recheck, recheck_identities, Want};
+pub use paths::{
+    change_at, home, is_root, named_folder, on_disk, saved_path, selected_root, skipped_folder,
+};
+pub use recheck::{recheck, recheck_identities, Rechecks, Want};
 
 use recheck::scope_digest;
 use traversal::Traversal;
@@ -258,6 +264,7 @@ pub struct Scan {
     digests: std::collections::HashMap<(&'static str, PathBuf), String>,
     started: Instant,
     home: PathBuf,
+    unopened: std::cell::OnceCell<presence::Unopened>,
     found: HashSet<Reported>,
     /// Whole-file checks already made, so a file reached twice is read once.
     whole_files_checked: HashSet<(&'static str, PathBuf)>,
@@ -303,6 +310,8 @@ pub struct Scan {
     /// Each path and reason in `not_checked`, so a place reached twice, as
     /// from two roots, is listed once for a reason.
     gaps_listed: HashSet<(String, Gap)>,
+    /// A full gap list omitted a reason the helper would retain.
+    unread_paths_omitted: bool,
 }
 
 /// Aggregate work only. No file names or secret values cross this boundary.
@@ -354,7 +363,7 @@ impl Scan {
         budget: usize,
     ) -> Scan {
         let mut s = Scan::new(home, observer, cancel, fingerprint, budget);
-        s.skip = skip.to_vec();
+        s.skip = paths::saved_paths(skip, home);
         if s.progress.is_some() {
             eprint!("Scanning... ");
         }
@@ -389,6 +398,7 @@ impl Scan {
             digests: Default::default(),
             started: Instant::now(),
             home: home.to_path_buf(),
+            unopened: std::cell::OnceCell::new(),
             found: HashSet::new(),
             whole_files_checked: HashSet::new(),
             traversal: Traversal::new(budget),
@@ -412,6 +422,7 @@ impl Scan {
             findings: Vec::new(),
             not_checked: Vec::new(),
             gaps_listed: HashSet::new(),
+            unread_paths_omitted: false,
         }
     }
 
@@ -437,104 +448,6 @@ impl Scan {
         self
     }
 
-    /// One bounded slice of a full check of the home folder, for the
-    /// background agent. `resume` is what an earlier slice returned as still
-    /// to do; None starts over, beginning with the known locations. Returns
-    /// what was found and what is left. The pass is over when nothing is.
-    pub fn sweep(
-        home: &Path,
-        skip: &[PathBuf],
-        resume: Option<Pending>,
-        limits: Limits,
-        cancel: Arc<AtomicBool>,
-        fingerprint: impl Fn(&str, &[u8], bool) -> String + Send + 'static,
-    ) -> (Report, Pending) {
-        let mut s = Scan::new(
-            home,
-            None,
-            Some(cancel),
-            Some(Box::new(fingerprint)),
-            limits.entries,
-        );
-        s.limit = limits.time;
-        s.skip = skip.to_vec();
-        let mut places = HashMap::new();
-        let mut left = Vec::new();
-        let mut folders = Vec::new();
-        for step in resume.unwrap_or_else(|| vec![Step::Known(0)]) {
-            match step {
-                // A folder the person has skipped since the step was left.
-                // Not the root of an agent's folder: that is a known
-                // location, which a scan reads whatever is skipped. (A
-                // change check does not: it passes by every skipped path.)
-                Step::Records {
-                    dir, depth: 1.., ..
-                }
-                | Step::Folder(dir, _)
-                | Step::Rest { dir, .. }
-                    if s.skipped(&dir) => {}
-                Step::Known(from) => {
-                    // A fixed list of small files, so it is given the time a
-                    // scan made by hand has. Stopped, it goes on in the next
-                    // slice from the file it had reached.
-                    s.limit = limits.time.max(Duration::from_secs(30));
-                    let reached = s.known_files(from, true);
-                    s.limit = limits.time;
-                    if let Some(done) = reached {
-                        left.push(Step::Known(done));
-                        continue;
-                    }
-                    for (rule, dir) in trees() {
-                        let root = s.targeted(&home.join(dir));
-                        // One that is not there is not left for later.
-                        if let Some(root) = root.filter(|root| s.there(root).is_some()) {
-                            left.extend(s.records(rule, root, 0, None));
-                        }
-                    }
-                    folders.push((home.to_path_buf(), 0));
-                }
-                Step::Records {
-                    rule,
-                    dir,
-                    depth,
-                    after,
-                } => {
-                    if let Some((rule, _)) = trees().find(|(r, _)| r.id == rule) {
-                        left.extend(s.records(rule, dir, depth, after));
-                    }
-                }
-                Step::Folder(dir, depth) => folders.push((dir, depth)),
-                Step::Rest { dir, depth, after } => {
-                    places.insert(dir.clone(), after);
-                    folders.push((dir, depth));
-                }
-            }
-        }
-        s.traversal.resume(places);
-        s.discover(home, folders);
-        let mut s = s.finish();
-        left.extend(s.traversal.pending_steps());
-        (s.into_report(&[home.to_path_buf()]), left)
-    }
-
-    /// `tree_from` for a sweep: what it did not finish, as steps.
-    fn records(
-        &mut self,
-        rule: &'static Rule,
-        dir: PathBuf,
-        depth: usize,
-        after: Option<PathBuf>,
-    ) -> Vec<Step> {
-        let left = self.tree_from(rule, dir, depth, after);
-        let step = |(dir, depth, after)| Step::Records {
-            rule: rule.id,
-            dir,
-            depth,
-            after,
-        };
-        left.into_iter().map(step).collect()
-    }
-
     /// Check only these files and folders, as when they have just changed.
     /// A changed folder is walked; a changed known location is checked by its
     /// own rules. Paths outside the home or in a skipped folder are ignored.
@@ -557,7 +470,7 @@ impl Scan {
             limits.entries,
         );
         s.limit = limits.time;
-        s.skip = skip.to_vec();
+        s.skip = paths::saved_paths(skip, home);
         let unreached = s.changes(paths);
         (s.finish().into_report(&[home.to_path_buf()]), unreached)
     }
@@ -598,8 +511,9 @@ impl Scan {
     ) -> Report {
         let mut roots = vec![home.to_path_buf()];
         for path in selected {
-            if !roots.contains(path) {
-                roots.push(path.clone());
+            let path = saved_path(path, home);
+            if !roots.contains(&path) {
+                roots.push(path);
             }
         }
         let s = Scan::run_budgeted(home, &roots, skip, observer, cancel, fingerprint, 100_000);
@@ -655,6 +569,7 @@ impl Scan {
             return;
         }
         if self.cancel.is_some() && self.not_checked.len() >= MAX_GAPS - 1 {
+            self.unread_paths_omitted |= reason != "scan-limit";
             // The last row a report keeps says that more was not checked
             // than the list names, even if the home is listed already: a
             // full list is one of `MAX_GAPS` rows.
@@ -799,16 +714,9 @@ impl Scan {
                 None => mode_note.to_string(),
             });
         }
-        // The value alone, under no rule's name, so the same credential has
-        // the same digest in every file and under every rule.
-        let value = hit
-            .span
-            .clone()
-            .and_then(|s| source.unwrap_or(bytes).get(s));
-        let secret = self
-            .fingerprint
-            .as_ref()
-            .and_then(|f| value.map(|v| f("", v, false)));
+        let secret = self.fingerprint.as_ref().and_then(|digest| {
+            aws::value_digest(rule, &hit, source.unwrap_or(bytes), digest.as_ref())
+        });
         let fingerprint = match (&secret, source) {
             // A streamed file has no bounded material; its secret stands in.
             (Some(secret), Some(_)) => Some(secret.clone()),
@@ -853,6 +761,11 @@ impl Scan {
 
     fn add(&mut self, rule: &Rule, p: &Path, hit: Hit, shared: bool, bytes: &[u8]) {
         self.add_from(rule, p, hit, shared, bytes, None);
+    }
+
+    fn unopened(&self) -> &presence::Unopened {
+        self.unopened
+            .get_or_init(|| presence::Unopened::at(&self.home, &|| self.stopped()))
     }
 
     fn skipped(&self, dir: &Path) -> bool {
