@@ -171,13 +171,13 @@ fn recheck_by(
         return None;
     }
     for rule in forms {
+        // A place a scan reports for presence alone stays unopened here too.
+        // What an earlier build read there is then not read again, and that
+        // is not its having gone: nothing is known.
         if !matches!(rule.matcher, Matcher::Present) && path.starts_with(home) {
             let protected = unopened().protected_spelling(path, home).is_some();
-            if stop() {
+            if stop() || protected {
                 return None;
-            }
-            if protected {
-                continue;
             }
         }
         match rule.matcher {

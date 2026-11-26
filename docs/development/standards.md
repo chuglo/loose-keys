@@ -406,7 +406,9 @@ The threats are a local user racing a root run with links, and hostile files
   listing limit keeps its named store unopened, but its link destinations
   are unknown. An explicitly selected folder, changed path or recheck can
   spell a recognised store differently on a case-insensitive volume. The
-  guard asks for the filesystem spelling without following links. Tests: `discovery_never_reads_presence_only_wallets_and_sessions`,
+  guard asks for the filesystem spelling without following links. An item
+  an earlier version listed in one of these places stays listed, unread.
+  Tests: `discovery_never_reads_presence_only_wallets_and_sessions`,
   `presence_only_symlink_destinations_stay_unopened`,
   `differently_cased_extension_ids_are_still_presence_only` and
   `cancelled_rechecks_do_not_start_a_file_read`.
@@ -1318,12 +1320,14 @@ exception, for device-management checks that ask for it. The usage text in
   `tests/detection-corpus.json`, or the coverage test fails. `Case` in
   `tests/support/detection.rs` documents the fields. Write the expected
   findings from the intended behaviour, never by copying a scan's output.
-- A recheck says an item is gone only when this build has its rule and, for a
-  rule found by a file being there, a target that names the item's place.
-  Otherwise `recheck_values` knows nothing (`None`), so an item saved by
-  another build, or under a target list that has changed since, is never
-  marked fixed with its file unread. Test:
-  `a_recheck_this_build_cannot_make_is_not_a_fix` in `src/scan/tests.rs`.
+- A recheck says an item is gone only when this build has its rule, the
+  item's place is not one it leaves unopened and, for a rule found by a file
+  being there, a target that names the item's place. Otherwise
+  `recheck_values` knows nothing (`None`), so an item saved by another build,
+  or under a target list that has changed since, is never marked fixed with
+  its file unread. Tests: `a_recheck_this_build_cannot_make_is_not_a_fix` in
+  `src/scan/tests.rs` and `an_item_in_a_folder_left_unopened_is_not_fixed` in
+  `gui/src/tests/observations.rs`.
 - A shipped rule id is stored in saved choices, organizations'
   `ExpectedFindings` lists and reports, and nothing migrates it. Renaming one
   drops the organization's entries for it without notice, asks again about

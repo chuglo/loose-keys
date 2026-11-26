@@ -106,10 +106,7 @@ pub const KUBE_CREDENTIALS: Rule = Rule {
 fn kube_hits(bytes: &[u8]) -> Hits {
     if json_object(bytes) {
         let config = serde_json::from_slice(bytes).map_err(|_| "unreadable")?;
-        let mut secrets = kube_json_secrets(&config);
-        // JSON may spell several credentials on one line, with escaping.
-        // Report the file once and fingerprint the decoded values.
-        return Ok(secrets.next().map(|_| Hit::file()).into_iter().collect());
+        return Ok(kube_json_hits(&config));
     }
     utf8_lines(bytes, |text| {
         text.lines()
@@ -127,6 +124,16 @@ fn kube_hits(bytes: &[u8]) -> Hits {
             })
             .collect()
     })
+}
+
+/// JSON may spell several credentials on one line, with escaping. Report
+/// the file once and fingerprint the decoded values.
+fn kube_json_hits(config: &serde_json::Value) -> Vec<Hit> {
+    kube_json_secrets(config)
+        .next()
+        .map(|_| Hit::file())
+        .into_iter()
+        .collect()
 }
 
 fn json_object(bytes: &[u8]) -> bool {
@@ -408,15 +415,30 @@ pub const KUBE_ANYWHERE: Rule = Rule {
     targets: &[Target::Discovery],
     matcher: Matcher::Whole {
         candidate: kubeconfig_head,
-        test: kube_hits,
+        test: kube_anywhere_hits,
     },
     samples: &[
         (b"apiVersion: v1\nclusters:\n- cluster:\n    server: https://k8s.example.invalid\n  name: fixture\nkind: Config\nusers:\n- name: fixture\n  user:\n    token: synthetic-only\n", true),
         (b"apiVersion: v1\nclusters:\n- cluster:\n    server: https://k8s.example.invalid\n  name: fixture\nkind: Config\nusers:\n- name: fixture\n  user:\n    exec:\n      command: aws\n", false),
         (b"apiVersion: apps/v1\nkind: Deployment\nspec:\n  template:\n    spec:\n      containers: []\n      token: synthetic-only\n", false),
+        // Kubernetes audit events, one JSON object per line.
+        (b"{\"kind\":\"Event\",\"apiVersion\":\"audit.k8s.io/v1\",\"verb\":\"get\"}\n{\"kind\":\"Event\",\"apiVersion\":\"audit.k8s.io/v1\",\"verb\":\"list\"}\n", false),
     ],
     ..KUBE_CREDENTIALS
 };
+
+/// Other Kubernetes JSON has the same head, such as an audit log with one
+/// event per line. Only one that parses can be a kubeconfig; anything else
+/// is no hit and no gap.
+fn kube_anywhere_hits(bytes: &[u8]) -> Hits {
+    if json_object(bytes) {
+        let Ok(config) = serde_json::from_slice(bytes) else {
+            return Ok(vec![]);
+        };
+        return Ok(kube_json_hits(&config));
+    }
+    kube_hits(bytes)
+}
 
 /// kubectl writes keys in alphabetical order, so a large certificate can
 /// push "server:" past the head; the certificate's own key stands in for it.

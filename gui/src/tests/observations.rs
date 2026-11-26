@@ -135,3 +135,47 @@ fn an_overlapping_scan_does_not_restore_a_pruned_finding() {
     notes.save_observed(&mut state, &older, started_at);
     assert!(state.items.is_empty());
 }
+
+/// A scan leaves a wallet's folder unopened, and so does a recheck. What an
+/// earlier build listed in it is then not read again, which says nothing
+/// about whether it is still there.
+#[test]
+fn an_item_in_a_folder_left_unopened_is_not_fixed() {
+    let phrase = concat!(
+        "velvet winner thank year wave sausage ",
+        "worth useful legal winner thank yellow\n"
+    );
+    let notes = Notes::new("unopened-wallet-phrase", phrase);
+    let mut older = notes.scan();
+    let wallet = "Library/Application Support/Exodus/exodus.wallet";
+    let finding = older
+        .findings
+        .iter_mut()
+        .find(|f| f.rule == "wallet.recovery-phrase")
+        .expect("the phrase is found where the scan reads it");
+    // Where an earlier build read and listed it.
+    finding.path = format!("~/{wallet}/notes.txt");
+    std::fs::create_dir_all(notes.0.join(wallet)).unwrap();
+    std::fs::rename(
+        notes.0.join("notes.txt"),
+        notes.0.join(wallet).join("notes.txt"),
+    )
+    .unwrap();
+    let mut state = review::Review::default();
+    notes.save(&mut state, &older);
+    let phrase = |state: &review::Review| {
+        state
+            .items
+            .iter()
+            .filter(|i| i.rule == "wallet.recovery-phrase")
+            .map(|i| !i.resolved)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(phrase(&state), [true]);
+    notes.save(&mut state, &notes.scan());
+    assert_eq!(
+        phrase(&state),
+        [true],
+        "the unchanged file was marked fixed"
+    );
+}

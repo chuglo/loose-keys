@@ -46,6 +46,32 @@ fn terraform_sensitive_collections_are_detected_and_fingerprinted() {
 }
 
 #[test]
+fn json_that_only_looks_like_a_kubeconfig_is_not_a_gap() {
+    let f = Fixture::new("kube-audit-log");
+    // Kubernetes audit events, one JSON object per line.
+    let event = r#"{"kind":"Event","apiVersion":"audit.k8s.io/v1","level":"Metadata","stage":"ResponseComplete","verb":"get"}"#;
+    put(
+        &f.0,
+        "Downloads/audit.log",
+        format!("{event}\n").repeat(3).as_bytes(),
+    );
+    // Where kubectl reads, a damaged file is still one that couldn't be read.
+    put(
+        &f.0,
+        ".kube/config",
+        br#"{"apiVersion":"v1","kind":"Config","#,
+    );
+    let s = Scan::run(&f.0, std::slice::from_ref(&f.0));
+    assert!(s.findings.is_empty());
+    let gaps: Vec<_> = s
+        .not_checked
+        .iter()
+        .map(|g| (g.path.as_str(), g.reason))
+        .collect();
+    assert_eq!(gaps, [("~/.kube/config", "unreadable")]);
+}
+
+#[test]
 fn discovery_never_reads_presence_only_wallets_and_sessions() {
     let f = Fixture::new("presence-only-discovery");
     let export = b"url,username,password\nhttps://example.invalid,fixture,synthetic-only\n";
@@ -89,7 +115,7 @@ fn discovery_never_reads_presence_only_wallets_and_sessions() {
             &f.0,
             None
         ),
-        Some(vec![])
+        None
     );
 }
 
@@ -170,10 +196,7 @@ fn presence_only_symlink_destinations_stay_unopened() {
     let cancel = Arc::new(AtomicBool::new(false));
     let report = Scan::changed(&f.0, &skipped, &paths, limits(1000), cancel, digest).0;
     assert!(report.findings.is_empty());
-    assert_eq!(
-        recheck("export.password-csv", &paths[1], &f.0, None),
-        Some(vec![])
-    );
+    assert_eq!(recheck("export.password-csv", &paths[1], &f.0, None), None);
     assert_eq!(
         recheck("wallet.extension.vault", &f.0.join("Sync/app"), &f.0, None),
         Some(vec![Some("MetaMask".to_string())])
@@ -236,7 +259,7 @@ fn differently_cased_extension_ids_are_still_presence_only() {
     assert_eq!(changed.findings[0].rule, "wallet.extension.vault");
     assert_eq!(
         recheck("export.password-csv", &mixed.join("export.csv"), &f.0, None),
-        Some(vec![])
+        None
     );
 }
 
